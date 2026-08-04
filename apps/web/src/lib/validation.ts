@@ -40,8 +40,15 @@ export function validate<Schema extends z.ZodType>(
 /**
  * Pulls field errors out of a 422 `ApiError` (`details` carries the server-side Zod
  * issues). Falls back to `{ _form: message }` so nothing is ever swallowed.
+ *
+ * NOTHING is the one input that must produce no error at all. A TanStack mutation
+ * reports `error: null` while it is idle, so a form rendering
+ * `apiFieldErrors(mutation.error)` on every pass would otherwise greet the user with
+ * "Etwas ist schiefgelaufen / Unbekannter Fehler." on a blank form they have not
+ * submitted yet — which is exactly what /recipes/new and /recipes/:id/edit did.
  */
 export function apiFieldErrors(error: unknown): FieldErrors {
+  if (error === null || error === undefined) return {};
   if (!isApiError(error)) {
     return { _form: error instanceof Error ? error.message : "Unbekannter Fehler." };
   }

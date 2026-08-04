@@ -140,8 +140,11 @@
   }
   /*
    * Pins a `sticky`/`fixed` element ABOVE the tab bar instead of behind it.
-   * `bottom-0` is wrong for anything sticky on a phone: the tab bar is `fixed`, so it
-   * covers the last ~3.75rem of the viewport. Used by the shopping list's add box.
+   * `bottom-0` is wrong for anything sticky or fixed on a phone: the tab bar is
+   * `fixed` at bottom-0 and paints after <main>, so it covers the last ~3.75rem of
+   * the viewport. EVERY bottom action bar must use this — the shopping list's add
+   * box, the recipe form's save bar and the import review's Speichern/Verwerfen bar
+   * (that last one was invisible on phones until it did).
    */
   .bottom-tabbar {
     bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));

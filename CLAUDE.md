@@ -271,6 +271,20 @@ add to that panel instead.
   `RequireAuth` renders a restored session even when the refetch failed. `/api/auth/*` and the import
   endpoints must stay out of `runtimeCaching`. `PERSIST_BUSTER` is `v2` since the blob also carries
   paused mutations.
+- **A bottom action bar needs `bottom-tabbar`, never `bottom-0`.** `BottomTabBar` is `fixed
+  inset-x-0 bottom-0 z-30` and `AppShell` renders it AFTER `<main>`, so a `bottom-0` bar in a page is
+  painted underneath it and simply cannot be tapped on a phone. That is what hid Speichern/Verwerfen
+  on the import review screen — the whole reason a URL import could not be committed from a phone —
+  and it kept `RecipeForm`'s save bar under the tabs for the whole scroll. The `.bottom-tabbar`
+  utility (`styles/index.css`, resets to `bottom: 0` from `lg`) is the fix; prefer `sticky` over
+  `fixed` so the bar stays in flow and `pb-tabbar` on the page is all the clearance needed. Grep
+  `bottom-0` before adding a new bar.
+- **An idle TanStack mutation reports `error: null`, not `undefined`.** So
+  `apiFieldErrors(mutation.error)` on every render pass — which is what `RecipeForm` does with the
+  `error` prop `RecipeNewPage`/`RecipeEditPage` hand it — used to greet the user with a red
+  "Etwas ist schiefgelaufen / Unbekannter Fehler." above a form they had not submitted. Fixed at the
+  source: `apiFieldErrors` returns `{}` for nullish, and `RecipeForm` tests `error == null`. `unknown`
+  accepts `null`, so `tsc` will never catch a repeat — keep `lib/validation.test.ts`.
 - **`build.sourcemap` is off** so the client TypeScript is not published with the bundle.
 - **`mock.module` LEAKS ACROSS TEST FILES and bun never restores it, and the file execution order is
   FILESYSTEM order, not alphabetical.** Both halves matter: `bun test` runs every file in one process,
@@ -330,7 +344,7 @@ All four must be clean before calling anything done:
 ```bash
 bun install
 bun run typecheck    # tsc for packages/shared, apps/api, apps/web
-bun test             # 834 tests
+bun test             # 840 tests
 bun run build        # vite build + PWA
 ```
 

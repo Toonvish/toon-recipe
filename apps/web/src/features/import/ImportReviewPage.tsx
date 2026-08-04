@@ -353,9 +353,17 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
         <p className="text-xs text-fg-muted">{validation.warnings.join(" ")}</p>
       ) : null}
 
-      {/* ------------------------------ footer ----------------------------- */}
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 p-3 backdrop-blur supports-[backdrop-filter]:bg-surface/80 lg:static lg:border-0 lg:bg-transparent lg:p-0">
-        <div className="mx-auto flex max-w-5xl items-center gap-2">
+      {/*
+        ------------------------------ footer -----------------------------
+        `sticky bottom-tabbar`, NOT `fixed bottom-0`: the phone tab bar is fixed at
+        `bottom-0` with the same z-index and paints after this (AppShell renders it
+        below <main>), so `bottom-0` put "Speichern" and "Verwerfen" completely
+        underneath it — the import could not be committed on a phone at all. Sticky
+        also keeps the bar in flow, so `pb-tabbar` on PageShell is all the clearance
+        the content needs. Same pattern as the shopping list's AddItemBar.
+      */}
+      <div className="sticky bottom-tabbar z-20 -mx-4 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-surface/80 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0">
+        <div className="mx-auto flex max-w-5xl items-center gap-2 px-safe">
           <Button
             type="button"
             variant="ghost"
@@ -414,7 +422,7 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
 
 function PageShell({ children, onBack }: { children: ReactNode; onBack: () => void }) {
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4 px-4 pb-28 pt-4 lg:pb-8">
+    <div className="mx-auto w-full max-w-5xl space-y-4 px-4 pt-4 pb-tabbar">
       <button
         type="button"
         onClick={onBack}

@@ -94,10 +94,10 @@ export function RecipeForm({
   // Guards BOTH in-app navigation and the browser's unload prompt.
   const guard = useNavigationGuard(dirty && !pending);
 
-  const serverErrors = useMemo(
-    () => (error === undefined ? {} : apiFieldErrors(error)),
-    [error],
-  );
+  // `== null` on purpose: an idle TanStack mutation hands us `null`, not `undefined`
+  // (see apiFieldErrors), and treating that as an error rendered a red panel above a
+  // form nobody had submitted.
+  const serverErrors = useMemo(() => (error == null ? {} : apiFieldErrors(error)), [error]);
   const { canMutate, reason: offlineReason } = useCanMutate();
   const allErrors: FieldErrors = { ...serverErrors, ...errors };
 
@@ -348,8 +348,13 @@ export function RecipeForm({
         </div>
       </Card>
 
-      {/* Sticky action bar so "Speichern" is always reachable with the thumb. */}
-      <div className="sticky bottom-0 z-10 -mx-4 flex flex-col gap-2 border-t border-line bg-bg/95 px-4 py-3 backdrop-blur-sm lg:mx-0 lg:rounded-card lg:border">
+      {/*
+        Sticky action bar so "Speichern" is always reachable with the thumb.
+        `bottom-tabbar`, not `bottom-0`: the phone tab bar is fixed at `bottom-0` with a
+        HIGHER z-index, so `bottom-0` parked this bar underneath it for the whole scroll
+        and only let it emerge at the very end of the form.
+      */}
+      <div className="sticky bottom-tabbar z-10 -mx-4 flex flex-col gap-2 border-t border-line bg-bg/95 px-4 py-3 backdrop-blur-sm lg:mx-0 lg:rounded-card lg:border">
         {/* Offline support is read-only (no mutation outbox, no conflict story for
             two members editing one recipe), so say so instead of letting the save
             fail after the user typed a whole recipe. */}
