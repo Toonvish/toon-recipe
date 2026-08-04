@@ -16,10 +16,12 @@ import { UpdateBanner } from "./UpdateBanner";
  * must not re-apply any of them (a doubled `pb-tabbar` leaves a screenful of dead space
  * under the content and strands a sticky bottom bar above the tab bar).
  *
- * It is also a FLEX ITEM that grows, which is what gives it a definite height: a page
- * root can then say `min-h-full` and actually fill the screen, which is how the shopping
- * list pushes its add bar to the bottom on a short list. Against an auto-height parent
- * `min-height: 100%` resolves to nothing.
+ * It is also a growing FLEX ITEM *and* a flex column itself, so a page root can say
+ * `flex-1` and fill the screen — which is how the shopping list pushes its add bar down
+ * to the tab bar on a short list. It has to be the flex chain: `min-h-full` on the page
+ * root looks equivalent and measurably is not, because a percentage min-height needs a
+ * definite parent height and a flex-grown item does not count as one (Chromium leaves
+ * the root at its content height, 493px of 695 — the bar then floats mid-screen).
  */
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -35,7 +37,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           generates, so `.px-gutter` would win over `lg:px-8` (a media query adds no
           specificity) and desktop would quietly keep the phone gutter.
         */}
-        <main className="mx-auto w-full max-w-5xl flex-1 px-gutter pt-4 pb-tabbar lg:pt-8 lg:[--gutter:2rem]">
+        <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-gutter pt-4 pb-tabbar lg:pt-8 lg:[--gutter:2rem]">
           <InstallPrompt />
           {children}
         </main>

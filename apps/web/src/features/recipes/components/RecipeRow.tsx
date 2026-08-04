@@ -10,12 +10,12 @@
  * that make the card tall, and neither helps to pick a recipe out of a list of
  * titles. Matches the row on the collection detail screen (same thumbnail size).
  */
-import { ChevronRight, Clock, Star, UtensilsCrossed, Users } from "lucide-react";
+import { ChevronRight, Clock, Star, UtensilsCrossed } from "lucide-react";
 import type { RecipeListItem } from "@toon/shared";
 import { cn } from "@/lib/cn";
 import { thumbnailUrl } from "@/lib/api";
 import { AppLink } from "../lib/nav";
-import { optionalMinutes, optionalServings } from "../lib/format";
+import { optionalMinutes } from "../lib/format";
 
 export interface RecipeRowProps {
   recipe: RecipeListItem;
@@ -25,7 +25,6 @@ export interface RecipeRowProps {
 export function RecipeRow({ recipe, className }: RecipeRowProps) {
   const image = thumbnailUrl(recipe);
   const time = optionalMinutes(recipe.totalMinutes ?? recipe.cookMinutes ?? recipe.prepMinutes);
-  const servings = optionalServings(recipe.servingsAmount, recipe.servingsUnit);
   const rating = typeof recipe.rating === "number" && recipe.rating > 0 ? recipe.rating : null;
 
   return (
@@ -56,22 +55,22 @@ export function RecipeRow({ recipe, className }: RecipeRowProps) {
 
       <div className="min-w-0 flex-1">
         <h3 className="line-clamp-2 font-medium leading-snug">{recipe.title}</h3>
-        {time || servings || rating !== null ? (
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-3 text-sm text-fg-muted">
+        {/*
+          ONE line, never wrapping: measured on a 390px phone, time + Portionen + rating
+          needed a second line and the row grew from 76px to 104px, which is most of what
+          the compact layout won back. Portionen is the one that goes — the detail screen
+          has it, and it is the least useful thing to scan a list by.
+        */}
+        {time || rating !== null ? (
+          <p className="mt-0.5 flex items-center gap-x-3 overflow-hidden text-sm text-fg-muted">
             {time ? (
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex shrink-0 items-center gap-1">
                 <Clock aria-hidden="true" className="size-3.5" />
                 {time}
               </span>
             ) : null}
-            {servings ? (
-              <span className="inline-flex items-center gap-1">
-                <Users aria-hidden="true" className="size-3.5" />
-                {servings}
-              </span>
-            ) : null}
             {rating !== null ? (
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex shrink-0 items-center gap-1">
                 <Star aria-hidden="true" className="size-3.5 fill-current text-warning" />
                 <span className="tabular-nums">{rating}</span>
                 <span className="sr-only">von 5 Sternen</span>

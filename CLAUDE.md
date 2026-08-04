@@ -318,12 +318,23 @@ add to that panel instead.
   Ten of them had drifted back to `pb-tabbar` anyway: on the shopping list that stranded the sticky
   add bar a whole tab-bar height above the tab bar. Grep before adding one.
 - **A `sticky bottom-*` bar can only be pushed UP, never DOWN**, so on a SHORT page it floats
-  wherever the content happens to end — which on the shopping list (empty = the common case) put the
-  add box in the middle of the screen. It needs real height above it: `<main>` is a `flex-1` item of
-  a `min-h-dvh` column so it has a definite height, the page root is `min-h-full` and a `flex-1`
-  spacer sits above the bar. `min-h-full` against an auto-height parent resolves to NOTHING, which
-  is why it silently did nothing before. The bar also carries `-mb-4` to swallow the 1rem of
-  breathing room inside `pb-tabbar`, or a strip of page background shows between it and the tab bar.
+  wherever the content happens to end — which on the shopping list (empty = the common case) left the
+  add box mid-screen, ~200px above the tab bar. It needs real height above it, and that has to be an
+  unbroken FLEX CHAIN: the shell column is `min-h-dvh`, `<main>` is `flex-1` **and** `flex flex-col`,
+  the page root is `flex-1`, and a `flex-1` spacer sits above the bar. `min-h-full` on the page root
+  reads as equivalent and measurably is not — a percentage min-height needs a definite parent height
+  and a flex-GROWN item is not one, so Chromium left the root at its content height (493px inside a
+  695px main) and the bar stayed where it was. The bar also carries `-mb-4` to swallow the 1rem of
+  breathing room inside `pb-tabbar`, or a strip of page background shows under it.
+- **Verify a phone layout in a real headless browser, not by reading Tailwind classes.** Both of the
+  above measured wrong on the first attempt and only the screenshots showed it. There is no browser
+  tooling in this repo on purpose (playwright would drag in a ~115 MB Chromium), but installing it in
+  a scratch dir outside the repo and driving the dev servers takes two minutes: log in with a `fetch`
+  to `/api/auth/login` from the page context (same-site cookie, so `credentials: "include"` is
+  enough), then assert `documentElement.scrollWidth === clientWidth` (horizontal overflow),
+  `getComputedStyle(main).padding*`, and the gap between a bottom bar and `nav.fixed`. Do NOT match
+  the tab bar by its aria-label — `SideNav` carries the same one and, being `display:none` on a
+  phone, reports an all-zero rect that reads as a plausible-looking wrong number.
 - **A LIST never renders `imageUrl`; it renders the generated `thumbnailUrl`.** A recipe hero image is
   a phone photo or a downloaded original, routinely 2–5 MB, and a list asks for 24 of them — one screen
   was tens of megabytes. `services/media/thumbnails.ts` derives `<name>.thumb.webp` (480 px WebP,

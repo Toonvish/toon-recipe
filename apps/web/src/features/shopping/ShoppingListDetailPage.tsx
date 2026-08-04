@@ -90,7 +90,7 @@ export default function ShoppingListDetailPage() {
   if (!detail) return null;
 
   return (
-    <div className="flex min-h-full flex-col">
+    <div className="flex flex-1 flex-col">
       <header className="mb-4 flex flex-col gap-2">
         <AppLink
           to="/shopping"
