@@ -8,6 +8,7 @@ export { default as RecipeNewPage } from "./RecipeNewPage";
 export { default as RecipeEditPage } from "./RecipeEditPage";
 
 export { RecipeCard, type RecipeCardProps } from "./components/RecipeCard";
+export { RecipeRow, type RecipeRowProps } from "./components/RecipeRow";
 export { RecipeFilters, countActiveFilters } from "./components/RecipeFilters";
 export { RecipeForm, type RecipeFormProps, type RecipeFormSubmit } from "./components/RecipeForm";
 export { IngredientList } from "./components/IngredientList";

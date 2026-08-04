@@ -18,6 +18,7 @@ import type {
 } from "../../db/schema.ts";
 import { toIso } from "../../lib/http.ts";
 import { signUploadUrl } from "../../lib/uploadUrls.ts";
+import { thumbnailUrlFor } from "../media/thumbnails.ts";
 
 /** The difficulty column is free text in SQLite; unknown values become null. */
 export function toDifficulty(value: string | null): Difficulty | null {
@@ -34,6 +35,10 @@ export function toRecipe(row: RecipeRow): Recipe {
     // carries a short-lived signature, because that URL is the only credential a
     // cross-origin <img> can present. See lib/uploadUrls.ts.
     imageUrl: signUploadUrl(row.imageUrl),
+    // Derived, not stored: `/uploads/<x>.thumb.webp` is built on first request (see
+    // services/media/thumbnails.ts), so this URL is valid for a row whose image
+    // predates thumbnails as well.
+    thumbnailUrl: signUploadUrl(thumbnailUrlFor(row.imageUrl)),
     sourceUrl: row.sourceUrl,
     sourceName: row.sourceName,
     servingsAmount: row.servingsAmount,

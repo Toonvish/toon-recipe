@@ -25,6 +25,7 @@ import { groupRoutes } from "./routes/groups.ts";
 import { importRoutes } from "./routes/imports.ts";
 import { recipeRoutes } from "./routes/recipes.ts";
 import { shoppingRoutes } from "./routes/shopping.ts";
+import { resolveThumbnail } from "./services/media/thumbnails.ts";
 import { shutdownOcr } from "./services/ocr/index.ts";
 
 export const app = new Hono<AppEnv>();
@@ -70,6 +71,9 @@ app.get("/api/health", (c) =>
  * `GET /api/groups/:groupId/imports/:draftId/source`.
  *
  * Path traversal is blocked by normalising and re-checking the prefix.
+ *
+ * `<name>.thumb.webp` is the list thumbnail of `<name>` and is generated here on
+ * first request (services/media/thumbnails.ts).
  */
 app.get("/uploads/:filename", async (c) => {
   const requested = normalize(c.req.param("filename"));
@@ -83,15 +87,34 @@ app.get("/uploads/:filename", async (c) => {
   if (verdict !== "ok") return c.notFound();
 
   const absolute = join(env.uploadDir, requested);
-  if (!absolute.startsWith(env.uploadDir) || !existsSync(absolute)) return c.notFound();
-  const file = Bun.file(absolute);
+  if (!absolute.startsWith(env.uploadDir)) return c.notFound();
+
+  // A `<name>.thumb.webp` is DERIVED: the URL is minted from the row, which knows
+  // nothing about the disk, so the first request for one builds it. If it cannot be
+  // built the original is served instead — a 404 here would be a broken <img> on a
+  // recipe that is perfectly fine. See services/media/thumbnails.ts.
+  let path = absolute;
+  let derivedFallback = false;
+  if (!existsSync(absolute)) {
+    const resolved = await resolveThumbnail(requested);
+    if (resolved === undefined) return c.notFound();
+    path = resolved.path;
+    derivedFallback = resolved.fallback;
+  }
+
+  const file = Bun.file(path);
   return new Response(file, {
     headers: {
       "Content-Type": file.type || "application/octet-stream",
       // `private` because the URL is now a capability, not a public address: a
       // shared proxy must not hand one client's signed response to another. The
       // max-age stays inside the signature's own lifetime.
-      "Cache-Control": "private, max-age=21600, immutable",
+      //
+      // The fallback is deliberately NOT immutable: it is the wrong (full-size)
+      // answer, so it must expire quickly enough to heal once sharp can convert.
+      "Cache-Control": derivedFallback
+        ? "private, max-age=300"
+        : "private, max-age=21600, immutable",
     },
   });
 });

@@ -1,8 +1,11 @@
-/** Recipe card for the responsive grid on the list screen. */
+/**
+ * Recipe card for the responsive grid on the list screen, from Tailwind's `sm` up.
+ * Below that the list renders `RecipeRow` instead — see the note in that file.
+ */
 import { Clock, Star, UtensilsCrossed, Users } from "lucide-react";
 import type { RecipeListItem } from "@toon/shared";
 import { cn } from "@/lib/cn";
-import { mediaUrl } from "@/lib/api";
+import { thumbnailUrl } from "@/lib/api";
 import { TagChip } from "@/features/tags/components/TagChip";
 import { AppLink } from "../lib/nav";
 import { optionalMinutes, optionalServings } from "../lib/format";
@@ -15,7 +18,9 @@ export interface RecipeCardProps {
 const MAX_TAGS = 3;
 
 export function RecipeCard({ recipe, className }: RecipeCardProps) {
-  const image = mediaUrl(recipe.imageUrl);
+  // The 480px derivative, not the original: a grid of full-size phone photos is
+  // megabytes per screen. The card is ~360px at its widest breakpoint.
+  const image = thumbnailUrl(recipe);
   const time = optionalMinutes(recipe.totalMinutes ?? recipe.cookMinutes ?? recipe.prepMinutes);
   const servings = optionalServings(recipe.servingsAmount, recipe.servingsUnit);
   const visibleTags = recipe.tags.slice(0, MAX_TAGS);

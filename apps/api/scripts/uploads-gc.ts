@@ -19,6 +19,9 @@
  *                                image the URL importer downloaded into
  *                                `parsed.imageUrl`
  *
+ * Generated list thumbnails (`<name>.thumb.webp`) are referenced by nothing — they
+ * inherit the fate of the original they were built from, see the sweep below.
+ *
  * A stored value may be bare (`/uploads/x.jpg`), absolute (`https://…/uploads/x.jpg`)
  * or — from an older client that persisted what it was served — signed. All three
  * reduce to the same filename via normalizeStoredUploadUrl().
@@ -39,6 +42,7 @@ import {
 } from "../src/db/schema.ts";
 import { env } from "../src/env.ts";
 import { normalizeStoredUploadUrl } from "../src/lib/uploadUrls.ts";
+import { originalOfThumbnail } from "../src/services/media/thumbnails.ts";
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
@@ -97,6 +101,11 @@ let keptYoung = 0;
 
 for (const entry of entries) {
   if (referenced.has(entry)) continue;
+  // `<name>.thumb.webp` is a GENERATED derivative, so no row ever points at it. It
+  // lives and dies with its original — treat it as referenced while that one is, and
+  // let it be swept in the same pass once the original goes.
+  const derivedFrom = originalOfThumbnail(entry);
+  if (derivedFrom !== undefined && referenced.has(derivedFrom)) continue;
   const absolute = join(env.uploadDir, entry);
   let info: Awaited<ReturnType<typeof stat>>;
   try {

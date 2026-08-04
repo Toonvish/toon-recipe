@@ -31,7 +31,8 @@ Base URL: `PUBLIC_API_URL` (default `http://localhost:3001`). Everything below `
 - **Uploads**: max 15 MB (`MAX_UPLOAD_BYTES`), real content type sniffed server-side, stored as
   `data/uploads/<uuid>.<ext>`. `GET /uploads/:filename` requires a **signature**
   (`?exp=<unix ms>&sig=<hmac>`, see "Uploads and signed URLs" below); import source scans are not
-  served there at all.
+  served there at all. Every recipe carries a read-only `thumbnailUrl` — a generated 480 px WebP
+  derivative for list screens, see the same section.
 - **Status codes**: `200` read/update, `201` create, `204` delete/no-body, `400` bad request,
   `401` unauthorized, `403` forbidden, `404` not found, `409` conflict, `413` too large,
   `415` unsupported media type, `422` validation/parse failure, `500` internal.
@@ -42,6 +43,7 @@ Base URL: `PUBLIC_API_URL` (default `http://localhost:3001`). Everything below `
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/health` | public | – | `HealthResponse` | 200 |
 | GET | `/uploads/:filename` | signature | `?exp` + `?sig` | binary | 200, 404 (missing/forged/expired signature, or no such file) |
+| GET | `/uploads/:filename.thumb.webp` | signature | `?exp` + `?sig` | binary | 200 (built on demand; the original when it cannot be converted), 404 |
 
 ## Auth — `apps/api/src/routes/auth.ts`
 
@@ -307,12 +309,23 @@ keyed with `SESSION_SECRET`, truncated to 128 bits. Missing, forged and expired 
 - External URLs (`https://chefkoch.de/…`), `data:` URIs and anything with a path segment are passed
   through untouched and never signed.
 
+**List thumbnails** are derived, never uploaded and never stored in a column.
+`<name>.thumb.webp` is the 480 px WebP derivative of `<name>` — one flat filename under
+`UPLOAD_DIR`, so it is signed, verified and swept exactly like any other upload. The API mints
+`recipe.thumbnailUrl` from `recipes.image_url` (null for an external hero image), and
+`GET /uploads/<name>.thumb.webp` BUILDS the file on the first request and caches it on disk; a
+recipe whose image predates the feature therefore needs no backfill. A conversion that fails — sharp
+missing, or HEIC on a libvips without the HEIF plugin — serves the ORIGINAL with a short `max-age`
+instead of a 404, so the worst case is a big image, never a broken one. Clients must use it for
+lists and `imageUrl` for detail screens. Implementation: `apps/api/src/services/media/thumbnails.ts`.
+
 **Import source scans** (the uploaded photo/PDF behind a draft) are the private half: no signature is
 ever minted for `sourceMeta.storedPath`, so `/uploads/…` cannot serve one at all. They are available
 only from `GET /api/groups/:groupId/imports/:draftId/source`, behind the membership check.
 
 Orphaned files (a deleted recipe's image, an abandoned draft) are swept by
-`bun run uploads:gc [--dry-run] [--min-age-hours=N]`.
+`bun run uploads:gc [--dry-run] [--min-age-hours=N]`. A `.thumb.webp` is referenced by no row, so the
+sweeper keeps it while its original is referenced and deletes it in the same pass once that is gone.
 
 ## Tables (SQLite, `apps/api/src/db/schema.ts`)
 

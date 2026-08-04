@@ -7,6 +7,7 @@
  * controlled just like the page URL), plus a 4 MB / 8 s budget and magic-byte
  * validation so we never store an HTML error page as "the photo".
  */
+import { warmThumbnail } from "../../media/thumbnails.ts";
 import { type SniffedMime, sniffMimeType, storeUpload } from "../files.ts";
 import { IMPORT_USER_AGENT } from "./fetch.ts";
 import { SsrfError, assertPublicUrl, type AssertPublicUrlOptions } from "./ssrf.ts";
@@ -91,6 +92,9 @@ export async function downloadHeroImage(
     if (mimeType === undefined || !STORABLE_IMAGE_TYPES.includes(mimeType)) return undefined;
 
     const stored = await storeUpload(bytes, mimeType);
+    // The hero image goes straight onto a list screen once the draft is committed,
+    // so build its thumbnail now rather than on that first render.
+    warmThumbnail(stored.filename);
     return { filename: stored.filename, url: stored.url, mimeType: stored.mimeType, size: stored.size };
   } catch {
     return undefined;
@@ -110,6 +114,7 @@ async function storeDataUrl(dataUrl: string): Promise<DownloadedImage | undefine
     const mimeType = sniffMimeType(bytes);
     if (mimeType === undefined || !STORABLE_IMAGE_TYPES.includes(mimeType)) return undefined;
     const stored = await storeUpload(bytes, mimeType);
+    warmThumbnail(stored.filename);
     return { filename: stored.filename, url: stored.url, mimeType: stored.mimeType, size: stored.size };
   } catch {
     return undefined;

@@ -28,7 +28,7 @@ export { IconButton, type IconButtonProps, type IconButtonSize, type IconButtonV
 export { Input, PasswordInput, controlClasses, type InputProps, type PasswordInputProps } from "./Input";
 export { Label, type LabelProps } from "./Label";
 export { Select, type SelectOption, type SelectProps } from "./Select";
-export { Skeleton, SkeletonCardGrid, type SkeletonProps } from "./Skeleton";
+export { Skeleton, SkeletonList, type SkeletonProps } from "./Skeleton";
 export { FullPageLoader, LoadingBlock, Spinner, type SpinnerProps } from "./Spinner";
 export { Switch, type SwitchProps } from "./Switch";
 export { Tabs, type TabItem, type TabsProps } from "./Tabs";

@@ -78,6 +78,12 @@ export const RecipeSchema = z.object({
   title: z.string(),
   description: z.string().nullish(),
   imageUrl: z.string().nullish(),
+  /**
+   * Downscaled derivative of `imageUrl` for list screens — read-only, minted by the
+   * API (never sent back on a write) and null when the image is not one of our own
+   * uploads. Falls back to `imageUrl` in the UI.
+   */
+  thumbnailUrl: z.string().nullish(),
   sourceUrl: z.string().nullish(),
   sourceName: z.string().nullish(),
   servingsAmount: z.number().positive().nullish(),

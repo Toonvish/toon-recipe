@@ -34,6 +34,7 @@ import {
 import { ApiError } from "../../lib/errors.ts";
 import { toIso } from "../../lib/http.ts";
 import { normalizeStoredUploadUrl, signUploadUrl } from "../../lib/uploadUrls.ts";
+import { thumbnailUrlFor } from "../media/thumbnails.ts";
 import { dedupeTags } from "./parsed.ts";
 
 export interface CommitDraftInput {
@@ -269,6 +270,7 @@ async function loadRecipeDetail(db: Database, input: LoadRecipeDetailInput): Pro
     description: parsed.description ?? null,
     // Same wire shape as toRecipe(): what was stored is bare, what is sent is signed.
     imageUrl: signUploadUrl(normalizeStoredUploadUrl(parsed.imageUrl)) ?? null,
+    thumbnailUrl: signUploadUrl(thumbnailUrlFor(parsed.imageUrl)),
     sourceUrl: parsed.sourceUrl ?? null,
     sourceName: parsed.sourceName ?? null,
     servingsAmount: parsed.servings?.amount ?? null,

@@ -93,13 +93,16 @@ apps/api/src/
   middleware/staticWeb.ts  serves apps/web/dist when WEB_DIST_DIR is set (the Docker
                            single-origin setup); mounted LAST, owns the SPA fallback
   routes/{auth,groups,recipes,imports,shopping}.ts
-  services/auth|groups|recipes|import|ocr|mail|shopping/
+  services/auth|groups|recipes|import|media|ocr|mail|shopping/
                            mail/: console.ts · smtp.ts (self-hosted default) · resend.ts
+                           media/: thumbnails.ts (generated `<name>.thumb.webp` list images)
   scripts/{migrate,seed,ocr-prefetch,reset-password,uploads-gc}.ts
   test/                    ALL api tests (test/, NOT tests/ — tsconfig only includes test/**)
+                           test/support/ shared test helpers (removeUpload — see the note below)
 apps/web/src/
   router.tsx               the route tree; screens resolved lazily by lib/lazy-page.tsx
-  lib/{api,queries,query-client,session,validation,format,navigation,theme,storage,pwa,persist,cn}.ts
+  lib/{api,queries,query-client,session,validation,format,navigation,theme,storage,pwa,persist,
+       viewport,cn}.ts
   components/ui/           the ONLY UI primitives — never re-implement one
   components/layout/       AppShell, TopBar, BottomTabBar, SideNav, InstallPrompt, ErrorBoundary
   features/{auth,recipes,groups,collections,tags,import,shopping}/
@@ -138,7 +141,8 @@ add to that panel instead.
   (`toIso()`).
 - **Lists** `{ items, total, limit, offset }`, limit default 24 / max 100.
 - **Uploads** max 15 MB, content type sniffed from magic bytes, stored as
-  `data/uploads/<uuid>.<ext>`, client filename never trusted.
+  `data/uploads/<uuid>.<ext>`, client filename never trusted. List screens render the generated
+  `thumbnailUrl`, never `imageUrl` — see the thumbnail gotcha.
 - **PATCH semantics**: child arrays (`ingredients`, `steps`, `tags`, `collectionIds`) are
   replace-all when present, untouched when absent. Positions are re-assigned from array order.
 - **Web**: no `fetch` outside `lib/api.ts` (the one exception is
@@ -301,6 +305,26 @@ add to that panel instead.
 - **A page component must NOT re-apply `mx-auto max-w-5xl px-4 pt-4 pb-tabbar`** — `AppShell`'s
   `<main>` already does all four. `ImportReviewPage`'s `PageShell` did, which cost a phone 32px of
   the 390 it has and doubled the bottom padding. Page roots here are plain `flex flex-col gap-4`.
+- **A LIST never renders `imageUrl`; it renders the generated `thumbnailUrl`.** A recipe hero image is
+  a phone photo or a downloaded original, routinely 2–5 MB, and a list asks for 24 of them — one screen
+  was tens of megabytes. `services/media/thumbnails.ts` derives `<name>.thumb.webp` (480 px WebP,
+  ~30 KB) NEXT TO the original, as one flat filename, which is the whole trick: signing, verification,
+  traversal checks and the GC sweep all keep working unchanged. Four things to know before touching it.
+  (1) It is built **on demand** by `GET /uploads/:filename`, because the URL is minted from the row
+  (`toRecipe`), which knows nothing about the disk — that is what makes every pre-existing recipe work
+  with no backfill. `warmThumbnail()` is only a head start, and it is a **no-op under `bun test`**: an
+  unawaited write into the shared `data/uploads` lands after the test cleaned up and orphans a file
+  every run. (2) A conversion that FAILS serves the **original** with a short `max-age`, never a 404 —
+  sharp may be absent or built without HEIF, and a 404 would turn a fine recipe into a broken `<img>`.
+  (3) The name is the FULL original plus the suffix (`x.jpg.thumb.webp`), so the source is recoverable
+  by string, without scanning the directory for the extension. (4) No row references a derivative, so
+  `uploads:gc` keeps it while its original is referenced — and `deleteUpload()` removes both. Web side:
+  `thumbnailUrl()` in `lib/api.ts` (falls back to `imageUrl`); detail screens keep the big one.
+- **The recipe list switches MARKUP at `sm`, in JS, and `sm:hidden` on both is the trap.** A
+  `display:none` `<img>` is still fetched, so rendering `RecipeRow` and `RecipeCard` together would
+  load every image twice. `useIsWideViewport()` (`lib/viewport.ts`) picks one. The row exists because
+  a card leads with a 4:3 image: on a 390 px phone that is ~380 px per recipe, i.e. one recipe per
+  screen. `SkeletonList`'s `variant` must match the branch or the list visibly jumps when data lands.
 - **A header gets ONE overflow trigger, not a row of icon buttons.** `RecipeDetailPage`'s title row
   had five (teilen · kopieren · drucken · duplizieren · löschen) plus a Bearbeiten button: on a 390px
   phone that is ~240px stolen from the `<h1>` beside it, and because two of them are gated on
@@ -388,7 +412,7 @@ All four must be clean before calling anything done:
 ```bash
 bun install
 bun run typecheck    # tsc for packages/shared, apps/api, apps/web
-bun test             # 848 tests
+bun test             # 858 tests
 bun run build        # vite build + PWA
 ```
 

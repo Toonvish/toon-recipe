@@ -33,7 +33,7 @@ import {
   buttonClasses,
 } from "@/components/ui";
 import { useToast } from "@/components/ui";
-import { mediaUrl } from "@/lib/api";
+import { thumbnailUrl } from "@/lib/api";
 import { plural } from "@/lib/format";
 import { apiFieldErrors, validate, type FieldErrors } from "@/lib/validation";
 import { useActiveGroup } from "@/lib/session";
@@ -164,7 +164,7 @@ export default function CollectionDetailPage() {
       ) : (
         <ol className="flex flex-col gap-2">
           {order.map((recipe, index) => {
-            const image = mediaUrl(recipe.imageUrl);
+            const image = thumbnailUrl(recipe);
             // Same fallback as RecipeCard, so a legacy row without totalMinutes
             // does not show a time in the list and nothing here.
             const time = optionalMinutes(

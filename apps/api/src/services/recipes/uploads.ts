@@ -13,6 +13,7 @@ import { MAX_UPLOAD_BYTES } from "@toon/shared";
 import { env } from "../../env.ts";
 import { ApiError } from "../../lib/errors.ts";
 import { signUploadUrl } from "../../lib/uploadUrls.ts";
+import { warmThumbnail } from "../media/thumbnails.ts";
 
 interface SniffedType {
   mimeType: string;
@@ -91,6 +92,9 @@ export async function storeUploadedImage(
   const filename = `${crypto.randomUUID()}.${sniffed.extension}`;
   await mkdir(env.uploadDir, { recursive: true });
   await Bun.write(join(env.uploadDir, filename), bytes);
+  // Head start only, and deliberately not awaited: the list thumbnail is built on
+  // demand anyway, and a phone photo should not wait on a second encode.
+  warmThumbnail(filename);
 
   return {
     // Absolute when PUBLIC_API_URL is configured, otherwise a path the web dev

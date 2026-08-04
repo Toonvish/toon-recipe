@@ -110,6 +110,18 @@ export function mediaUrl(url: string | null | undefined): string | undefined {
   return apiUrl(url);
 }
 
+/**
+ * `<img src>` for a LIST row or card: the downscaled derivative the API minted, and
+ * the original only when there is none (an external hero image, an older payload).
+ * A recipe list renders up to 24 of these, so it must never pull the full-size photo.
+ * Detail screens keep using `mediaUrl(imageUrl)` — there the big one is the point.
+ */
+export function thumbnailUrl(
+  media: { thumbnailUrl?: string | null; imageUrl?: string | null },
+): string | undefined {
+  return mediaUrl(media.thumbnailUrl ?? media.imageUrl);
+}
+
 /* -------------------------------------------------------------------------- */
 /* errors                                                                     */
 /* -------------------------------------------------------------------------- */

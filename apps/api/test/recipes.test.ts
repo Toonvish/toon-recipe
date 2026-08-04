@@ -4,8 +4,6 @@
  * Same harness as test/groups.test.ts: real Hono app, real session + group
  * middleware, in-memory libSQL database with the generated migrations applied.
  */
-import { unlink } from "node:fs/promises";
-import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { asc, eq } from "drizzle-orm";
 import { db } from "../src/db/client.ts";
@@ -18,8 +16,9 @@ import {
   sessions,
   users,
 } from "../src/db/schema.ts";
-import { env } from "../src/env.ts";
 import { app } from "../src/index.ts";
+import { signUploadUrl } from "../src/lib/uploadUrls.ts";
+import { removeUpload } from "./support/files.ts";
 
 await runMigrations(db);
 
@@ -67,6 +66,7 @@ interface RecipeDetailPayload {
     id: string;
     title: string;
     imageUrl: string | null;
+    thumbnailUrl: string | null;
     ingredients: Array<{ position: number; section: string | null; name: string; quantity: number | null; raw: string }>;
     steps: Array<{ position: number; section: string | null; text: string }>;
     tags: Array<{ id: string; name: string }>;
@@ -800,8 +800,13 @@ describe("recipe image upload", () => {
     // relative form of the same signed URL — never the absolute one the upload
     // response carried (a stored origin would break the moment the API moves).
     expect(detail.imageUrl).toBe(`/uploads/${upload.filename}${uploadUrl.search}`);
+    // And the list derivative alongside it: same signing, `.thumb.webp` appended to
+    // the FULL original name so the route can find the source (services/media).
+    expect(detail.thumbnailUrl).toBe(
+      `/uploads/${upload.filename}.thumb.webp${new URL(signUploadUrl(`/uploads/${upload.filename}.thumb.webp`), "http://test.local").search}`,
+    );
 
-    await unlink(join(env.uploadDir, upload.filename));
+    await removeUpload(upload.filename);
   });
 
   test("rejects a non-image with 415", async () => {

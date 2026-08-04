@@ -1,27 +1,31 @@
 /**
  * RecipeListPage — the app's home screen.
  *
- * Responsive card grid (1 col phone / 2 / 3–4 desktop), debounced search, tag chips,
- * collection/difficulty/time filters, sort control and a "Mehr laden" button that
- * matches the API's `{items,total,limit,offset}` pagination.
+ * Compact rows on a phone, responsive card grid from `sm` (2 / 3–4 cols), debounced
+ * search, tag chips, collection/difficulty/time filters, sort control and a "Mehr
+ * laden" button that matches the API's `{items,total,limit,offset}` pagination.
  *
  * All filters live in the URL (see lib/url-filters.ts), so a filtered view can be
  * shared and the back button restores it.
  */
 import { ChefHat, Plus, ScanText } from "lucide-react";
-import { Button, EmptyState, ErrorState, SkeletonCardGrid, Spinner } from "@/components/ui";
+import { Button, EmptyState, ErrorState, SkeletonList, Spinner } from "@/components/ui";
 import { buttonClasses } from "@/components/ui";
 import { useActiveGroup } from "@/lib/session";
+import { useIsWideViewport } from "@/lib/viewport";
 import { useTags } from "@/features/tags/lib/queries";
 import { useCollections } from "@/features/collections/lib/queries";
 import { AppLink } from "./lib/nav";
 import { flattenPages, totalCount, useRecipeList } from "./lib/queries";
 import { useUrlRecipeFilters } from "./lib/url-filters";
 import { RecipeCard } from "./components/RecipeCard";
+import { RecipeRow } from "./components/RecipeRow";
 import { RecipeFilters } from "./components/RecipeFilters";
 
 export default function RecipeListPage() {
   const { groupId, group } = useActiveGroup();
+  /** Cards need width; a phone gets compact rows instead. */
+  const wide = useIsWideViewport();
   const { searchText, setSearchText, filters, setFilters, effectiveFilters, hasFilters, reset } =
     useUrlRecipeFilters("/");
 
@@ -68,7 +72,7 @@ export default function RecipeListPage() {
       />
 
       {list.isPending ? (
-        <SkeletonCardGrid count={6} />
+        <SkeletonList variant={wide ? "cards" : "rows"} count={wide ? 6 : 8} />
       ) : list.isError ? (
         <ErrorState error={list.error} onRetry={() => void list.refetch()} />
       ) : recipes.length === 0 ? (
@@ -107,13 +111,28 @@ export default function RecipeListPage() {
         )
       ) : (
         <>
-          <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-            {recipes.map((recipe) => (
-              <li key={recipe.id} className="flex">
-                <RecipeCard recipe={recipe} className="w-full" />
-              </li>
-            ))}
-          </ul>
+          {/*
+            Two layouts, one rendered at a time (see lib/viewport.ts for why this is a
+            JS branch and not `sm:hidden` on both): compact rows on a phone, where a
+            card per screen made the list unscrollable, cards from `sm` up.
+          */}
+          {wide ? (
+            <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+              {recipes.map((recipe) => (
+                <li key={recipe.id} className="flex">
+                  <RecipeCard recipe={recipe} className="w-full" />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {recipes.map((recipe) => (
+                <li key={recipe.id}>
+                  <RecipeRow recipe={recipe} />
+                </li>
+              ))}
+            </ul>
+          )}
 
           <p aria-live="polite" className="text-center text-sm text-fg-muted">
             {recipes.length} von {total} {total === 1 ? "Rezept" : "Rezepten"}

@@ -11,6 +11,7 @@ import { basename, join, resolve } from "node:path";
 import { ACCEPTED_IMAGE_MIME_TYPES, ACCEPTED_PDF_MIME_TYPES, MAX_UPLOAD_BYTES } from "@toon/shared";
 import { env } from "../../env.ts";
 import { ApiError } from "../../lib/errors.ts";
+import { THUMBNAIL_SUFFIX } from "../media/thumbnails.ts";
 
 export type SniffedMime =
   | "image/jpeg"
@@ -216,13 +217,21 @@ export async function storeUpload(bytes: Uint8Array, mimeType: SniffedMime): Pro
   return { filename, absolutePath, url: `/uploads/${filename}`, mimeType, size: bytes.byteLength };
 }
 
-/** Deletes a stored upload; missing files and bad names are ignored. */
+/**
+ * Deletes a stored upload; missing files and bad names are ignored.
+ *
+ * Takes the generated list thumbnail with it — `uploads:gc` would eventually sweep
+ * an orphaned derivative, but leaving one behind means the next upload that somehow
+ * reuses the name (a restored backup, a manual copy) inherits a stale image.
+ */
 export async function deleteUpload(filename: string | null | undefined): Promise<void> {
   if (typeof filename !== "string" || filename.length === 0) return;
-  try {
-    await unlink(resolveUploadPath(filename));
-  } catch {
-    // already gone / never existed / outside the upload dir — nothing to do
+  for (const name of [filename, `${filename}${THUMBNAIL_SUFFIX}`]) {
+    try {
+      await unlink(resolveUploadPath(name));
+    } catch {
+      // already gone / never existed / outside the upload dir — nothing to do
+    }
   }
 }
 

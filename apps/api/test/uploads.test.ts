@@ -12,7 +12,7 @@
  * The regression this pins down: before, ANY of these files could be fetched
  * forever by anyone who had ever seen the URL — including a removed member.
  */
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { db } from "../src/db/client.ts";
@@ -29,6 +29,7 @@ import {
   verifyUploadSignature,
 } from "../src/lib/uploadUrls.ts";
 import { setMailer } from "../src/services/mail/index.ts";
+import { removeUpload } from "./support/files.ts";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const PASSWORD = "geheimes-passwort-123";
@@ -259,7 +260,7 @@ describe("GET /uploads/:filename", () => {
     // hand one client's signed response to somebody else.
     expect(response.headers.get("cache-control")).toContain("private");
 
-    await unlink(join(env.uploadDir, filename));
+    await removeUpload(filename);
   });
 
   test("404 WITHOUT a signature — this is the closed hole", async () => {
@@ -269,7 +270,7 @@ describe("GET /uploads/:filename", () => {
     const response = await app.request(`/uploads/${filename}`);
     expect(response.status).toBe(404);
 
-    await unlink(join(env.uploadDir, filename));
+    await removeUpload(filename);
   });
 
   test("404 for a tampered or expired signature, even with a session", async () => {
@@ -287,7 +288,7 @@ describe("GET /uploads/:filename", () => {
     );
     expect(stale.status).toBe(404);
 
-    await unlink(join(env.uploadDir, filename));
+    await removeUpload(filename);
   });
 
   test("a signature for one file does not open another", async () => {
@@ -299,8 +300,8 @@ describe("GET /uploads/:filename", () => {
     const response = await app.request(`/uploads/${second.filename}${search}`);
     expect(response.status).toBe(404);
 
-    await unlink(join(env.uploadDir, first.filename));
-    await unlink(join(env.uploadDir, second.filename));
+    await removeUpload(first.filename);
+    await removeUpload(second.filename);
   });
 
   test("404 for an unknown file even when the signature is valid", async () => {
@@ -342,7 +343,7 @@ describe("GET /uploads/:filename", () => {
       .where(eq(recipes.id, recipeId));
     expect(rows[0]?.imageUrl).toBe(`/uploads/${filename}`);
 
-    await unlink(join(env.uploadDir, filename));
+    await removeUpload(filename);
   });
 });
 
@@ -401,7 +402,7 @@ describe("import source scans", () => {
     expect(allowed.status).toBe(200);
     expect(allowed.headers.get("cache-control")).toContain("private");
 
-    await unlink(join(env.uploadDir, filename));
+    await removeUpload(filename);
   });
 
   test("the draft payload never exposes a fetchable URL for the scan", async () => {
@@ -420,7 +421,7 @@ describe("import source scans", () => {
     expect(payload.draft.sourceMeta?.storedPath).toBe(filename);
     expect(JSON.stringify(payload)).not.toContain("sig=");
 
-    await unlink(join(env.uploadDir, filename));
+    await removeUpload(filename);
   });
 
   test("a non-member gets 403 from the source endpoint", async () => {
@@ -434,7 +435,7 @@ describe("import source scans", () => {
     );
     expect(response.status).toBe(403);
 
-    await unlink(join(env.uploadDir, filename));
+    await removeUpload(filename);
   });
 
   test("a REMOVED member loses access to the scan", async () => {
@@ -468,6 +469,6 @@ describe("import source scans", () => {
     );
     expect(afterRemoval.status).toBe(403);
 
-    await unlink(join(env.uploadDir, filename));
+    await removeUpload(filename);
   });
 });
