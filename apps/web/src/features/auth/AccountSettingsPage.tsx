@@ -235,7 +235,7 @@ function EmailVerificationCard({
         />
         <p className="flex items-center gap-2 text-sm text-success-soft-fg">
           <BadgeCheck aria-hidden className="size-4 shrink-0" />
-          {email}
+          <span className="min-w-0 break-all">{email}</span>
         </p>
       </Card>
     );
@@ -248,10 +248,18 @@ function EmailVerificationCard({
         description="Noch nicht bestätigt."
       />
       <div className="flex flex-col gap-3">
+        {/*
+          The sentence is ONE child. Left bare, the icon, the text runs and the <strong>
+          were four flex items: each got the container's gap, each wrapped on its own, and
+          the address ended up in a ~60px column broken as "smoke / @toon. / test" with the
+          comma orphaned on the next line. Same trap as the hint on /import.
+        */}
         <p className="flex items-start gap-2 text-sm text-fg-muted">
           <MailWarning aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />
-          Bestätige <strong className="break-all font-medium text-fg">{email}</strong>, damit du dein
-          Passwort per E-Mail zurücksetzen kannst.
+          <span>
+            Bestätige <strong className="font-medium break-words text-fg">{email}</strong>, damit du
+            dein Passwort per E-Mail zurücksetzen kannst.
+          </span>
         </p>
         <div className="flex justify-start">
           <Button

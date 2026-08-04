@@ -184,7 +184,13 @@ export function RecipeFilters({
           />
         </div>
 
-        <fieldset className="flex flex-col gap-2">
+        {/*
+          `min-w-0` is load-bearing: a <fieldset> carries the browser's own
+          `min-inline-size: min-content`, so without it the chip row below cannot
+          shrink, the fieldset grows to fit every chip (580px on a 390px phone) and the
+          WHOLE PAGE scrolls sideways — the `scroll-x` on the row never gets a chance.
+        */}
+        <fieldset className="flex min-w-0 flex-col gap-2">
           <legend className="text-sm font-medium text-fg">Tags</legend>
           {tagsLoading ? (
             <div className="flex gap-2">
@@ -197,7 +203,7 @@ export function RecipeFilters({
               Noch keine Tags in dieser Gruppe. Tags entstehen beim Anlegen eines Rezepts.
             </p>
           ) : (
-            <div className="scroll-x no-scrollbar -mx-1 flex gap-1.5 px-1 pb-1">
+            <div className="scroll-x no-scrollbar -mx-1 flex min-w-0 gap-1.5 px-1 pb-1">
               {tags.map((tag) => (
                 <TagFilterButton
                   key={tag.id}

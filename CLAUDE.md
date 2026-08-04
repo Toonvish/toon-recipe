@@ -335,6 +335,15 @@ add to that panel instead.
   `getComputedStyle(main).padding*`, and the gap between a bottom bar and `nav.fixed`. Do NOT match
   the tab bar by its aria-label — `SideNav` carries the same one and, being `display:none` on a
   phone, reports an all-zero rect that reads as a plausible-looking wrong number.
+- **A `<fieldset>` carries the browser's own `min-inline-size: min-content`**, so it ignores the
+  `min-w-0` rule you would apply to any other flex/grid item — and a horizontal scroller inside one
+  cannot shrink. That is how the tag row in "Erweiterte Suche" (which IS a `scroll-x`) grew the
+  fieldset to 580px on a 390px phone and made the whole page scroll sideways. Every `<fieldset>`
+  wrapping arbitrary content needs `min-w-0` explicitly (`AddRecipeToListDialog` already had it).
+- **`block` beats `line-clamp-N`.** The clamp works by setting `display: -webkit-box`; a `block`
+  utility on the same element wins in the cascade and the clamp silently does nothing. Drop `block`,
+  and when a breakpoint needs single-line truncation instead use `sm:line-clamp-none sm:block
+  sm:truncate` — in that order of intent, since the `sm:` rules are emitted later.
 - **A LIST never renders `imageUrl`; it renders the generated `thumbnailUrl`.** A recipe hero image is
   a phone photo or a downloaded original, routinely 2–5 MB, and a list asks for 24 of them — one screen
   was tens of megabytes. `services/media/thumbnails.ts` derives `<name>.thumb.webp` (480 px WebP,

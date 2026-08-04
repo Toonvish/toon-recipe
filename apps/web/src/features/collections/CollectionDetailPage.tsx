@@ -172,7 +172,17 @@ export default function CollectionDetailPage() {
             );
             return (
               <li key={recipe.id}>
-                <Card padding="sm" className="flex items-center gap-3">
+                {/*
+                  Below `sm` the three reorder controls take 116px of a 390px phone and
+                  the title was left with ~100px — every recipe read "Schwäbisc…". So the
+                  phone layout is a grid whose action row sits UNDERNEATH, and only from
+                  `sm` does everything share one line. `minmax(0,1fr)` for the text track,
+                  never a bare `1fr`.
+                */}
+                <Card
+                  padding="sm"
+                  className="grid grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 sm:flex"
+                >
                   <span className="w-6 shrink-0 text-center text-sm font-semibold tabular-nums text-fg-subtle">
                     {index + 1}
                   </span>
@@ -188,17 +198,17 @@ export default function CollectionDetailPage() {
                       <UtensilsCrossed aria-hidden="true" className="size-5" />
                     </span>
                   )}
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 sm:flex-1">
                     <AppLink
                       to="/recipes/$recipeId"
                       params={{ recipeId: recipe.id }}
-                      className="block truncate font-medium text-fg hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                      className="block font-medium text-fg hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring line-clamp-2 sm:truncate sm:line-clamp-none"
                     >
                       {recipe.title}
                     </AppLink>
                     {time ? <p className="text-sm text-fg-muted">{time}</p> : null}
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
+                  <div className="col-span-3 flex shrink-0 items-center justify-end gap-1 sm:col-span-1">
                     <IconButton
                       label={`${recipe.title} nach oben`}
                       icon={<ArrowUp />}
