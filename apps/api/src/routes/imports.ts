@@ -1,0 +1,328 @@
+/**
+ * OWNER: import/OCR agent.
+ *
+ * Mounted at /api/groups/:groupId/imports (see src/index.ts), so paths declared
+ * here are relative: "/url", "/image", "/pdf", "/text", "/:draftId", ...
+ * Every import creates an ImportDraft that the user reviews before it becomes a
+ * recipe. OCR lives behind the OcrEngine interface in src/services/ocr/.
+ *
+ * Endpoint contract: docs/API.md (section "Imports").
+ * IMPORTANT: apply the group middleware INSIDE this file
+ *   importRoutes.use("*", requireGroupRole("member"))
+ * so that src/index.ts never has to be edited (no merge conflicts).
+ *
+ * OCR IS SYNCHRONOUS but bounded on three axes, because one member must not be
+ * able to flatten a self-hosted box with a loop of 15 MB uploads:
+ *   - IMPORT_RULE  10 imports per user per minute (429 rate_limited),
+ *   - withOcrSlot  at most MAX_CONCURRENT_OCR pipelines process-wide (429),
+ *   - OCR_TIMEOUT_MS  a raced deadline, so the request is answered at 60 s even
+ *     when tesseract/unpdf ignore the abort signal (504 ocr_failed).
+ * The natural next step is a job queue plus a draft the client polls.
+ */
+import { existsSync } from "node:fs";
+import {
+  type CommitImportDraftResponse,
+  type ImportDraftListResponse,
+  type ImportDraftResponse,
+  CommitImportDraftRequestSchema,
+  ImportDraftListQuerySchema,
+  ImportTextRequestSchema,
+  ImportUrlRequestSchema,
+  ParsedRecipeSchema,
+  UpdateImportDraftRequestSchema,
+} from "@toon/shared";
+import { Hono } from "hono";
+import type { z } from "zod";
+import { ApiError } from "../lib/errors.ts";
+import { created, json, noContent } from "../lib/http.ts";
+import { type AppEnv, requireMembership, requireUser } from "../lib/types.ts";
+import { IMPORT_RULE, enforceRateLimit } from "../services/auth/rateLimit.ts";
+import { commitDraft } from "../services/import/commit.ts";
+import { importDb } from "../services/import/db.ts";
+import {
+  createDraft,
+  deleteDraft,
+  getDraftOr404,
+  listDrafts,
+  storedFilenameOf,
+  toDraftWire,
+  updateDraft,
+} from "../services/import/drafts.ts";
+import { deleteUpload, readUploadedFile, resolveUploadPath } from "../services/import/files.ts";
+import { requireGroupRole, requireSession } from "../services/import/middleware-bridge.ts";
+import { importFromImage, importFromPdf, importFromText } from "../services/import/ocr/index.ts";
+import { importFromUrl } from "../services/import/url/index.ts";
+import { withOcrSlot } from "../services/ocr/index.ts";
+
+export const importRoutes = new Hono<AppEnv>();
+
+// Every import endpoint is group-scoped: a valid session AND membership in the
+// group from the path are required. Applied here so src/index.ts stays untouched.
+importRoutes.use("*", requireSession);
+importRoutes.use("*", requireGroupRole("member"));
+
+/* -------------------------------- helpers --------------------------------- */
+
+/** Parses a JSON body with a Zod schema, mapping malformed JSON to 400. */
+async function readJson<T>(request: Request, schema: z.ZodType<T>): Promise<T> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    throw ApiError.badRequest("Der Request-Body ist kein gültiges JSON.");
+  }
+  // A ZodError becomes 422 validation_failed in the global error handler.
+  return schema.parse(body);
+}
+
+/* ------------------------------ URL import -------------------------------- */
+
+/** POST /api/groups/:groupId/imports/url */
+importRoutes.post("/url", async (c) => {
+  const user = requireUser(c);
+  const { groupId } = requireMembership(c);
+  const { url } = await readJson(c.req.raw, ImportUrlRequestSchema);
+  // An unmetered outbound fetcher (5 MB x 5 redirects per call) is an
+  // amplification tool pointed at third parties, not just a load problem here.
+  enforceRateLimit(c, "import", user.id, IMPORT_RULE);
+
+  const result = await importFromUrl(url);
+  const draft = await createDraft(importDb(), {
+    groupId,
+    createdBy: user.id,
+    sourceType: "url",
+    parsed: result.parsed,
+    rawText: result.rawText,
+    sourceUrl: result.sourceUrl,
+    sourceMeta: result.sourceMeta,
+  });
+
+  return created<ImportDraftResponse>(c, { draft });
+});
+
+/* ----------------------------- image import ------------------------------- */
+
+/** POST /api/groups/:groupId/imports/image — multipart `file`, image/* only. */
+importRoutes.post("/image", async (c) => {
+  const user = requireUser(c);
+  const { groupId } = requireMembership(c);
+
+  enforceRateLimit(c, "import", user.id, IMPORT_RULE);
+
+  const file = await readUploadedFile(c.req.raw, { accept: ["image"] });
+  const result = await withOcrSlot(() =>
+    importFromImage(file.bytes, {
+      mimeType: file.mimeType,
+      ...(file.originalName === undefined ? {} : { originalName: file.originalName }),
+    }),
+  );
+
+  const draft = await createDraft(importDb(), {
+    groupId,
+    createdBy: user.id,
+    sourceType: "ocr",
+    parsed: result.parsed,
+    rawText: result.rawText,
+    sourceMeta: result.sourceMeta,
+  });
+
+  return created<ImportDraftResponse>(c, { draft });
+});
+
+/* ------------------------------ PDF import -------------------------------- */
+
+/** POST /api/groups/:groupId/imports/pdf — multipart `file`, application/pdf only. */
+importRoutes.post("/pdf", async (c) => {
+  const user = requireUser(c);
+  const { groupId } = requireMembership(c);
+
+  enforceRateLimit(c, "import", user.id, IMPORT_RULE);
+
+  const file = await readUploadedFile(c.req.raw, { accept: ["pdf"] });
+  const result = await withOcrSlot(() =>
+    importFromPdf(file.bytes, {
+      ...(file.originalName === undefined ? {} : { originalName: file.originalName }),
+    }),
+  );
+
+  const draft = await createDraft(importDb(), {
+    groupId,
+    createdBy: user.id,
+    sourceType: "ocr",
+    parsed: result.parsed,
+    rawText: result.rawText,
+    sourceMeta: result.sourceMeta,
+  });
+
+  return created<ImportDraftResponse>(c, { draft });
+});
+
+/* ------------------ combined file import (image OR pdf) ------------------- */
+
+/**
+ * POST /api/groups/:groupId/imports/file — convenience endpoint for the mobile
+ * UI, which uses ONE `<input type="file">` for photos and PDFs alike. The kind is
+ * decided by SNIFFED content, never by the filename. Additive to the contract.
+ */
+importRoutes.post("/file", async (c) => {
+  const user = requireUser(c);
+  const { groupId } = requireMembership(c);
+
+  enforceRateLimit(c, "import", user.id, IMPORT_RULE);
+
+  const file = await readUploadedFile(c.req.raw, { accept: ["image", "pdf"] });
+  const result = await withOcrSlot(() =>
+    file.kind === "pdf"
+      ? importFromPdf(file.bytes, {
+          ...(file.originalName === undefined ? {} : { originalName: file.originalName }),
+        })
+      : importFromImage(file.bytes, {
+          mimeType: file.mimeType,
+          ...(file.originalName === undefined ? {} : { originalName: file.originalName }),
+        }),
+  );
+
+  const draft = await createDraft(importDb(), {
+    groupId,
+    createdBy: user.id,
+    sourceType: "ocr",
+    parsed: result.parsed,
+    rawText: result.rawText,
+    sourceMeta: result.sourceMeta,
+  });
+
+  return created<ImportDraftResponse>(c, { draft });
+});
+
+/* ------------------------------ text import ------------------------------- */
+
+/** POST /api/groups/:groupId/imports/text */
+importRoutes.post("/text", async (c) => {
+  const user = requireUser(c);
+  const { groupId } = requireMembership(c);
+  const body = await readJson(c.req.raw, ImportTextRequestSchema);
+  enforceRateLimit(c, "import", user.id, IMPORT_RULE);
+
+  const result = importFromText(body.rawText, body.title === undefined ? {} : { title: body.title });
+  const draft = await createDraft(importDb(), {
+    groupId,
+    createdBy: user.id,
+    sourceType: "manual",
+    parsed: result.parsed,
+    rawText: result.rawText,
+    sourceMeta: result.sourceMeta,
+  });
+
+  return created<ImportDraftResponse>(c, { draft });
+});
+
+/* --------------------------------- listing -------------------------------- */
+
+/** GET /api/groups/:groupId/imports?status=pending */
+importRoutes.get("/", async (c) => {
+  const { groupId } = requireMembership(c);
+  const query = ImportDraftListQuerySchema.parse(c.req.query());
+  const list = await listDrafts(importDb(), groupId, query);
+  return json<ImportDraftListResponse>(c, list);
+});
+
+/* ------------------------------ single draft ------------------------------ */
+
+/** GET /api/groups/:groupId/imports/:draftId */
+importRoutes.get("/:draftId", async (c) => {
+  const { groupId } = requireMembership(c);
+  const row = await getDraftOr404(importDb(), groupId, c.req.param("draftId"));
+  return json<ImportDraftResponse>(c, { draft: toDraftWire(row) });
+});
+
+/**
+ * GET /api/groups/:groupId/imports/:draftId/source — the uploaded photo/PDF this
+ * draft came from. Membership-checked (unlike the public /uploads/:filename route
+ * in src/index.ts) and path-traversal-safe. Additive to the contract.
+ */
+importRoutes.get("/:draftId/source", async (c) => {
+  const { groupId } = requireMembership(c);
+  const row = await getDraftOr404(importDb(), groupId, c.req.param("draftId"));
+
+  const filename = storedFilenameOf(row);
+  if (filename === undefined) throw ApiError.notFound("Zu diesem Entwurf gibt es keine Quelldatei.");
+
+  const absolute = resolveUploadPath(filename);
+  if (!existsSync(absolute)) throw ApiError.notFound("Die Quelldatei wurde bereits gelöscht.");
+
+  const file = Bun.file(absolute);
+  return new Response(file, {
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+      "Cache-Control": "private, max-age=3600",
+      "Content-Disposition": `inline; filename="${filename}"`,
+    },
+  });
+});
+
+/** PATCH /api/groups/:groupId/imports/:draftId — save review-screen edits. */
+importRoutes.patch("/:draftId", async (c) => {
+  const { groupId } = requireMembership(c);
+  const draftId = c.req.param("draftId");
+  const row = await getDraftOr404(importDb(), groupId, draftId);
+  if (row.status === "reviewed") {
+    throw ApiError.conflict("conflict", "Dieser Entwurf wurde bereits als Rezept gespeichert.");
+  }
+
+  const body = await readJson(c.req.raw, UpdateImportDraftRequestSchema);
+  await updateDraft(importDb(), draftId, {
+    parsed: body.parsed,
+    ...(body.status === undefined ? {} : { status: body.status }),
+  });
+
+  const updated = await getDraftOr404(importDb(), groupId, draftId);
+  return json<ImportDraftResponse>(c, { draft: toDraftWire(updated) });
+});
+
+/** POST /api/groups/:groupId/imports/:draftId/commit — create the real recipe. */
+importRoutes.post("/:draftId/commit", async (c) => {
+  const user = requireUser(c);
+  const { groupId } = requireMembership(c);
+  const draftId = c.req.param("draftId");
+
+  const row = await getDraftOr404(importDb(), groupId, draftId);
+  if (row.status === "reviewed" && row.recipeId !== null) {
+    throw ApiError.conflict("conflict", "Dieser Entwurf wurde bereits als Rezept gespeichert.");
+  }
+
+  const body = await readJson(c.req.raw, CommitImportDraftRequestSchema);
+  // The client may send the edited payload; otherwise the stored draft is used.
+  const parsed = body.parsed ?? ParsedRecipeSchema.parse(row.parsed);
+
+  const result = await commitDraft(importDb(), {
+    groupId,
+    draftId,
+    userId: user.id,
+    parsed,
+    ...(body.tags === undefined ? {} : { tagNames: body.tags }),
+    ...(body.collectionIds === undefined ? {} : { collectionIds: body.collectionIds }),
+  });
+
+  const committed = await getDraftOr404(importDb(), groupId, draftId);
+  return created<CommitImportDraftResponse>(
+    c,
+    { recipe: result.recipe, draft: toDraftWire(committed) },
+    `/api/groups/${groupId}/recipes/${result.recipeId}`,
+  );
+});
+
+/** DELETE /api/groups/:groupId/imports/:draftId — discard + unlink the upload. */
+importRoutes.delete("/:draftId", async (c) => {
+  const { groupId } = requireMembership(c);
+  const draftId = c.req.param("draftId");
+  const row = await getDraftOr404(importDb(), groupId, draftId);
+
+  await deleteDraft(importDb(), draftId);
+  // Only after the row is gone: an orphaned file is better than a draft that
+  // points at a file which no longer exists.
+  await deleteUpload(storedFilenameOf(row));
+
+  return noContent(c);
+});
+
+export default importRoutes;

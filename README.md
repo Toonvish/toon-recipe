@@ -1,0 +1,363 @@
+# toon-recipe
+
+Rezeptverwaltung für Familien und WGs: Rezepte sammeln, aus dem Web/Foto/PDF importieren, in
+Gruppen teilen, am Handy kochen. German-first UI, mobile-first installable PWA.
+
+## Locked product decisions
+
+These are **fixed** — do not redesign them.
+
+1. **Multi-user with shared groups.** Users register/login, create groups (e.g. "Familie"), invite
+   others by e-mail. Recipes, collections and tags belong to a **group**, not a user. Roles:
+   `owner | admin | member`. A user can be in many groups; the UI has an active-group switcher.
+2. **Mobile = responsive mobile-first PWA.** ONE React app, installable (manifest + service worker
+   via `vite-plugin-pwa`). Photo capture with
+   `<input type="file" accept="image/*" capture="environment">`. No React Native, no Capacitor.
+   Bottom tab nav on mobile, sidebar from `lg` up.
+3. **Database = Turso / libSQL** (`@libsql/client` + `drizzle-orm/libsql`), so it can be self-hosted
+   or run on Turso cloud. Config comes purely from `DATABASE_URL` / `DATABASE_AUTH_TOKEN`; the driver
+   choice is never hardcoded.
+4. **Auth = email+password AND OAuth (Google + GitHub).** Passwords via `Bun.password` (argon2id, no
+   external lib). Sessions are opaque random ids in the `sessions` table, sent as
+   `HttpOnly; SameSite=Lax; Secure(prod)` cookie with a 30-day sliding expiry. OAuth uses `arctic`
+   with state/PKCE cookies. *Deviation, on purpose:* the brief says an OAuth login on an existing
+   **verified** e-mail links to that user — but no verification flow exists, so that flag could not
+   be earned and auto-linking was an account takeover. Linking is now an explicit authenticated
+   action; see "Known gaps".
+5. **Import has three sources and always goes through an editable draft review screen**: URL
+   (schema.org JSON-LD incl. `@graph`, microdata fallback, then site selectors — must work for
+   chefkoch.de and biancazapatka.com/WP Recipe Maker), image (server-side OCR), PDF (embedded text
+   layer first, rasterize + OCR as fallback, clear actionable error if rasterization is unavailable).
+6. **OCR runs server-side in Bun** with `tesseract.js` (`deu+eng`, German first), preprocessed with
+   `sharp` (grayscale, normalize, ~2000px wide), behind a swappable `OcrEngine` interface.
+7. **Content language is German-first**: German units (`g, kg, ml, l, EL, TL, Prise, Bund, Pck.,
+   Stück, Dose …`), unicode fractions (`½ ¼ ⅓ ¾`), ranges (`2-3 Eier`), ISO-8601 durations
+   (`PT30M`, `PT1H15M`). UI copy in German.
+
+## Stack
+
+| Part | Tech |
+| --- | --- |
+| Monorepo | Bun workspaces (`apps/*`, `packages/*`), Bun 1.3.14 |
+| `apps/api` | Bun.serve + Hono, drizzle-orm, `@hono/zod-validator`, zod, arctic, tesseract.js, sharp, unpdf, pdf-to-img |
+| `apps/web` | React 19 + Vite + TypeScript, TanStack Router, TanStack Query, Tailwind CSS v4, vite-plugin-pwa, lucide-react |
+| `packages/shared` | Zod schemas + inferred types + pure parsers — the single source of truth, imported as `@toon/shared` |
+| Tests | `bun test` (parser unit tests with German fixtures, API integration tests against `file::memory:`) |
+
+TypeScript `strict: true` everywhere, no `any` in exported signatures.
+
+## Layout
+
+```
+apps/api/
+  src/index.ts            Hono app: CORS, logger, /api/health, /uploads/:file, router mounts
+  src/env.ts              Zod-validated env (loads the ROOT .env, fails fast)
+  src/db/schema.ts        complete Drizzle schema (14 tables)
+  src/db/client.ts        libSQL client + drizzle instance (file: or libsql://)
+  src/db/migrate.ts       runMigrations() — used by db:migrate AND by tests
+  src/lib/errors.ts       ApiError + onError/notFound handlers
+  src/lib/http.ts         json()/created()/noContent()/toIso()
+  src/lib/types.ts        AppEnv (Hono context variables: user, sessionId, membership)
+  src/routes/{auth,groups,recipes,imports}.ts   one file per owning agent
+  src/middleware/         session + group middleware live here
+  drizzle/                generated SQL migrations
+  scripts/{migrate,seed}.ts
+  src/services/auth/      passwords, sessions, users, invites, oauth accounts, rate limit
+  src/services/groups/    group + invite services, membership helpers, validation
+  src/services/recipes/   recipes, tags, collections, uploads, mappers
+  src/services/import/    URL pipeline (html/, url/, adapters/), drafts, commit, files
+  src/services/ocr/       OcrEngine interface, tesseract worker, sharp preprocess, pdf.ts
+  test/                   ALL api tests live here (`test/`, not `tests/`)
+apps/web/
+  index.html              viewport-fit=cover, theme-color, pre-paint theme script
+  vite.config.ts          react + tailwind v4 + VitePWA + aliases + dev proxy
+  src/router.tsx          code-based TanStack Router tree (lazy pages via lib/lazy-page.tsx)
+  src/lib/                api.ts (the only network layer), queries.ts, session.tsx, pwa.ts, theme.ts
+  src/components/ui/      the ONLY UI primitives (Button, Input, Card, Dialog, Toast, …)
+  src/components/layout/  AppShell, TopBar, BottomTabBar, SideNav, InstallPrompt, ErrorBoundary
+  src/features/           auth/, recipes/, groups/, collections/, tags/, import/
+  public/icons/           real PNG app icons (192/512 + maskable + apple-touch)
+packages/shared/src/      schemas/ + numbers.ts, units.ts, ingredients.ts, duration.ts
+docs/API.md               authoritative endpoint contract
+```
+
+## Setup
+
+Verified end to end on Bun 1.3.14 / Linux:
+
+```bash
+bun install
+cp .env.example .env            # then edit (SESSION_SECRET at minimum)
+bun run db:migrate              # creates ./data/local.db from drizzle/*.sql
+bun run seed                    # demo data — prints the login at the end
+bun run dev                     # API :3001 + web :5173
+```
+
+Then open <http://localhost:5173> and log in with the seeded account:
+
+```
+Login:    demo@toon.local
+Passwort: demo1234
+```
+
+The seed is idempotent and creates: the demo user, the group **Familie**, the tags
+`Hauptgericht / Backen / Vegetarisch`, and three German recipes — *Klassische Pfannkuchen*,
+*Schneller Schokokuchen* and *Zwiebelkuchen vom Blech*; the last two have ingredient **and** step
+sections (`Für den Teig` / `Für den Belag`).
+
+### Cookies in dev (why it works)
+
+The session cookie is `HttpOnly; SameSite=Lax; Path=/`. Two setups are supported:
+
+1. **Cross-origin (default).** `PUBLIC_API_URL="http://localhost:3001"`, the browser calls the API
+   directly. The client always sends `credentials: "include"`, and the API answers with
+   `Access-Control-Allow-Origin: <WEB_ORIGIN>` + `Access-Control-Allow-Credentials: true`.
+   `localhost:5173` and `localhost:3001` are the same *site* (ports are ignored), so a `SameSite=Lax`
+   cookie is still sent.
+2. **Same-origin via the dev proxy.** Set `PUBLIC_API_URL=""` — the client then uses relative URLs
+   and Vite proxies `/api` and `/uploads` to the API (`server.proxy` in `apps/web/vite.config.ts`,
+   `changeOrigin: false` so the cookie domain stays intact).
+
+For phone testing on the LAN, add the LAN origin to `WEB_ORIGIN`
+(`WEB_ORIGIN="http://localhost:5173,http://192.168.x.y:5173"`) and point `PUBLIC_API_URL` at the
+same IP.
+
+### A) Self-hosted (local libSQL file)
+
+```env
+DATABASE_URL="file:./data/local.db"
+DATABASE_AUTH_TOKEN=""
+```
+
+Relative `file:` paths resolve from the **repo root**, so the DB always lands in `./data/local.db`
+no matter which workspace you run a script from. `data/` is gitignored.
+
+### B) Turso cloud
+
+```bash
+curl -sSfL https://get.tur.so/install.sh | bash
+turso auth login
+turso db create toon-recipe
+turso db show toon-recipe --url          # -> libsql://toon-recipe-<org>.turso.io
+turso db tokens create toon-recipe       # -> DATABASE_AUTH_TOKEN
+```
+
+```env
+DATABASE_URL="libsql://toon-recipe-<org>.turso.io"
+DATABASE_AUTH_TOKEN="eyJ..."
+```
+
+`bun run db:migrate` works against both; the API refuses to start with a remote URL and no token.
+
+### OAuth credentials
+
+**Google** — <https://console.cloud.google.com/apis/credentials> → *Create credentials* → *OAuth
+client ID* → *Web application*. Authorized redirect URI:
+`http://localhost:3001/api/auth/oauth/google/callback` (in production:
+`${OAUTH_REDIRECT_BASE}/api/auth/oauth/google/callback`). Copy client id + secret into
+`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
+
+**GitHub** — <https://github.com/settings/developers> → *New OAuth App*. Homepage URL =
+`WEB_ORIGIN`, Authorization callback URL =
+`http://localhost:3001/api/auth/oauth/github/callback`. Copy into `GITHUB_CLIENT_ID` /
+`GITHUB_CLIENT_SECRET`.
+
+Providers without credentials are genuinely **hidden**: `GET /api/auth/oauth` reports which ones are
+configured and the login/register screens render only those buttons. A direct browser hit on
+`/api/auth/oauth/google` redirects to `/login?error=oauth_not_configured` (only `?json=1` gets the
+`400`). The app runs fine with e-mail+password only.
+
+**Linking password + provider** is an explicit, authenticated action — *Profil → Verknüpfte Konten*
+(`GET /api/auth/oauth/:provider/link`). The API does **not** auto-link on a matching e-mail; see
+"Known gaps" for why.
+
+### Environment variables
+
+Every variable is documented in [`.env.example`](./.env.example): `DATABASE_URL`,
+`DATABASE_AUTH_TOKEN`, `SESSION_SECRET`, `API_PORT`, `WEB_ORIGIN`, `PUBLIC_API_URL`,
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
+`OAUTH_REDIRECT_BASE`, `UPLOAD_DIR`, `TESSERACT_LANGS`, plus `NODE_ENV`, `DEBUG_SQL`, `TRUST_PROXY`,
+`TEST_DATABASE_URL` and `IMPORT_ALLOW_PRIVATE_HOSTS`.
+
+`TRUST_PROXY=1` makes the rate limiter believe `X-Forwarded-For` / `X-Real-IP` / `CF-Connecting-IP`.
+**Set it only behind a proxy that overwrites those headers.** Without it the socket address is used,
+because a client-supplied header would otherwise hand out a fresh rate-limit bucket per request and
+make login brute-forcing free.
+
+`IMPORT_ALLOW_PRIVATE_HOSTS=1` disables the URL importer's SSRF guard so you can import from a
+fixture on `127.0.0.1`. **Development only** — it is ignored when `NODE_ENV=production` and the API
+logs a warning when it is used.
+
+The `.env` lives in the **repo root**. The API loads it itself (Bun only auto-loads from the cwd);
+the Vite config must therefore set `envDir: "../../"` and `envPrefix: ["VITE_", "PUBLIC_"]`.
+
+## Scripts
+
+| Script | What it does |
+| --- | --- |
+| `bun run dev` | API + web concurrently (`scripts/dev.ts`, `Bun.spawn`, no extra dependency) |
+| `bun run dev:api` | API only, `bun --watch` |
+| `bun run dev:web` | Vite dev server only |
+| `bun run build` | Production build of the web app |
+| `bun run start` | Run the API (production) |
+| `bun test` | All tests (parsers + API integration) |
+| `bun run typecheck` | `tsc --noEmit` for `packages/shared`, `apps/api`, `apps/web` |
+| `bun run db:generate` | drizzle-kit: generate SQL migrations from `schema.ts` |
+| `bun run db:migrate` | Apply migrations to `DATABASE_URL` |
+| `bun run db:studio` | drizzle studio |
+| `bun run seed` | Demo user + group "Familie" + 3 recipes with sections (idempotent) |
+| `bun run ocr:prefetch` | Downloads + caches the tesseract `deu+eng` traineddata into `data/tessdata` once, so the first import does not have to (run it at deploy time) |
+
+Current status of the four gates (run from the repo root):
+
+```
+bun install        Checked 449 installs across 646 packages (no changes)
+bun run typecheck  [typecheck] OK           (packages/shared, apps/api, apps/web)
+bun test           600 pass, 0 fail, 1462 expect() calls across 18 files
+bun run build      ✓ built in ~0.4s + PWA precache 102 entries (1107 KiB)
+```
+
+## Install the PWA on a phone
+
+The service worker and the web manifest are only emitted by a **production build**, so install from
+a built app, not from `bun run dev`:
+
+```bash
+bun run build
+bun --filter @toon/web preview      # :4173, reachable on the LAN (host: true)
+```
+
+Make sure the phone can reach both ports and that `WEB_ORIGIN` contains the origin you open on the
+phone (see "Cookies in dev" above).
+
+- **Android / Chrome**: open the app → the in-app banner ("Zur Startseite hinzufügen") appears, or
+  use ⋮ → *App installieren*.
+- **iOS / Safari**: open the app → *Teilen* → *Zum Home-Bildschirm*. iOS has no install event, so the
+  app shows the manual instructions itself.
+
+After installing, the app launches standalone (no browser chrome), keeps the safe-area insets and
+serves the cached app shell when offline. `/api` and `/uploads` are **never** cached or answered by
+the worker (`navigateFallbackDenylist`, empty `runtimeCaching`), so you never see stale data.
+
+## Smoke test against a real server
+
+```bash
+# fresh DB + demo data
+DATABASE_URL="file:./data/smoke.db" bun run db:migrate
+DATABASE_URL="file:./data/smoke.db" bun run seed
+DATABASE_URL="file:./data/smoke.db" bun --filter @toon/api start &
+
+curl -s localhost:3001/api/health
+curl -s -c /tmp/j -X POST localhost:3001/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"demo@toon.local","password":"demo1234"}'
+curl -s -b /tmp/j localhost:3001/api/groups
+```
+
+For the URL importer, serve a local HTML fixture and start the API with
+`IMPORT_ALLOW_PRIVATE_HOSTS=1`:
+
+```bash
+curl -s -b /tmp/j -X POST localhost:3001/api/groups/<groupId>/imports/url \
+  -H 'Content-Type: application/json' -d '{"url":"http://127.0.0.1:3998/rezept"}'
+# -> 201 { draft: { sourceType: "url", sourceMeta: { method: "json-ld" }, confidence: 0.93, … } }
+```
+
+## Contracts between agents
+
+- `docs/API.md` is the endpoint contract; `@toon/shared` is the type contract.
+- Feature code goes into `src/routes/<area>.ts` and `src/middleware/*`; `src/index.ts` and the shared
+  package's existing exports stay stable.
+- Group-scoped routers apply `requireGroupRole(...)` themselves (`router.use("*", ...)`), so
+  `src/index.ts` never needs editing.
+- Pure, testable logic (parsing, unit maths, formatting) belongs in `packages/shared`, never in a
+  route handler.
+
+## Known gaps
+
+Honest list of what is **not** finished. Nothing here blocks the flows above.
+
+> Four of these were deferred because they need a product decision, not more code: **no mailer**,
+> **no password reset**, **public `/uploads`**, and **no offline support**. Each has a worked-out
+> implementation plan — decisions to make, files to touch, tests to add — in
+> [`docs/open-work.md`](./docs/open-work.md). Start there.
+
+**Auth / accounts**
+- **No e-mail sending at all — no mailer, no SMTP settings, no dependency.** Three things follow:
+  - Invites only return an `inviteUrl` that an admin has to forward by hand (WhatsApp, …), and it is
+    built from `WEB_ORIGIN`, so that must be a real, reachable host before you invite anybody.
+  - There is **no "Passwort vergessen"** flow. A user with a password and no linked provider who
+    forgets it is locked out, and there is no operator reset command either. Workaround: an admin
+    with DB access clears `users.password_hash` (then the account can set a new password only via a
+    linked provider) — a real reset flow needs the mailer.
+  - There is **no e-mail verification**, so registration stores `emailVerified: false`.
+- Because of that, **an OAuth login is never auto-linked to a matching local account** — it answers
+  409 `email_taken`. Sign in with the password and link the provider under *Profil → Verknüpfte
+  Konten* (`GET /api/auth/oauth/:provider/link`). Auto-linking on the old always-true
+  `emailVerified` flag was an account-takeover: pre-register someone's address and you captured
+  their later Google/GitHub login. Once a confirmation-mail flow exists, auto-linking may return —
+  gated on a real verification timestamp.
+- No account deletion endpoint on purpose (`created_by` / `invited_by` cascade — see the comment in
+  `src/db/schema.ts`). A future flow must transfer ownership and re-assign authorship first.
+- The rate limiter is an in-process sliding window, so it resets on restart and is per instance, not
+  per cluster. Forwarding headers are ignored unless `TRUST_PROXY=1`; behind a proxy without that
+  flag every client shares one bucket, so **set it when you deploy behind nginx/Caddy/Cloudflare**.
+
+**Import**
+- OCR runs **synchronously** inside the request with a 60 s cap (`504 ocr_failed` beyond that). A
+  large photo blocks one worker; a job queue + client polling is the intended next step.
+- PDF rasterization needs `pdf-to-img`'s native canvas. It works here, but where the binary is
+  missing a PDF without a text layer answers `422 pdf_no_text_layer` with a German hint to upload a
+  photo instead.
+- The **first** photo/scanned-PDF import on a fresh deployment downloads ~15 MB of `deu+eng`
+  traineddata from `tessdata.projectnaptha.com` into `data/tessdata`. Run `bun run ocr:prefetch` at
+  deploy time (or copy the `*.traineddata` files in) if the host has no outbound HTTPS, otherwise
+  that import fails with `ocr_failed`.
+- Import load limits are per process, not per cluster: `IMPORT_RULE` (10 per user per minute) and
+  `MAX_CONCURRENT_OCR` (2 slots, 429 when full) live in memory. The 60 s OCR deadline answers the
+  request on time but cannot actually kill the tesseract/unpdf work it abandoned, so a flood of
+  malformed PDFs can still keep CPU busy for a while after the 429s start.
+- **Uploaded scans and photos are served from the public `/uploads/:filename` route** (unguessable
+  UUID, `Cache-Control: public, immutable`), and the review screen links straight to it. A
+  membership-checked alternative exists (`GET /api/groups/:groupId/imports/:draftId/source`) but the
+  client does not use it yet, so anyone who ever saw an upload URL — including a removed member —
+  can still fetch that file.
+- `shutdownOcr()` exists but is not wired to `SIGTERM`, so the tesseract worker is torn down by
+  process exit.
+- The URL importer is verified against the bundled chefkoch.de and WP-Recipe-Maker (biancazapatka)
+  fixtures. Live sites are not exercised by the test suite, on purpose.
+- `parseStepBlock` (shared) does not split a `Für den Belag:` heading that sits between two numbered
+  steps — the heading is glued to the previous step. The seed works around this locally
+  (`parseSectionedSteps` in `apps/api/scripts/seed.ts`); ingredient sections are unaffected.
+
+**Contract quirks left in place**
+- `UpdateRecipeRequestSchema` / `UpdateCollectionRequestSchema` are `.partial()` of schemas whose
+  child arrays carry `.default([])`, so zod materialises `ingredients: []` for an *absent* key. The
+  routes therefore filter against the raw JSON body (`keepOnlySentKeys` in
+  `src/services/groups/validation.ts`) so a title-only PATCH cannot wipe children. Fix upstream by
+  removing those defaults from the base schema.
+- There is no "set position" endpoint for `collection_recipes`; the web app re-orders by
+  DELETE-then-PUT of the whole ordered list.
+- libSQL 0.17.4 discards a `file::memory:` database on transaction commit. `withTransaction()`
+  (`src/services/groups/support.ts`) uses real transactions on file/Turso DBs and sequential
+  statements on memory DBs; tests that need a transaction use a temp file DB.
+- Search is `LIKE`-based over title/description/ingredient names. FTS5 is out of scope; the upgrade
+  path is documented above the `recipes` table in `schema.ts`.
+
+**Web**
+- No component/E2E tests. Only pure logic is unit-tested (`src/features/import/lib/*.test.ts` plus
+  everything in `packages/shared`); `apps/web/tsconfig.json` sets `types: ["vite/client"]`, so those
+  two test files rely on the local `bun:test` shim in `src/features/import/lib/bun-test.d.ts`.
+- Author/admin permissions are enforced server-side; the client only *hides* controls. Every 403 is
+  rendered gracefully.
+- **The PWA is installable but not usable offline.** `runtimeCaching` is empty, so only the build
+  output is precached: an installed app opened without a connection renders the shell and then every
+  screen errors with "Keine Verbindung zum Server". The install banner promises exactly this much
+  (own icon, no browser chrome) and nothing more. Caching recipe GETs needs a real
+  staleness/invalidation story and is deliberately out of scope.
+- `build.sourcemap` is **off** so the client TypeScript is not published with the bundle. Switch it
+  to `"hidden"` and upload the maps separately if you add error reporting.
+- `vite-plugin-pwa` `devOptions` are off, so the manifest link and service worker only appear in a
+  production build (`bun run build` / `preview`).
+- The web app has no unit test for `router.tsx`; route reachability was verified manually
+  (every screen resolves through `lib/lazy-page.tsx`).
