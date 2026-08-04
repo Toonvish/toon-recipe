@@ -301,6 +301,16 @@ add to that panel instead.
 - **A page component must NOT re-apply `mx-auto max-w-5xl px-4 pt-4 pb-tabbar`** — `AppShell`'s
   `<main>` already does all four. `ImportReviewPage`'s `PageShell` did, which cost a phone 32px of
   the 390 it has and doubled the bottom padding. Page roots here are plain `flex flex-col gap-4`.
+- **A header gets ONE overflow trigger, not a row of icon buttons.** `RecipeDetailPage`'s title row
+  had five (teilen · kopieren · drucken · duplizieren · löschen) plus a Bearbeiten button: on a 390px
+  phone that is ~240px stolen from the `<h1>` beside it, and because two of them are gated on
+  `canEdit` the row's width — and therefore the title's wrapping — changed as the permission
+  resolved. They now live in `ActionMenu` (`components/ui/ActionMenu.tsx`), which is `Dialog`-based
+  like `GroupSwitcher` (sheet on phones, centred panel from `sm`) so Escape, the focus trap and the
+  scroll lock come for free. It closes BEFORE running an item and defers the callback by one
+  `requestAnimationFrame`: the panel is a PORTAL outside `.recipe-print`, so `window.print()` fired
+  from the same handler would print the open menu over the recipe. Falsy items are filtered, so
+  `canEdit && {…}` is the way to gate one.
 - **Text next to an icon in a `flex` `<p>` must be ONE child.** Left bare, every text run and every
   `<span>` becomes its own flex item: each gets the container's `gap` around it and wraps
   independently, so emphasised words drift apart and punctuation starts its own line. Wrap the

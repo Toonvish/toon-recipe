@@ -9,8 +9,10 @@
  *    @toon/shared (the exact function the API's /scale endpoint uses) and renders nice
  *    fractions via `formatQuantity`.
  *  - COOK MODE: full-screen, large-type step-by-step view with a screen wake lock.
- *  - Actions: bearbeiten, löschen (ConfirmDialog), duplizieren, teilen
- *    (navigator.share + clipboard fallback), drucken (print.css).
+ *  - Actions live in ONE overflow `ActionMenu` next to the title — bearbeiten, teilen
+ *    (navigator.share + clipboard fallback), kopieren, drucken (print.css), duplizieren,
+ *    löschen (ConfirmDialog). Kochmodus and "Zur Einkaufsliste" stay visible where they
+ *    belong instead: at the steps heading and under the ingredients.
  */
 import { useMemo, useState } from "react";
 import {
@@ -33,12 +35,12 @@ import {
 } from "lucide-react";
 import { scaleIngredients, type RecipeDetail } from "@toon/shared";
 import {
+  ActionMenu,
   Badge,
   Button,
   Card,
   ConfirmDialog,
   ErrorState,
-  IconButton,
   LoadingBlock,
   buttonClasses,
 } from "@/components/ui";
@@ -212,7 +214,12 @@ export default function RecipeDetailPage() {
           </div>
         )}
 
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        {/*
+          One trigger, not a toolbar: five icon buttons here took ~240px away from the
+          heading on a phone, and the row grew or shrank with `canEdit`, so the title
+          reflowed as the permission resolved. Everything lives in the ActionMenu now.
+        */}
+        <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <h1 className="font-display text-2xl leading-tight font-semibold text-fg sm:text-3xl">
               {recipe.title}
@@ -222,52 +229,53 @@ export default function RecipeDetailPage() {
             </p>
           </div>
 
-          <div data-print="hide" className="flex shrink-0 items-center gap-1">
-            <IconButton
-              label="Teilen"
-              icon={<Share2 />}
-              variant="surface"
-              onClick={() => void share()}
+          <div data-print="hide" className="shrink-0">
+            <ActionMenu
+              label="Rezept-Aktionen"
+              title={recipe.title}
+              items={[
+                canEdit && {
+                  label: "Bearbeiten",
+                  icon: <Pencil />,
+                  onSelect: () => {
+                    void navigate({
+                      to: "/recipes/$recipeId/edit",
+                      params: { recipeId: recipe.id },
+                    });
+                  },
+                },
+                {
+                  label: "Teilen",
+                  icon: <Share2 />,
+                  onSelect: () => void share(),
+                },
+                {
+                  label: "Als Text kopieren",
+                  icon: <Copy />,
+                  onSelect: () => void copyIngredients(),
+                },
+                {
+                  label: "Drucken",
+                  icon: <Printer />,
+                  onSelect: () => window.print(),
+                },
+                {
+                  label: "Duplizieren",
+                  // The menu closes on select, so `isPending` is no longer visible —
+                  // disabling is what keeps a second tap from creating a second copy.
+                  description: createRecipe.isPending ? "Kopie wird angelegt …" : undefined,
+                  icon: <ChefHat />,
+                  disabled: createRecipe.isPending,
+                  onSelect: () => void duplicate(),
+                },
+                canEdit && {
+                  label: "Löschen",
+                  icon: <Trash2 />,
+                  variant: "danger" as const,
+                  onSelect: () => setConfirmDelete(true),
+                },
+              ]}
             />
-            <IconButton
-              label="Als Text kopieren"
-              icon={<Copy />}
-              variant="surface"
-              onClick={() => void copyIngredients()}
-            />
-            <IconButton
-              label="Drucken"
-              icon={<Printer />}
-              variant="surface"
-              onClick={() => window.print()}
-              className="hidden sm:inline-flex"
-            />
-            <IconButton
-              label="Duplizieren"
-              icon={<ChefHat />}
-              variant="surface"
-              loading={createRecipe.isPending}
-              onClick={() => void duplicate()}
-            />
-            {canEdit ? (
-              <>
-                <AppLink
-                  to="/recipes/$recipeId/edit"
-                  params={{ recipeId: recipe.id }}
-                  className={buttonClasses({ variant: "outline", size: "md" })}
-                  aria-label="Rezept bearbeiten"
-                >
-                  <Pencil aria-hidden="true" className="size-4" />
-                  <span className="hidden sm:inline">Bearbeiten</span>
-                </AppLink>
-                <IconButton
-                  label="Rezept löschen"
-                  icon={<Trash2 />}
-                  variant="danger"
-                  onClick={() => setConfirmDelete(true)}
-                />
-              </>
-            ) : null}
           </div>
         </div>
 

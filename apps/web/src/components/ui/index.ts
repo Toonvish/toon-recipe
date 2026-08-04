@@ -8,6 +8,7 @@
  *  - colours come from the semantic tokens in styles/theme.css (dark mode is automatic),
  *  - German copy, `error` props take a ready-to-render message.
  */
+export { ActionMenu, type ActionMenuItem, type ActionMenuProps } from "./ActionMenu";
 export { Avatar, type AvatarProps } from "./Avatar";
 export { Badge, type BadgeProps, type BadgeSize, type BadgeVariant } from "./Badge";
 export {
