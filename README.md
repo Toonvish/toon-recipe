@@ -244,7 +244,9 @@ bun run build      ✓ built in ~0.3s + PWA precache 114 entries (1176 KiB)
 
 ## Deployment (Docker on a Raspberry Pi)
 
-Full walkthrough: **[docs/deployment.md](docs/deployment.md)**. The short version:
+Setting up a **freshly imaged Pi** (OS, Pi-specific kernel/swap prep, Docker, three ways to get the
+image onto it): **[docs/pi-setup.md](docs/pi-setup.md)**. Configuration, operations, backup and
+rollback: **[docs/deployment.md](docs/deployment.md)**. The short version:
 
 ```bash
 docker build -t toon-recipe:local .          # one image: API + PWA, one port

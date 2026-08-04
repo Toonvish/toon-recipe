@@ -4,6 +4,11 @@ Ein Container-Stack, ein Origin, keine fremden Dienste. Von einem frischen Pi bi
 installierten App auf dem Handy sind es die sechs Schritte in [Erstinstallation](#erstinstallation);
 danach deployt GitHub Actions jeden Push auf `main` automatisch.
 
+> **Ganz von vorn — leere SD-Karte, kein Docker, kein GitHub?** Dann ist
+> **[docs/pi-setup.md](./pi-setup.md)** die Anleitung: Betriebssystem schreiben, Pi-Eigenheiten
+> (Memory-Cgroup, Swap), Docker, und drei Wege, das Image auf den Pi zu bekommen. Dieses Dokument
+> hier setzt einen Pi mit Docker voraus und ist danach die Referenz für den Betrieb.
+
 ---
 
 ## Was hier läuft
@@ -225,6 +230,33 @@ cd /opt/toon-recipe && docker compose pull && docker compose up -d
 
 Der Deploy-Job schreibt den ausgelieferten Image-**Digest** in die `.env`, damit ein
 späteres `docker compose up -d` dieselbe Version startet und nicht auf `latest` zurückfällt.
+
+### Caddy und Mailpit aktualisieren
+
+Beide sind in der `docker-compose.yml` **auf eine Version festgenagelt** und wandern
+deshalb bei einem `docker compose pull` nicht mit. Das ist Absicht: ein gleitendes
+`caddy:2-alpine` kann die TLS-Terminierung unter einer laufenden Installation
+austauschen, und wenn dabei etwas schiefgeht, ist die Seite weg, über die du den Pi
+erreichst. Sicherheitsupdates muss man dafür selbst einspielen — ein bis zwei Mal im
+Jahr nachsehen genügt:
+
+```bash
+# aktuelle Versionen nachschlagen
+curl -s https://api.github.com/repos/caddyserver/caddy/releases/latest  | grep '"tag_name"'
+curl -s https://api.github.com/repos/axllent/mailpit/releases/latest    | grep '"tag_name"'
+```
+
+Dann die `image:`-Zeilen in `docker-compose.yml` im Repo anpassen, pushen — der
+Deploy-Job kopiert die Datei auf den Pi und startet neu. Vorher lokal gegenprüfen:
+
+```bash
+docker run --rm -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
+  -e TOON_HOSTNAME=rezepte.test caddy:<neue-version>-alpine \
+  caddy validate --config /etc/caddy/Caddyfile
+```
+
+Die Bun-Version steht an einer Stelle: `ARG BUN_VERSION` im `Dockerfile`, plus
+`.bun-version` für die CI. Beide müssen zusammenpassen.
 
 ### Rollback
 
