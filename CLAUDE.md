@@ -168,6 +168,23 @@ add to that panel instead.
   `injectRegister: false`); `src/lib/pwa.ts` registers it in production only. `/api` and `/uploads`
   must stay in `navigateFallbackDenylist` and out of `runtimeCaching` — a cached API response would
   be a data-correctness bug.
+- **`skipWaiting` is OFF, and turning it back on breaks code splitting.** With it on, a new worker
+  claims a document still running the OLD bundle; the next lazy route then asks the NEW precache for
+  an `assets/Page-<hash>.js` that no longer exists (`cleanupOutdatedCaches` deleted it on activate) →
+  lazy-import failure into the ErrorBoundary. So the worker waits and `lib/pwa.ts` owns the swap:
+  `update()` on `visibilitychange`/`online`/30 min (an installed iOS app only navigates at launch, so
+  without this a deploy needed TWO cold starts), then `SKIP_WAITING` → `controllerchange` → reload.
+  **It applies automatically only when `hasUnsavedWork()` is false**; otherwise `UpdateBanner` asks,
+  and saving the form applies the pending update by itself. `controllerchange` is gated on
+  `hadController` so a FIRST install (which `clientsClaim` also signals) does not reload. There is
+  deliberately **no fallback timer** on the reload — a blind reload would retry a failing swap on
+  every launch, i.e. a boot loop.
+- **`lib/unsavedWork.ts` is the one place that answers "would a reload lose something".** A COUNTER,
+  not a boolean (two screens can be dirty at once), read outside React by the update policy.
+  `useNavigationGuard` registers with it, so anything that already blocks navigation also holds back
+  an update — a new screen needs no extra wiring. `useDraftAutosave` registers `dirty|saving|error`
+  separately, since it has no router guard. Queued shopping mutations are NOT unsaved work: they are
+  in IndexedDB and replay after the reload.
 - **The URL importer's SSRF guard blocks localhost/private IPs.** For local fixtures use
   `IMPORT_ALLOW_PRIVATE_HOSTS=1` (dev only, ignored in production).
 - **A JSON-LD property can be a `@graph` REFERENCE, and an `@id` looks exactly like a usable URL.**
@@ -361,7 +378,7 @@ All four must be clean before calling anything done:
 ```bash
 bun install
 bun run typecheck    # tsc for packages/shared, apps/api, apps/web
-bun test             # 843 tests
+bun test             # 848 tests
 bun run build        # vite build + PWA
 ```
 

@@ -5,6 +5,7 @@ import { InstallPrompt } from "./InstallPrompt";
 import { OfflineBanner } from "./OfflineBanner";
 import { SideNav } from "./SideNav";
 import { TopBar } from "./TopBar";
+import { UpdateBanner } from "./UpdateBanner";
 
 /**
  * The authenticated app frame.
@@ -18,6 +19,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="lg:pl-64">
         <TopBar />
         <OfflineBanner />
+        <UpdateBanner />
         <main className="mx-auto w-full max-w-5xl px-4 pt-4 pb-tabbar px-safe lg:px-8 lg:pt-8">
           <InstallPrompt />
           {children}

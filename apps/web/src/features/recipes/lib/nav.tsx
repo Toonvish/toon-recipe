@@ -8,6 +8,7 @@
  */
 import type { ComponentType, ReactNode } from "react";
 import { Link, useBlocker, useNavigate, useParams } from "@tanstack/react-router";
+import { useUnsavedWork } from "@/lib/unsavedWork";
 
 type LooseProps = Record<string, unknown>;
 const LooseLink = Link as unknown as ComponentType<LooseProps>;
@@ -80,8 +81,13 @@ export interface NavigationGuard {
  * Blocks in-app navigation (and the browser's own unload prompt) while `dirty` is true,
  * so an unsaved recipe form can ask for confirmation. The generic `useBlocker` types are
  * bound to the router's route tree, hence the narrow local typing.
+ *
+ * It also registers the same flag with {@link useUnsavedWork}, because a service-worker
+ * update reloads the document — which is a navigation the router cannot block. Doing it
+ * here means every existing caller is covered without knowing about it.
  */
 export function useNavigationGuard(dirty: boolean): NavigationGuard {
+  useUnsavedWork(dirty);
   const blocker = useBlocker({
     shouldBlockFn: () => dirty,
     enableBeforeUnload: () => dirty,

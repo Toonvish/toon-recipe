@@ -184,8 +184,24 @@ export default defineConfig(({ mode }) => {
           navigateFallbackDenylist: [/^\/api\//, /^\/uploads\//],
           navigationPreload: false,
           cleanupOutdatedCaches: true,
+          // Claims the page on FIRST install, so offline works without a reload. Its
+          // precache is the same version as the running document, so nothing mismatches.
           clientsClaim: true,
-          skipWaiting: true,
+          /**
+           * skipWaiting is OFF, and that is the whole update story.
+           *
+           * With it on, a new worker activates the instant it installs and claims a
+           * document that is still running the OLD bundle. This app is code-split
+           * (lib/lazy-page.tsx), so the next route the user opens asks the NEW precache
+           * for an OLD `assets/Page-<hash>.js` that no longer exists — a lazy-import
+           * failure into the ErrorBoundary. `cleanupOutdatedCaches` deletes the old
+           * precache on activate, which is exactly when that starts happening.
+           *
+           * So the new worker WAITS, and `lib/pwa.ts` decides when to let it through:
+           * immediately when nothing is unsaved, otherwise when the user taps the
+           * UpdateBanner. Activation and the reload then happen together.
+           */
+          skipWaiting: false,
           runtimeCaching: RUNTIME_CACHING,
           maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         },

@@ -215,6 +215,26 @@ curl -fsSL  https://raw.githubusercontent.com/Toonvish/toon-recipe/main/docker/C
 `pull` den neuesten `main`-Build; steht dort ein `@sha256:…`-Digest, bleibt die Version
 festgenagelt, bis du sie änderst. Digests stehen in der Summary jedes Release-Laufs.
 
+#### Wie die neue Version auf die Geräte kommt
+
+**Nichts zu tun — die installierte App holt sie selbst.** Sie fragt beim Server nach einer
+neuen Version, sobald sie in den Vordergrund kommt (dazu noch alle 30 Minuten und wenn die
+Verbindung zurückkommt), lädt sie im Hintergrund und startet sich dann neu. Ein
+installiertes iOS-Web-App navigiert nur beim Start, deshalb ist der Vordergrund-Check der
+entscheidende: einmal aus dem App-Switcher zurückholen genügt.
+
+Ausnahme: **wenn gerade ungespeicherte Eingaben auf dem Bildschirm stehen** (ein halb
+getipptes Rezept, ein Import-Entwurf mit offenen Änderungen) lädt sie *nicht* von selbst neu
+— sonst wären die Eingaben weg. Stattdessen erscheint oben ein Hinweis „Neue Version
+verfügbar“ mit einem Knopf. Speichern reicht auch: dann zieht sie das Update selbst nach.
+
+Wenn eine App tagelang auf einer alten Version hängt, liegt es fast immer daran, dass etwas
+`sw.js` oder `index.html` zwischenspeichert. Prüfen mit:
+
+```bash
+curl -sI https://<hostname>/sw.js | grep -i cache-control   # muss "no-cache" sein
+```
+
 ### Caddy und Mailpit aktualisieren
 
 Beide sind in der `docker-compose.yml` **auf eine Version festgenagelt** und wandern

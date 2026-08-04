@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ParsedRecipe } from "@toon/shared";
+import { useUnsavedWork } from "@/lib/unsavedWork";
 import { isSameParsedRecipe, normalizeParsedRecipe } from "./draftEdit";
 import { describeError } from "./importApi";
 import { useSaveDraft } from "./queries";
@@ -121,6 +122,11 @@ export function useDraftAutosave(options: AutosaveOptions): AutosaveResult {
       window.removeEventListener("pagehide", onPageHide);
     };
   }, [enabled, runSave]);
+
+  // An app update reloads the document, which would drop edits the debounce has not
+  // flushed yet (and a failed save has nowhere else to live). Registering the state here
+  // means the update waits and the UpdateBanner asks instead — see lib/pwa.ts.
+  useUnsavedWork(state === "dirty" || state === "saving" || state === "error");
 
   const label =
     state === "saving"
