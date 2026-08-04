@@ -30,7 +30,7 @@ jobs:
       # ~/.bun/install/cache is what `bun install` actually reads; keying on the
       # lockfile means a dependency change is the only thing that pays full price.
       - name: Cache bun install cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
