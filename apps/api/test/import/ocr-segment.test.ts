@@ -1,8 +1,27 @@
 /**
  * OCR text -> recipe segmentation, quantity repair, and the image/PDF pipelines.
  * A FAKE OcrEngine is injected everywhere — real Tesseract never runs in tests.
+ *
+ * THIS FILE STUBS `pdf-to-img` AND MUST HAND IT BACK (see the afterAll at the
+ * bottom). `mock.module` is process-global and bun NEVER restores it between test
+ * files, and the file execution order is filesystem-dependent — so leaving the
+ * stub installed breaks `pdf-rasterize.test.ts` (the one test that uses the REAL
+ * rasterizer) on whichever machine happens to enumerate this file first. Same rule
+ * as `setMailer(null)` for the mailer.
  */
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, describe, expect, mock, test } from "bun:test";
+import * as pdfToImg from "pdf-to-img";
+
+/**
+ * The REAL `pdf()`, snapshotted BY VALUE at module-evaluation time (before any
+ * `mock.module` below runs) so the afterAll at the bottom can put it back.
+ *
+ * It has to be the function, not the namespace: a namespace object is a LIVE view
+ * of the module registry, so after `mock.module` replaces the module, `pdfToImg.pdf`
+ * is the stub — and "restoring" from the namespace restores the stub over itself,
+ * which looks like it works and changes nothing.
+ */
+const realPdf = pdfToImg.pdf;
 import { ApiError } from "../../src/lib/errors.ts";
 import { importFromImage, importFromPdf, importFromText } from "../../src/services/import/ocr/index.ts";
 import {
@@ -584,4 +603,22 @@ describe("PDF text handling", () => {
     expect(result.parsed.ingredients).toHaveLength(2);
     expect(result.rawText).toContain("300 g Mehl");
   });
+});
+
+/**
+ * Hands `pdf-to-img` back to the rest of the suite.
+ *
+ * `mock.module` is process-global and bun does NOT undo it when a test file ends,
+ * so without this the stub above stays installed for every file that runs after
+ * this one. `pdf-rasterize.test.ts` is the only test that exercises the REAL
+ * rasterizer, and with the stub in place its rendered-size assertion fails —
+ * which is precisely the failure that assertion exists to catch.
+ *
+ * The failure is ORDER-DEPENDENT and therefore machine-dependent: bun enumerates
+ * test files from the filesystem, not alphabetically, so a fresh clone (CI) can
+ * run this file first while a working copy runs it second. It passed locally and
+ * failed in CI for exactly that reason.
+ */
+afterAll(() => {
+  mock.module("pdf-to-img", () => ({ pdf: realPdf }));
 });

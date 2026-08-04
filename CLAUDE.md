@@ -259,6 +259,18 @@ add to that panel instead.
   endpoints must stay out of `runtimeCaching`. `PERSIST_BUSTER` is `v2` since the blob also carries
   paused mutations.
 - **`build.sourcemap` is off** so the client TypeScript is not published with the bundle.
+- **`mock.module` LEAKS ACROSS TEST FILES and bun never restores it, and the file execution order is
+  FILESYSTEM order, not alphabetical.** Both halves matter: `bun test` runs every file in one process,
+  so a stub installed in one file is still installed in the next; and which file is "next" differs
+  between a working copy and a fresh clone, so the resulting failure appears only on some machines.
+  This is exactly how `ocr-segment.test.ts` (which stubs `pdf-to-img`) broke `pdf-rasterize.test.ts`
+  in CI while passing locally — one failing test, in ~3 ms, on the rendered-size assertion.
+  So: **a file that calls `mock.module()` must hand the module back in `afterAll`**, same rule as
+  `setMailer(null)`. And it must snapshot the real export **by value** at module-evaluation time
+  (`const realPdf = pdfToImg.pdf`) — a namespace object is a LIVE view of the registry, so
+  `mock.module(spec, () => namespace)` restores the stub over itself and silently does nothing.
+  `bun test a.ts b.ts` does NOT let you control the order, so ordering cannot be tested that way;
+  inject a stub into a file that already runs earlier instead.
 - **Bun 1.3 uses the ISOLATED linker for workspaces**, so `node_modules/` at the root holds nothing
   but the `.bun` store and each workspace gets its OWN symlink tree. A Dockerfile that copies only
   `/app/node_modules` builds and starts fine and then dies on the first request with
