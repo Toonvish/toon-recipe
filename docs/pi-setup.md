@@ -100,16 +100,60 @@ sudo reboot
 Nach dem Reboot in [Schritt 4](#4--docker-installieren) prüfen — `docker info` sagt es dann
 selbst.
 
-### 3b — Swap vergrößern
+### 3b — Swap prüfen, bei Bedarf vergrößern
 
-Standard sind 100 MB. Das reicht für den laufenden Betrieb, aber nicht, wenn das Image auf dem
-Pi gebaut werden soll (Weg **C**) oder bei 2 GB RAM ein PDF-Import dazwischenkommt:
+**Welcher Mechanismus greift, hängt von der OS-Version ab** — das ist zwischen Bookworm und
+Trixie ausgetauscht worden, und die alten Anleitungen im Netz passen dann nicht:
+
+```bash
+test -f /etc/rpi/swap.conf && echo "rpi-swap (Trixie und neuer)" || echo "dphys-swapfile (Bookworm und älter)"
+swapon --show                        # was JETZT aktiv ist — das ist die eigentliche Antwort
+```
+
+#### Trixie und neuer: `rpi-swap`
+
+Hier ist nichts zu tun. `Mechanism=auto` in `/etc/rpi/swap.conf` bedeutet zram **plus**
+Auslagerungsdatei, und die Datei wird auf `min(RAM × 1, 2048 MiB, 50 % der Platte)` bemessen —
+auf einem Pi mit 2 GB und einer normalen Karte also schon rund 2 GB. Der frühere
+100-MB-Standard ist damit Geschichte. `swapon --show` sollte eine `/dev/zram0`-Zeile **und**
+eine `/var/swap`-Zeile zeigen.
+
+Nur falls die `/var/swap`-Zeile fehlt oder klein ausfällt (kleine Karte → die 50-%-Grenze
+greift) und du das Image auf dem Pi bauen willst: eine echte Datei fest vorgeben. zram
+komprimiert Seiten in den RAM und schafft damit keine echte zusätzliche Kapazität für einen
+Build, eine Datei schon.
+
+```bash
+sudo mkdir -p /etc/rpi/swap.conf.d/
+sudo tee /etc/rpi/swap.conf.d/80-toon-swap.conf > /dev/null <<'EOF'
+[Main]
+Mechanism=swapfile
+
+[File]
+FixedSizeMiB=2048
+EOF
+sudo reboot
+```
+
+Der Reboot ist Pflicht: die Konfiguration wird von einem systemd-Generator in der frühen
+Boot-Phase ausgewertet, ein Service-Restart genügt nicht. Danach `swapon --show` prüfen.
+
+`Mechanism=swapfile` schaltet zram ab — für einen Build ist die echte Datei die
+vorhersagbarere Größe. Wer zram behalten will, nimmt `Mechanism=zram+file` und lässt
+`FixedSizeMiB` unter `[File]` stehen. Nach dem Build kann die Datei wieder weg
+(`sudo rm /etc/rpi/swap.conf.d/80-toon-swap.conf && sudo reboot`), dann gilt erneut der
+Standard.
+
+#### Bookworm und älter: `dphys-swapfile`
+
+Standard sind hier **100 MB**. Das reicht für den laufenden Betrieb, aber nicht, wenn das Image
+auf dem Pi gebaut werden soll (Weg **C**) oder bei 2 GB RAM ein PDF-Import dazwischenkommt:
 
 ```bash
 sudo dphys-swapfile swapoff
 sudo sed -i 's/^CONF_SWAPSIZE=.*/CONF_SWAPSIZE=2048/' /etc/dphys-swapfile
 sudo dphys-swapfile setup && sudo dphys-swapfile swapon
-free -h                             # Swap: ~2,0Gi
+free -h                              # Swap: ~2,0Gi
 ```
 
 ---
@@ -178,7 +222,8 @@ ssh <benutzer>@rezepte.fritz.box 'docker images toon-recipe'
 
 ### Weg C — direkt auf dem Pi bauen
 
-Braucht das Repo auf dem Pi, den vergrößerten Swap aus [Schritt 3b](#3b--swap-vergrößern) und
+Braucht das Repo auf dem Pi, ausreichend Swap
+([Schritt 3b](#3b--swap-prüfen-bei-bedarf-vergrößern)) und
 Geduld: der Web-Build und die OCR-Sprachdaten entstehen hier nativ auf dem Pi statt auf einem
 CI-Runner, das sind je nach Modell 20–60 Minuten.
 
@@ -361,7 +406,7 @@ cd /opt/toon-recipe && docker compose pull && docker compose up -d
 | `WARNING: No memory limit support` | [Schritt 3a](#3a--memory-cgroup-einschalten) fehlt oder `cmdline.txt` hat jetzt zwei Zeilen. |
 | `SESSION_SECRET fehlt` beim `up` | Die `.env` liegt nicht **neben** der `docker-compose.yml` oder `SESSION_SECRET` ist leer. |
 | `manifest unknown` / `denied` beim Pull | GHCR-Paket noch privat → `docker login ghcr.io` (Weg A) oder falscher `TOON_IMAGE`-Wert. |
-| Build auf dem Pi bricht mit „killed“ ab | Swap zu klein → [Schritt 3b](#3b--swap-vergrößern), oder Weg **A**/**B** nehmen. |
+| Build auf dem Pi bricht mit „killed“ ab | Swap zu klein → [Schritt 3b](#3b--swap-prüfen-bei-bedarf-vergrößern), oder Weg **A**/**B** nehmen. |
 | Warnung **und** keine Installations-Option | Wurzelzertifikat fehlt oder ist auf iOS nicht *aktiviert* → [Schritt 8](#8--wurzelzertifikat-auf-jedes-gerät). |
 | Warnung, obwohl das Zertifikat installiert ist | Zugriff über die IP oder einen anderen Namen als `TOON_HOSTNAME`. |
 | Einkaufsliste funktioniert offline nicht | Gleiche Ursache: kein Service-Worker ohne vertrauenswürdiges Zertifikat. |
