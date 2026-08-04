@@ -166,6 +166,19 @@ add to that panel instead.
   be a data-correctness bug.
 - **The URL importer's SSRF guard blocks localhost/private IPs.** For local fixtures use
   `IMPORT_ALLOW_PRIVATE_HOSTS=1` (dev only, ignored in production).
+- **A JSON-LD property can be a `@graph` REFERENCE, and an `@id` looks exactly like a usable URL.**
+  chefkoch.de emits `"image": {"@id": "…/Rezept.html#primaryimage"}` with the real `ImageObject` as a
+  sibling node, so reading the `@id` made the RECIPE PAGE the hero image (a broken `<img>` in the
+  review pane) and turned `publisher`/`author` into URLs. `resolveNodeReferences()` +
+  `buildIdIndex()` (`services/import/url/jsonld.ts`) inline every reference before
+  `mapSchemaRecipe` sees the node; `isNodeReference()` (only `@id`/`@type` keys) is also the guard in
+  `scalar()` and `imageUrls()` for a reference the page never defines. Fixture:
+  `test/fixtures/import/chefkoch-graph.html` — keep it, `chefkoch-jsonld.html` is the OLD
+  self-contained shape and does not exercise this.
+- **The hero image is a CANDIDATE LIST, not one URL** (`HtmlExtraction.imageCandidates`, one per
+  extraction layer, best first, `MAX_IMAGE_ATTEMPTS` tried). `mergeParsedFields` is first-wins, so a
+  single value meant a dead JSON-LD image URL blocked the `og:image` that would have worked. Collect
+  in `consider()`, i.e. BEFORE the merge.
 - **`parseDuration` / `parseServings` return the UPPER bound** of a range (`"20-25 Minuten"` → 25).
   `scaleIngredients` throws `RangeError` for factor ≤ 0 and leaves `raw` untouched (provenance).
 - **TWO INCOMPATIBLE pdf.js COPIES share the process.** `unpdf` (text layer) bundles pdf.js 6 and
@@ -317,7 +330,7 @@ All four must be clean before calling anything done:
 ```bash
 bun install
 bun run typecheck    # tsc for packages/shared, apps/api, apps/web
-bun test             # 821 tests
+bun test             # 834 tests
 bun run build        # vite build + PWA
 ```
 

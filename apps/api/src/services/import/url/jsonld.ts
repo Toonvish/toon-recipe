@@ -8,6 +8,8 @@
  *   - `{ "@context":…, "@graph":[ …, { "@type":"Recipe" } ] }` (Yoast/WPRM)
  *   - `"@type": ["Recipe","NewsArticle"]`                     (array types)
  *   - nested Recipe under `mainEntity` / `mainEntityOfPage` / `itemListElement`
+ *   - properties given as a `@graph` REFERENCE (`"image": {"@id":"…#primaryimage"}`)
+ *     instead of inline — see {@link resolveNodeReferences}
  *   - invalid JSON: trailing commas, CDATA wrappers, HTML comments, raw
  *     newlines inside strings, and `<!--` prefixes.
  *
@@ -210,6 +212,98 @@ function ingredientCount(node: JsonLdNode): number {
   const value = node.recipeIngredient ?? node.ingredients;
   if (Array.isArray(value)) return value.length;
   return typeof value === "string" && value.length > 0 ? 1 : 0;
+}
+
+/* --------------------------- @graph id references -------------------------- */
+
+/**
+ * How deep a reference chain is followed, and how many references may be expanded
+ * in total. Both are pure runaway guards: a page whose nodes point at each other in
+ * a fan-out would otherwise duplicate subtrees exponentially.
+ */
+const MAX_RESOLVE_DEPTH = 6;
+const MAX_RESOLUTIONS = 500;
+
+/**
+ * True for `{ "@id": "…" }` (optionally with a `@type`): inside a `@graph` payload
+ * that is a POINTER at a sibling node, not content.
+ *
+ * It matters because the `@id` looks exactly like a usable URL. chefkoch.de emits
+ * `"image": { "@id": "https://…/Rezept.html#primaryimage" }` and puts the real
+ * `ImageObject` next to the Recipe, so reading the `@id` as the image URL yields the
+ * RECIPE PAGE as the hero image — an `<img src>` that renders as a broken image.
+ * Same shape for `publisher` and `author`, where it yields a URL as the site name.
+ */
+export function isNodeReference(value: unknown): value is { "@id": string } {
+  if (!isObject(value)) return false;
+  const id = value["@id"];
+  if (typeof id !== "string" || id.trim().length === 0) return false;
+  return Object.keys(value).every((key) => key === "@id" || key === "@type");
+}
+
+/**
+ * `@id` -> the node that DEFINES it, across every JSON-LD payload on the page.
+ *
+ * Reference-only nodes are skipped so a pointer can never shadow the definition, and
+ * the first definition wins (a duplicate id is malformed either way).
+ */
+export function buildIdIndex(payloads: readonly unknown[]): Map<string, JsonLdNode> {
+  const index = new Map<string, JsonLdNode>();
+  for (const payload of payloads) {
+    for (const node of flattenJsonLd(payload)) {
+      const id = node["@id"];
+      if (typeof id !== "string" || id.length === 0) continue;
+      if (isNodeReference(node) || index.has(id)) continue;
+      index.set(id, node);
+    }
+  }
+  return index;
+}
+
+/**
+ * Returns a copy of `node` with every `{ "@id": … }` reference replaced by the node
+ * it points at, so the rest of the pipeline only ever sees inlined content.
+ *
+ * An id that is not in `index` is left exactly as it was — a page without a `@graph`
+ * comes out unchanged.
+ */
+export function resolveNodeReferences(node: JsonLdNode, index: Map<string, JsonLdNode>): JsonLdNode {
+  if (index.size === 0) return node;
+  const budget = { left: MAX_RESOLUTIONS };
+  return resolveValue(node, index, [], 0, budget) as JsonLdNode;
+}
+
+/**
+ * `seen` is the chain of ids expanded on the way here, which is what breaks the
+ * cycles real pages contain (a WebPage names its Organization, which names the
+ * WebSite, which names the same WebPage back).
+ */
+function resolveValue(
+  value: unknown,
+  index: Map<string, JsonLdNode>,
+  seen: readonly string[],
+  depth: number,
+  budget: { left: number },
+): unknown {
+  if (depth > MAX_RESOLVE_DEPTH) return value;
+  if (Array.isArray(value)) return value.map((entry) => resolveValue(entry, index, seen, depth + 1, budget));
+  if (!isObject(value)) return value;
+
+  if (isNodeReference(value)) {
+    const id = value["@id"] as string;
+    const target = index.get(id);
+    if (target === undefined || seen.includes(id) || budget.left <= 0) return value;
+    budget.left -= 1;
+    return resolveValue(target, index, [...seen, id], depth + 1, budget);
+  }
+
+  const ownId = typeof value["@id"] === "string" ? (value["@id"] as string) : undefined;
+  const nextSeen = ownId === undefined ? seen : [...seen, ownId];
+  const out: JsonLdNode = {};
+  for (const [key, entry] of Object.entries(value)) {
+    out[key] = resolveValue(entry, index, nextSeen, depth + 1, budget);
+  }
+  return out;
 }
 
 /** Convenience: the best Recipe node on a page, or null. */

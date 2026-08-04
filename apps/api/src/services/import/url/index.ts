@@ -2,11 +2,11 @@
  * URL import pipeline.
  *
  *   fetch (SSRF-guarded, per-redirect-hop)
- *     -> JSON-LD schema.org Recipe        (best, method "json-ld")
+ *     -> JSON-LD schema.org Recipe        (best, method "json-ld", @id refs inlined)
  *     -> microdata itemprop Recipe        (method "microdata")
  *     -> site adapter / generic selectors (method "selector")
  *     -> <meta> / <title> gap filling
- *     -> hero image download
+ *     -> hero image download, first candidate that actually stores
  *     -> ParsedRecipe + confidence + sourceMeta
  *
  * The layers are always merged in that order via `mergeParsedFields` (first
@@ -26,11 +26,14 @@ import { type ElementNode, parseHtml } from "../html/parse.ts";
 import { type ParsedFields, adoptIngredientSections, finalizeParsed, mergeParsedFields } from "../parsed.ts";
 import { adaptersFor, normalizeHost } from "./adapters/index.ts";
 import { type FetchHtmlOptions, fetchHtml } from "./fetch.ts";
-import { findRecipeNodes, extractJsonLd } from "./jsonld.ts";
+import { buildIdIndex, findRecipeNodes, extractJsonLd, resolveNodeReferences } from "./jsonld.ts";
 import { extractMetaFields, siteNameFromHost } from "./meta.ts";
 import { findMicrodataRecipe } from "./microdata.ts";
 import { downloadHeroImage, type DownloadHeroImageOptions } from "./image.ts";
 import { mapSchemaRecipe, scoreStructuredFields } from "./schema-map.ts";
+
+/** How many hero-image candidates may be tried before giving up. */
+const MAX_IMAGE_ATTEMPTS = 3;
 
 /** Base confidence per extraction layer — structured data is simply better. */
 const METHOD_BASE_CONFIDENCE: Record<Extract<ExtractionMethod, "json-ld" | "microdata" | "selector">, number> = {
@@ -50,8 +53,16 @@ export interface HtmlExtraction {
   /** Which layers contributed anything, for diagnostics/tests. */
   layers: ExtractionMethod[];
   host: string;
-  /** Remote hero image URL before it was (maybe) downloaded. */
-  remoteImageUrl?: string;
+  /**
+   * Remote hero-image URLs, best first — one per layer that offered one, deduped.
+   *
+   * A LIST, not a single value, because the layers disagree and the best-ranked one
+   * is not always downloadable: the first entry is whatever `parsed.imageUrl` holds,
+   * and `importFromUrl` falls through to the next when a download fails. That is what
+   * makes a site whose JSON-LD image 404s (or is a stale CDN path) still end up with
+   * the `og:image` the head advertises, instead of a broken image in the review pane.
+   */
+  imageCandidates: string[];
   /** Cleaned page text kept as `rawText` so the review screen can show it. */
   rawText: string;
 }
@@ -72,6 +83,7 @@ export function extractRecipeFromHtml(html: string, options: ExtractFromHtmlOpti
   let bestBase = 0;
   /** Ingredients of a layer we did NOT use, kept only for their group headings. */
   let sectionDonor: readonly RecipeIngredient[] | undefined;
+  const imageCandidates: string[] = [];
 
   const consider = (candidate: ParsedFields, method: ExtractionMethod, base: number): void => {
     const contributes = Object.values(candidate).some(
@@ -79,6 +91,10 @@ export function extractRecipeFromHtml(html: string, options: ExtractFromHtmlOpti
     );
     if (!contributes) return;
     layers.push(method);
+    // Collected per layer, BEFORE the merge drops all but the first one.
+    if (typeof candidate.imageUrl === "string" && candidate.imageUrl.length > 0) {
+      imageCandidates.push(candidate.imageUrl);
+    }
     const hadIngredients = (fields.ingredients?.length ?? 0) > 0;
     if (
       hadIngredients &&
@@ -94,10 +110,17 @@ export function extractRecipeFromHtml(html: string, options: ExtractFromHtmlOpti
     }
   };
 
-  // 1. JSON-LD
-  const jsonLdNodes = findRecipeNodes(extractJsonLd(doc));
+  // 1. JSON-LD. Every node is inlined against the page's `@id` index first, so a
+  // `@graph` page (chefkoch, Yoast) is read the same way a self-contained one is.
+  const jsonLdPayloads = extractJsonLd(doc);
+  const idIndex = buildIdIndex(jsonLdPayloads);
+  const jsonLdNodes = findRecipeNodes(jsonLdPayloads);
   for (const node of jsonLdNodes.slice(0, 3)) {
-    consider(mapSchemaRecipe(node, { baseUrl: options.url, sourceName }), "json-ld", METHOD_BASE_CONFIDENCE["json-ld"]);
+    consider(
+      mapSchemaRecipe(resolveNodeReferences(node, idIndex), { baseUrl: options.url, sourceName }),
+      "json-ld",
+      METHOD_BASE_CONFIDENCE["json-ld"],
+    );
     if ((fields.ingredients?.length ?? 0) > 0 && (fields.steps?.length ?? 0) > 0) break;
   }
 
@@ -140,16 +163,14 @@ export function extractRecipeFromHtml(html: string, options: ExtractFromHtmlOpti
   const base = bestBase > 0 ? bestBase : METHOD_BASE_CONFIDENCE.selector;
   const confidence = scoreStructuredFields(fields, base);
 
-  const remoteImageUrl = fields.imageUrl;
-  const extraction: HtmlExtraction = {
+  return {
     parsed: finalizeParsed(fields, confidence),
     method,
     layers: [...new Set(layers)],
     host,
+    imageCandidates: [...new Set(imageCandidates)],
     rawText: buildRawText(fields),
   };
-  if (remoteImageUrl !== undefined) extraction.remoteImageUrl = remoteImageUrl;
-  return extraction;
 }
 
 /**
@@ -232,14 +253,21 @@ export async function importFromUrl(rawUrl: string, options: ImportFromUrlOption
   }
 
   // Store the hero image locally so the recipe keeps working if the site changes.
-  if (options.downloadImage !== false && extraction.remoteImageUrl !== undefined) {
-    const stored = await downloadHeroImage(extraction.remoteImageUrl, {
-      refererUrl: fetched.url,
-      ...(options.resolve === undefined ? {} : { resolve: options.resolve }),
-      ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
-      ...(options.imageOptions ?? {}),
-    });
-    if (stored) parsed.imageUrl = stored.url;
+  // Tried in rank order and capped at MAX_IMAGE_ATTEMPTS: each attempt owns its own
+  // 8 s budget, so an unbounded list would let one page stall the whole import.
+  if (options.downloadImage !== false) {
+    for (const candidate of extraction.imageCandidates.slice(0, MAX_IMAGE_ATTEMPTS)) {
+      const stored = await downloadHeroImage(candidate, {
+        refererUrl: fetched.url,
+        ...(options.resolve === undefined ? {} : { resolve: options.resolve }),
+        ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
+        ...(options.imageOptions ?? {}),
+      });
+      if (stored) {
+        parsed.imageUrl = stored.url;
+        break;
+      }
+    }
   }
 
   const sourceMeta: ImportSourceMeta = {

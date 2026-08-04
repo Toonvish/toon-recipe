@@ -99,14 +99,57 @@ describe("importFromUrl", () => {
     expect(await Bun.file(join(env.uploadDir, filename as string)).exists()).toBe(true);
   });
 
-  test("keeps the remote imageUrl when the download fails", async () => {
+  test("keeps the remote imageUrl when every candidate fails to download", async () => {
     const heroUrl = "https://img.chefkoch-cdn.de/rezepte/1234567890/bilder/1148929/crop-960x540/pfannkuchen.jpg";
+    const ogUrl = "https://img.chefkoch-cdn.de/rezepte/1234567890/bilder/pfannkuchen.jpg";
+    const scripted = createScriptedFetch({
+      [CHEFKOCH_URL]: { body: fixture("chefkoch-jsonld.html") },
+      [heroUrl]: { status: 404, body: "gone" },
+      [ogUrl]: { status: 404, body: "gone" },
+    });
+    const result = await importFromUrl(CHEFKOCH_URL, { fetchImpl: scripted.fetch, resolve });
+    expect(result.parsed.imageUrl).toBe(heroUrl);
+  });
+
+  test("falls through to the og:image when the JSON-LD image 404s", async () => {
+    const png = await makeTestPng(160, 90);
+    const heroUrl = "https://img.chefkoch-cdn.de/rezepte/1234567890/bilder/1148929/crop-960x540/pfannkuchen.jpg";
+    const ogUrl = "https://img.chefkoch-cdn.de/rezepte/1234567890/bilder/pfannkuchen.jpg";
     const scripted = createScriptedFetch({
       [CHEFKOCH_URL]: { body: fixture("chefkoch-jsonld.html") },
       [heroUrl]: { status: 404, body: "gone" },
     });
-    const result = await importFromUrl(CHEFKOCH_URL, { fetchImpl: scripted.fetch, resolve });
-    expect(result.parsed.imageUrl).toBe(heroUrl);
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url === ogUrl) return new Response(png, { headers: { "content-type": "image/png" } });
+      return await scripted.fetch(url, init);
+    }) as unknown as typeof fetch;
+
+    const result = await importFromUrl(CHEFKOCH_URL, { fetchImpl, resolve });
+    expect(result.parsed.imageUrl).toMatch(/^\/uploads\/[0-9a-f-]{36}\.png$/);
+    const filename = result.parsed.imageUrl?.replace("/uploads/", "");
+    if (filename) stored.add(filename);
+    // Both candidates were attempted, in rank order.
+    expect(scripted.requests).toContain(heroUrl);
+  });
+
+  test("stores the referenced ImageObject on a @graph page (chefkoch today)", async () => {
+    const png = await makeTestPng(96, 54);
+    const graphUrl = "https://www.chefkoch.de/rezepte/2133611343071438/Rote-Linsen-Curry-mit-Spaghetti.html";
+    const heroUrl =
+      "https://img.chefkoch-cdn.de/rezepte/2133611343071438/bilder/1383229/crop-960x540/rote-linsen-curry.jpg";
+    const scripted = createScriptedFetch({ [graphUrl]: { body: fixture("chefkoch-graph.html") } });
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url === heroUrl) return new Response(png, { headers: { "content-type": "image/png" } });
+      return await scripted.fetch(url, init);
+    }) as unknown as typeof fetch;
+
+    const result = await importFromUrl(graphUrl, { fetchImpl, resolve });
+    expect(result.parsed.imageUrl).toMatch(/^\/uploads\/[0-9a-f-]{36}\.png$/);
+    const filename = result.parsed.imageUrl?.replace("/uploads/", "");
+    if (filename) stored.add(filename);
+    expect(result.parsed.sourceName).toBe("Chefkoch");
   });
 });
 

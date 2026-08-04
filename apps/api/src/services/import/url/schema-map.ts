@@ -23,7 +23,7 @@ import {
   dedupeTags,
   normalizeDifficulty,
 } from "../parsed.ts";
-import { hasType, type JsonLdNode } from "./jsonld.ts";
+import { hasType, isNodeReference, type JsonLdNode } from "./jsonld.ts";
 
 /* ------------------------------ value readers ----------------------------- */
 
@@ -67,6 +67,11 @@ export function scalar(value: unknown, depth = 0): string | undefined {
     return undefined;
   }
   if (isObject(unwrapped)) {
+    // A bare `{"@id": …}` holds no text at all — its id is a @graph pointer, and
+    // returning it would put a URL where a name belongs (`sourceName`, author).
+    // `resolveNodeReferences` inlines the ones that CAN be resolved; this is the
+    // fallback for a reference whose target the page never defines.
+    if (isNodeReference(unwrapped)) return undefined;
     for (const key of ["@value", "text", "name", "url", "contentUrl", "@id", "description", "headline"]) {
       const found = scalar(unwrapped[key], depth + 1);
       if (found !== undefined) return found;
@@ -99,6 +104,9 @@ export function imageUrls(value: unknown): string[] {
   };
   for (const entry of toArray(value)) {
     if (isObject(entry)) {
+      // `{"@id": …}` alone is a @graph reference, never a URL: taking it would make
+      // the recipe PAGE the hero image. Skipping it lets `og:image` fill the gap.
+      if (isNodeReference(entry)) continue;
       push(entry.contentUrl ?? entry.url ?? entry["@id"]);
       // ImageObject.thumbnail is a last resort
       if (out.length === 0) push(entry.thumbnailUrl);

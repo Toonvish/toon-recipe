@@ -6,10 +6,13 @@ import { describe, expect, test } from "bun:test";
 import { cleanText, decodeHtmlEntities, stripTags } from "../../src/services/import/html/entities.ts";
 import { parseHtml, queryAll, textOf } from "../../src/services/import/html/parse.ts";
 import {
+  buildIdIndex,
   extractJsonLd,
   findRecipeNodes,
   hasType,
+  isNodeReference,
   parseJsonLdBlock,
+  resolveNodeReferences,
   sanitizeJsonLd,
   typesOf,
 } from "../../src/services/import/url/jsonld.ts";
@@ -20,6 +23,8 @@ import { adapterForHost, adaptersFor, hostMatches } from "../../src/services/imp
 import { fixture } from "./helpers.ts";
 
 const CHEFKOCH_URL = "https://www.chefkoch.de/rezepte/1234567890/Klassische-Pfannkuchen.html";
+const CHEFKOCH_GRAPH_URL =
+  "https://www.chefkoch.de/rezepte/2133611343071438/Rote-Linsen-Curry-mit-Spaghetti.html";
 const WPRM_URL = "https://biancazapatka.com/de/vegane-zimtschnecken/";
 const GRAPH_URL = "https://kochblog.example/lasagne/";
 const HOWTO_URL = "https://omas-kueche.example/kartoffelsuppe";
@@ -112,6 +117,49 @@ describe("finding the Recipe node", () => {
   });
 });
 
+describe("@graph @id references", () => {
+  test("isNodeReference is true only for an @id with no content beside it", () => {
+    expect(isNodeReference({ "@id": "https://x/#img" })).toBe(true);
+    expect(isNodeReference({ "@type": "ImageObject", "@id": "https://x/#img" })).toBe(true);
+    expect(isNodeReference({ "@id": "https://x/#img", url: "https://x/a.jpg" })).toBe(false);
+    expect(isNodeReference({ url: "https://x/a.jpg" })).toBe(false);
+    expect(isNodeReference({ "@id": "  " })).toBe(false);
+    expect(isNodeReference("https://x/#img")).toBe(false);
+  });
+
+  test("a reference-only node never shadows the definition in the index", () => {
+    const index = buildIdIndex([
+      { "@graph": [{ "@id": "#img" }, { "@type": "ImageObject", "@id": "#img", url: "https://a/b.jpg" }] },
+    ]);
+    expect(index.get("#img")?.url).toBe("https://a/b.jpg");
+  });
+
+  test("inlines image, publisher and author references", () => {
+    const payloads = extractJsonLd(fixture("chefkoch-graph.html"));
+    const node = findRecipeNodes(payloads)[0];
+    const resolved = resolveNodeReferences(node as Record<string, unknown>, buildIdIndex(payloads));
+    expect((resolved.image as { url?: string }).url).toBe(
+      "https://img.chefkoch-cdn.de/rezepte/2133611343071438/bilder/1383229/crop-960x540/rote-linsen-curry.jpg",
+    );
+    expect((resolved.publisher as { name?: string }).name).toBe("Chefkoch");
+    expect((resolved.author as { name?: string }).name).toBe("MissKitty81");
+  });
+
+  test("leaves an unknown id alone and survives a reference cycle", () => {
+    const index = buildIdIndex([
+      { "@graph": [{ "@type": "WebPage", "@id": "#page", isPartOf: { "@id": "#site" } }, { "@type": "WebSite", "@id": "#site", name: "Seite", mainEntity: { "@id": "#page" } }] },
+    ]);
+    const resolved = resolveNodeReferences({ "@type": "Recipe", isPartOf: { "@id": "#site" }, image: { "@id": "#nope" } }, index);
+    expect((resolved.isPartOf as { name?: string }).name).toBe("Seite");
+    expect(resolved.image).toEqual({ "@id": "#nope" });
+  });
+
+  test("a page without any @graph node comes back unchanged", () => {
+    const node = { "@type": "Recipe", name: "X", image: { "@id": "https://a/#img" } };
+    expect(resolveNodeReferences(node, new Map())).toBe(node);
+  });
+});
+
 describe("schema.org value shapes", () => {
   test("scalar unwraps @value / name / url / arrays", () => {
     expect(scalar("Hallo")).toBe("Hallo");
@@ -122,12 +170,27 @@ describe("schema.org value shapes", () => {
     expect(scalar(undefined)).toBeUndefined();
   });
 
+  test("scalar refuses a bare @id, so a @graph pointer never becomes a name", () => {
+    expect(scalar({ "@id": "https://www.chefkoch.de/#organization" })).toBeUndefined();
+    expect(scalar({ "@type": "Person", "@id": "https://x/#author" })).toBeUndefined();
+    // An @id NEXT TO real content is still readable.
+    expect(scalar({ "@id": "https://x/#author", name: "Oma" })).toBe("Oma");
+  });
+
   test("imageUrls handles string, array, ImageObject and @list", () => {
     expect(imageUrls("https://a/b.jpg")).toEqual(["https://a/b.jpg"]);
     expect(imageUrls(["https://a/1.jpg", "https://a/2.jpg"])).toEqual(["https://a/1.jpg", "https://a/2.jpg"]);
     expect(imageUrls({ url: "https://a/o.jpg" })).toEqual(["https://a/o.jpg"]);
     expect(imageUrls([{ contentUrl: "https://a/c.jpg" }])).toEqual(["https://a/c.jpg"]);
     expect(imageUrls({ "@list": [{ url: "//cdn/x.jpg" }] })).toEqual(["//cdn/x.jpg"]);
+  });
+
+  test("imageUrls skips a bare @id — it is a @graph pointer, not the photo", () => {
+    // Unresolved, this @id would make the RECIPE PAGE the hero image.
+    expect(imageUrls({ "@id": "https://www.chefkoch.de/rezepte/1/Pfannkuchen.html#primaryimage" })).toEqual([]);
+    expect(imageUrls({ "@type": "ImageObject", "@id": "https://x/#primaryimage" })).toEqual([]);
+    // Still read when the node carries an actual url beside its id.
+    expect(imageUrls({ "@id": "https://x/#primaryimage", url: "https://cdn/x.jpg" })).toEqual(["https://cdn/x.jpg"]);
   });
 
   test("flattenInstructions: plain string is split on newlines", () => {
@@ -319,6 +382,41 @@ describe("chefkoch fixture", () => {
 
   test("confidence is high for a structured page", () => {
     expect(result.parsed.confidence.overall).toBeGreaterThan(0.85);
+  });
+});
+
+describe("chefkoch @graph fixture (properties given as @id references)", () => {
+  const result = extractRecipeFromHtml(fixture("chefkoch-graph.html"), { url: CHEFKOCH_GRAPH_URL });
+
+  test("the hero image is the referenced ImageObject, not the page url", () => {
+    // The regression this fixture exists for: `image: {"@id": "…html#primaryimage"}`
+    // used to yield the recipe PAGE, which the review pane rendered as a broken image.
+    expect(result.parsed.imageUrl).toBe(
+      "https://img.chefkoch-cdn.de/rezepte/2133611343071438/bilder/1383229/crop-960x540/rote-linsen-curry.jpg",
+    );
+    expect(result.parsed.imageUrl).not.toContain("#primaryimage");
+  });
+
+  test("og:image is kept as the fallback candidate, ranked behind the JSON-LD one", () => {
+    expect(result.imageCandidates).toEqual([
+      "https://img.chefkoch-cdn.de/rezepte/2133611343071438/bilder/1383229/crop-960x540/rote-linsen-curry.jpg",
+      "https://img.chefkoch-cdn.de/rezepte/2133611343071438/bilder/1383229/og/rote-linsen-curry.jpg",
+    ]);
+  });
+
+  test("the referenced publisher becomes the site name and the author a note", () => {
+    expect(result.parsed.sourceName).toBe("Chefkoch");
+    expect(result.parsed.notes).toContain("MissKitty81");
+    expect(result.parsed.notes).not.toContain("#author");
+  });
+
+  test("the recipe itself still maps normally", () => {
+    expect(result.method).toBe("json-ld");
+    expect(result.parsed.title).toBe("Rote Linsen-Curry mit Spaghetti");
+    expect(result.parsed.ingredients).toHaveLength(8);
+    expect(result.parsed.steps).toHaveLength(4);
+    expect(result.parsed.servings).toEqual({ amount: 4, unit: "Portionen" });
+    expect(result.parsed.totalMinutes).toBe(30);
   });
 });
 
