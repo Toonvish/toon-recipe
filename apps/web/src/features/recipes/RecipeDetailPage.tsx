@@ -197,7 +197,7 @@ export default function RecipeDetailPage() {
   if (total) metaItems.push({ icon: Clock, label: "Gesamt", value: total });
 
   return (
-    <article className="recipe-print flex flex-col gap-5 pb-tabbar">
+    <article className="recipe-print flex flex-col gap-5">
       <div className="flex flex-col gap-3">
         {image ? (
           <img

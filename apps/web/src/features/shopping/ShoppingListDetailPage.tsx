@@ -73,7 +73,7 @@ export default function ShoppingListDetailPage() {
 
   if (list.isPending && !detail) {
     return (
-      <div className="flex flex-col gap-3 pb-tabbar">
+      <div className="flex flex-col gap-3">
         <Skeleton className="h-8 w-48" />
         {[0, 1, 2, 3].map((index) => (
           <Skeleton key={index} className="h-18 w-full rounded-card" />
@@ -90,7 +90,7 @@ export default function ShoppingListDetailPage() {
   if (!detail) return null;
 
   return (
-    <div className="flex min-h-full flex-col pb-tabbar">
+    <div className="flex min-h-full flex-col">
       <header className="mb-4 flex flex-col gap-2">
         <AppLink
           to="/shopping"

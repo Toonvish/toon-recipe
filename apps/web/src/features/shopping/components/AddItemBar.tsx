@@ -38,9 +38,17 @@ export function AddItemBar({ onAdd, disabled = false }: AddItemBarProps) {
   };
 
   return (
-    // `bottom-tabbar`, not `bottom-0`: the phone tab bar is FIXED and would otherwise
-    // cover this box (see the utility in styles/index.css).
-    <div className="bottom-tabbar sticky -mx-4 border-t border-line bg-surface/95 px-4 pt-3 pb-3 backdrop-blur-md sm:mx-0 sm:rounded-card sm:border sm:px-4">
+    // Three things hold this box against the tab bar; it drifts off if any goes.
+    //  - `bottom-tabbar`, not `bottom-0`: the phone tab bar is FIXED and would
+    //    otherwise cover this box (see the utility in styles/index.css).
+    //  - the page root is `min-h-full` with a `flex-1` spacer above this bar, so on a
+    //    SHORT list (the empty one!) it is pushed down instead of floating under the
+    //    last card — sticky only ever pulls an element up, never down.
+    //  - `-mb-4` swallows the 1rem of breathing room inside `pb-tabbar` on <main>,
+    //    which would otherwise leave a strip of page background under a bar whose
+    //    whole point is to look attached to the tab bar. From `sm` it is a rounded
+    //    card again, where that 1rem is exactly right.
+    <div className="bottom-tabbar sticky -mx-4 -mb-4 border-t border-line bg-surface/95 px-4 pt-3 pb-3 backdrop-blur-md sm:mx-0 sm:mb-0 sm:rounded-card sm:border sm:px-4">
       <form
         className="flex items-start gap-2"
         onSubmit={(event) => {

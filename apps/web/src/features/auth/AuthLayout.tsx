@@ -13,7 +13,7 @@ export interface AuthLayoutProps {
 /** Centred, one-handed-friendly frame for all public auth screens. */
 export function AuthLayout({ title, description, children, footer }: AuthLayoutProps) {
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center bg-bg px-4 py-8 px-safe">
+    <div className="flex min-h-dvh flex-col items-center justify-center bg-bg px-gutter py-8">
       <div className="w-full max-w-md">
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <Logo className="size-14" />

@@ -302,9 +302,28 @@ add to that panel instead.
   Two fields in a `grid-cols-2` demanded ~412px and pushed their card past a 390px phone. Same trap
   in a grid template: use `minmax(0,1fr)`, never a bare `1fr`, for a track holding a control, and put
   `min-w-0` on grid items that hold arbitrary content.
-- **A page component must NOT re-apply `mx-auto max-w-5xl px-4 pt-4 pb-tabbar`** — `AppShell`'s
+- **NEVER write `px-4 px-safe` (or `px-2 px-safe`) on one element.** `.px-safe` is
+  `padding-inline: env(safe-area-inset-left)` — a flat OVERRIDE, not an addition — and the
+  hand-written utilities in `styles/index.css` are emitted after everything Tailwind generates, so it
+  wins over both `px-4` and `lg:px-8` (a media query adds no specificity). A phone in portrait
+  reports an inset of 0, so `<main>`, the `TopBar` and `AuthLayout` had **no horizontal padding at
+  all**: every screen was edge-to-edge, and the three `-mx-4` bottom bars (shopping add box, recipe
+  form save bar, import review footer) bled 1rem past both screen edges — a page 2rem wider than the
+  display, scrolling sideways. Use `.px-gutter` (`max(var(--gutter,1rem), env(…))`) and set the
+  breakpoint gutter as a VARIABLE (`lg:[--gutter:2rem]`), never as a second padding utility. Keep
+  `.px-safe` only where the inset IS the whole padding (`BottomTabBar`, `CookMode`).
+- **A page component must NOT re-apply `mx-auto max-w-5xl px-gutter pt-4 pb-tabbar`** — `AppShell`'s
   `<main>` already does all four. `ImportReviewPage`'s `PageShell` did, which cost a phone 32px of
   the 390 it has and doubled the bottom padding. Page roots here are plain `flex flex-col gap-4`.
+  Ten of them had drifted back to `pb-tabbar` anyway: on the shopping list that stranded the sticky
+  add bar a whole tab-bar height above the tab bar. Grep before adding one.
+- **A `sticky bottom-*` bar can only be pushed UP, never DOWN**, so on a SHORT page it floats
+  wherever the content happens to end — which on the shopping list (empty = the common case) put the
+  add box in the middle of the screen. It needs real height above it: `<main>` is a `flex-1` item of
+  a `min-h-dvh` column so it has a definite height, the page root is `min-h-full` and a `flex-1`
+  spacer sits above the bar. `min-h-full` against an auto-height parent resolves to NOTHING, which
+  is why it silently did nothing before. The bar also carries `-mb-4` to swallow the 1rem of
+  breathing room inside `pb-tabbar`, or a strip of page background shows between it and the tab bar.
 - **A LIST never renders `imageUrl`; it renders the generated `thumbnailUrl`.** A recipe hero image is
   a phone photo or a downloaded original, routinely 2–5 MB, and a list asks for 24 of them — one screen
   was tens of megabytes. `services/media/thumbnails.ts` derives `<name>.thumb.webp` (480 px WebP,

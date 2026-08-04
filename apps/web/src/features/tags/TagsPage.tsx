@@ -51,7 +51,7 @@ export default function TagsPage() {
   const canDelete = hasAtLeast(role, "admin");
 
   return (
-    <div className="flex flex-col gap-4 pb-tabbar">
+    <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold text-fg">Tags</h1>

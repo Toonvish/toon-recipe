@@ -362,8 +362,8 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
         `bottom-0` with the same z-index and paints after this (AppShell renders it
         below <main>), so `bottom-0` put "Speichern" and "Verwerfen" completely
         underneath it — the import could not be committed on a phone at all. Sticky
-        also keeps the bar in flow, so `pb-tabbar` on PageShell is all the clearance
-        the content needs. Same pattern as the shopping list's AddItemBar.
+        also keeps the bar in flow, so `pb-tabbar` on AppShell's <main> is all the
+        clearance the content needs. Same pattern as the shopping list's AddItemBar.
       */}
       <div className="sticky bottom-tabbar z-20 -mx-4 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-surface/80 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0">
         <div className="mx-auto flex max-w-5xl items-center gap-2 px-safe">
@@ -424,7 +424,7 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
 }
 
 /**
- * No `mx-auto max-w-5xl px-4 pt-4 pb-tabbar` here: AppShell's `<main>` already applies
+ * No `mx-auto max-w-5xl px-gutter pt-4 pb-tabbar` here: AppShell's `<main>` already applies
  * every one of those. Repeating them cost a phone 32px of the 390 it has — the reason
  * the Grunddaten card did not fit — and doubled the bottom padding.
  */

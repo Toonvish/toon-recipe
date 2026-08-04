@@ -13,7 +13,9 @@ import { GroupSwitcher } from "@/features/groups/GroupSwitcher";
 export function TopBar() {
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-bg/90 pt-safe backdrop-blur-md lg:hidden">
-      <div className="flex h-topbar items-center gap-2 px-2 px-safe">
+      {/* `px-gutter`, never `px-2 px-safe` — see the utility: the inset would win and
+          leave no padding at all in portrait. */}
+      <div className="flex h-topbar items-center gap-2 px-gutter [--gutter:0.5rem]">
         <GroupSwitcher className="min-w-0 flex-1" />
         <Link
           to="/"

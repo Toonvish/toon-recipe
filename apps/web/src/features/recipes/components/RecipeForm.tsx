@@ -143,7 +143,7 @@ export function RecipeForm({
   })();
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5 pb-tabbar">
+    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
       {allErrors._form ? <ErrorState inline error={error} description={allErrors._form} /> : null}
 
       <Card padding="md" className="flex flex-col gap-4">

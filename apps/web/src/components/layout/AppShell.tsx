@@ -11,16 +11,31 @@ import { UpdateBanner } from "./UpdateBanner";
  * The authenticated app frame.
  *  - phones: sticky top bar + fixed bottom tab bar, content padded for both,
  *  - >= lg: fixed sidebar + centred content column.
+ *
+ * `<main>` owns the page's `mx-auto max-w-5xl px-gutter pt-4 pb-tabbar` — a page root
+ * must not re-apply any of them (a doubled `pb-tabbar` leaves a screenful of dead space
+ * under the content and strands a sticky bottom bar above the tab bar).
+ *
+ * It is also a FLEX ITEM that grows, which is what gives it a definite height: a page
+ * root can then say `min-h-full` and actually fill the screen, which is how the shopping
+ * list pushes its add bar to the bottom on a short list. Against an auto-height parent
+ * `min-height: 100%` resolves to nothing.
  */
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-dvh bg-bg">
       <SideNav />
-      <div className="lg:pl-64">
+      <div className="flex min-h-dvh flex-col lg:pl-64">
         <TopBar />
         <OfflineBanner />
         <UpdateBanner />
-        <main className="mx-auto w-full max-w-5xl px-4 pt-4 pb-tabbar px-safe lg:px-8 lg:pt-8">
+        {/*
+          The wider desktop gutter is `--gutter`, NOT `lg:px-8`: the hand-written
+          utilities in styles/index.css are emitted after everything Tailwind
+          generates, so `.px-gutter` would win over `lg:px-8` (a media query adds no
+          specificity) and desktop would quietly keep the phone gutter.
+        */}
+        <main className="mx-auto w-full max-w-5xl flex-1 px-gutter pt-4 pb-tabbar lg:pt-8 lg:[--gutter:2rem]">
           <InstallPrompt />
           {children}
         </main>

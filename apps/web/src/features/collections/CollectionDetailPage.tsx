@@ -107,7 +107,7 @@ export default function CollectionDetailPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4 pb-tabbar">
+    <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-2">
         <AppLink to="/collections" className="text-sm text-fg-muted hover:text-fg">
           ← Alle Sammlungen

@@ -125,9 +125,28 @@
   .pt-safe {
     padding-top: env(safe-area-inset-top, 0px);
   }
+  /*
+   * PURE INSET, and therefore NEVER combined with a `px-*` utility: both set
+   * padding-inline with the same specificity, and this rule is emitted later, so it
+   * WINS — with `env(safe-area-inset-left)` being 0px on a phone in portrait, `px-4
+   * px-safe` silently means "no horizontal padding at all". That is what made every
+   * phone screen edge-to-edge and pushed the shopping list's `-mx-4` add bar 1rem
+   * past both screen edges (a page 2rem wider than the display, scrolling sideways).
+   * Use `.px-gutter` for "gutter that also clears a notch"; keep this one for
+   * elements whose only horizontal padding IS the inset, e.g. the bottom tab bar.
+   */
   .px-safe {
     padding-left: env(safe-area-inset-left, 0px);
     padding-right: env(safe-area-inset-right, 0px);
+  }
+  /*
+   * The horizontal page gutter: at least `--gutter` (1rem by default), more when a
+   * notch demands it. `max()`, not `calc()` — adding them would indent content by
+   * ~60px in landscape on a notched phone.
+   */
+  .px-gutter {
+    padding-left: max(var(--gutter, 1rem), env(safe-area-inset-left, 0px));
+    padding-right: max(var(--gutter, 1rem), env(safe-area-inset-right, 0px));
   }
   /* Leaves room for the fixed bottom tab bar on small screens. */
   .pb-tabbar {

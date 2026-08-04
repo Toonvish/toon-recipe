@@ -75,7 +75,7 @@ export default function GroupDetailPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4 pb-tabbar">
+    <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-2">
         <AppLink to="/groups" className="text-sm text-fg-muted hover:text-fg">
           ← Alle Gruppen
