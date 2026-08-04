@@ -103,6 +103,8 @@ export interface UpdateItemVariables extends ItemVariables {
 export interface AddRecipeVariables extends ShoppingTarget {
   recipeId: string;
   servings?: number | undefined;
+  /** Subset of the recipe's ingredient rows; omitted means the whole recipe. */
+  ingredientIds?: readonly string[] | undefined;
 }
 export interface AddSuggestionVariables extends ShoppingTarget {
   entryId: string;
@@ -319,6 +321,11 @@ export function registerShoppingMutationDefaults(client: QueryClient): void {
         recipeId: variables.recipeId,
         mutationId: variables.mutationId,
         ...(variables.servings === undefined ? {} : { servings: variables.servings }),
+        // Omitted, not `[]`, when everything is selected: an empty array would mean
+        // "add nothing", and "the whole recipe" is the request we want to replay.
+        ...(variables.ingredientIds === undefined
+          ? {}
+          : { ingredientIds: [...variables.ingredientIds] }),
       };
       return addRecipeToShoppingList(variables.groupId, variables.listId, body);
     },

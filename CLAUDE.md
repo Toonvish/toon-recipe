@@ -50,6 +50,10 @@ recipes, import from URL / photo / PDF, mobile-first installable PWA. Bun worksp
    `shopping_list_items(list_id, merge_key)` turns 200 g + 200 g Mehl into one 400 g line. Amounts in
    units with no fixed ratio (`EL`, `Dose`) never merge across units, and an amount-less line never
    merges with a measured one. **This is the ONE feature that is editable offline** (see the gotcha).
+   `POST …/shopping-lists/:listId/recipes` takes an optional `ingredientIds` subset — OMITTED means
+   the whole recipe, which is what keeps an older client and a queued offline replay working. Unknown
+   ids are ignored, never rejected, for the same reason. `AddRecipeToListDialog` ticks every
+   ingredient by default and tracks the EXCLUDED set, so a recipe that gains a line stays all-on.
 8. **German-first content**: German units (`g kg ml l EL TL Prise Bund Pck. Stück Dose …`), unicode
    fractions, ranges (`2-3 Eier`), ISO-8601 durations. All UI copy in German.
 
@@ -357,7 +361,7 @@ All four must be clean before calling anything done:
 ```bash
 bun install
 bun run typecheck    # tsc for packages/shared, apps/api, apps/web
-bun test             # 840 tests
+bun test             # 843 tests
 bun run build        # vite build + PWA
 ```
 

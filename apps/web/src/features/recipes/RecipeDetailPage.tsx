@@ -45,7 +45,7 @@ import {
 import { useToast } from "@/components/ui";
 import { mediaUrl } from "@/lib/api";
 import { difficultyLabels, formatRelative, hostFromUrl, safeHttpUrl } from "@/lib/format";
-import { useActiveGroup, useCurrentUser } from "@/lib/session";
+import { useActiveGroup, useCurrentUser, useSession } from "@/lib/session";
 import { TagChip } from "@/features/tags/components/TagChip";
 import "./print.css";
 import { AppLink, useAppNavigate, useRouteParam } from "./lib/nav";
@@ -65,12 +65,14 @@ import { CookMode } from "./components/CookMode";
 import { AddRecipeToListDialog } from "@/features/shopping/components/AddRecipeToListDialog";
 import {
   useAddRecipeToShoppingList,
+  useCreateShoppingList,
   useShoppingLists,
 } from "@/features/shopping/lib/queries";
 
 export default function RecipeDetailPage() {
   const recipeId = useRouteParam("recipeId");
   const { groupId, role } = useActiveGroup();
+  const { isOnline } = useSession();
   const user = useCurrentUser();
   const navigate = useAppNavigate();
   const toast = useToast();
@@ -89,6 +91,9 @@ export default function RecipeDetailPage() {
   // Loaded up front so the button can say whether there is a list to add to at all.
   const shoppingLists = useShoppingLists(groupId);
   const addToShoppingList = useAddRecipeToShoppingList();
+  // A group with no list at all would make "Zur Einkaufsliste" a dead end, so the
+  // dialog can create the first one.
+  const createShoppingList = useCreateShoppingList(groupId);
 
   const checked = useCheckedSteps(recipeId);
 
@@ -435,13 +440,19 @@ export default function RecipeDetailPage() {
         lists={shoppingLists.data ?? []}
         listsLoading={shoppingLists.isPending}
         submitting={addToShoppingList.isPending}
-        onSubmit={async ({ listId, servings: targetServings }) => {
+        // Creating a list is online-only (see lib/persist.ts: only ITEM mutations are
+        // queued offline), so the offer is hidden rather than shown and then failing.
+        canCreateList={isOnline}
+        creatingList={createShoppingList.isPending}
+        onCreateList={(name) => createShoppingList.mutateAsync({ name })}
+        onSubmit={async ({ listId, servings: targetServings, ingredientIds }) => {
           try {
             const result = await addToShoppingList.addRecipe({
               groupId: groupId ?? "",
               listId,
               recipeId: recipe.id,
               servings: targetServings,
+              ingredientIds,
             });
             setShoppingOpen(false);
             toast.success(

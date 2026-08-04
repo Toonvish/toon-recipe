@@ -666,6 +666,71 @@ describe("adding a recipe to a list", () => {
     expect(findItem(await body<DetailPayload>(response), "Reis")).toMatchObject({ quantity: 100 });
   });
 
+  test("`ingredientIds` adds only the ticked lines, still scaled", async () => {
+    const fixture = await setup();
+    const recipeId = await createRecipe(fixture, "Pfannkuchen", 2, [
+      { name: "Mehl", quantity: 250, unit: "g" },
+      { name: "Milch", quantity: 500, unit: "ml" },
+      { name: "Salz", quantity: 1, unit: "Prise" },
+    ]);
+    const recipe = await body<{ recipe: { ingredients: Array<{ id: string; name: string }> } }>(
+      await call(`/api/groups/${fixture.groupId}/recipes/${recipeId}`, {
+        cookie: fixture.owner.cookie,
+      }),
+    );
+    const keep = recipe.recipe.ingredients
+      .filter((ingredient) => ingredient.name !== "Salz")
+      .map((ingredient) => ingredient.id);
+
+    const detail = await body<DetailPayload>(
+      await call(`/api/groups/${fixture.groupId}/shopping-lists/${fixture.listId}/recipes`, {
+        method: "POST",
+        cookie: fixture.owner.cookie,
+        body: { recipeId, servings: 4, ingredientIds: keep },
+      }),
+    );
+
+    // The factor comes from `servings`, NOT from how many lines were ticked.
+    expect(findItem(detail, "Mehl")).toMatchObject({ quantity: 500, unit: "g" });
+    expect(findItem(detail, "Milch")).toMatchObject({ quantity: 1, unit: "l" });
+    expect(findItem(detail, "Salz")).toBeUndefined();
+    expect(detail.items).toHaveLength(2);
+  });
+
+  test("an id that is not part of the recipe is ignored, not an error", async () => {
+    const fixture = await setup();
+    const recipeId = await createRecipe(fixture, "Reisgericht", 2, [
+      { name: "Reis", quantity: 100, unit: "g" },
+    ]);
+    const response = await call(
+      `/api/groups/${fixture.groupId}/shopping-lists/${fixture.listId}/recipes`,
+      {
+        method: "POST",
+        cookie: fixture.owner.cookie,
+        body: { recipeId, ingredientIds: [crypto.randomUUID()] },
+      },
+    );
+    // A queued offline request must not fail because the recipe changed meanwhile.
+    expect(response.status).toBe(200);
+    expect((await body<DetailPayload>(response)).items).toHaveLength(0);
+  });
+
+  test("omitting `ingredientIds` still adds the whole recipe", async () => {
+    const fixture = await setup();
+    const recipeId = await createRecipe(fixture, "Alles", 1, [
+      { name: "Mehl", quantity: 100, unit: "g" },
+      { name: "Zucker", quantity: 50, unit: "g" },
+    ]);
+    const detail = await body<DetailPayload>(
+      await call(`/api/groups/${fixture.groupId}/shopping-lists/${fixture.listId}/recipes`, {
+        method: "POST",
+        cookie: fixture.owner.cookie,
+        body: { recipeId },
+      }),
+    );
+    expect(detail.items).toHaveLength(2);
+  });
+
   test("two recipes merge their shared ingredients and keep both sources", async () => {
     const fixture = await setup();
     const first = await createRecipe(fixture, "Kuchen", 1, [

@@ -134,6 +134,8 @@ export function useAddRecipeToShoppingList() {
       listId: string;
       recipeId: string;
       servings?: number | undefined;
+      /** Subset of ingredient rows; omit for the whole recipe. */
+      ingredientIds?: readonly string[] | undefined;
     }) => mutation.mutateAsync({ ...input, mutationId: newMutationId() }),
   };
 }

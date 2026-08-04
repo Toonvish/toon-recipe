@@ -138,10 +138,17 @@ export type UpdateShoppingItemRequest = z.infer<typeof UpdateShoppingItemRequest
  * `servings` is the TARGET portion count. Omit it to use the recipe's own
  * `servingsAmount` (factor 1). The API scales with the same `scaleIngredients` the
  * detail screen uses, so the amounts on the list match what the cook saw.
+ *
+ * `ingredientIds` narrows the request to a subset of the recipe's ingredient rows —
+ * the cook has usually got salt and oil at home. OMITTING it means "the whole recipe",
+ * which is both the default in the UI and what keeps an older client working. Ids that
+ * no longer exist are ignored rather than rejected, so a queued offline request still
+ * lands after someone else edited the recipe.
  */
 export const AddRecipeToShoppingListRequestSchema = z.object({
   recipeId: IdSchema,
   servings: z.number().positive().max(1000).optional(),
+  ingredientIds: z.array(IdSchema).max(500).optional(),
   mutationId: MutationIdSchema.optional(),
 });
 export type AddRecipeToShoppingListRequest = z.infer<

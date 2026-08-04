@@ -302,6 +302,11 @@ export async function addShoppingItems(
  *
  * A recipe with no `servingsAmount` cannot be scaled — there is nothing to scale FROM.
  * `servings` is then ignored rather than guessed at, and the amounts land as written.
+ *
+ * `input.ingredientIds` selects a subset. Filtering happens BEFORE scaling, so the
+ * factor is unaffected by what was deselected. An id that no longer belongs to this
+ * recipe is ignored, and a selection that matches nothing is a no-op rather than an
+ * error — a queued offline request must not fail because the recipe changed meanwhile.
  */
 export async function addRecipeToShoppingList(
   db: Database,
@@ -316,7 +321,10 @@ export async function addRecipeToShoppingList(
     .from(recipeIngredients)
     .where(eq(recipeIngredients.recipeId, recipe.id))
     .orderBy(asc(recipeIngredients.position));
-  const ingredients = ingredientRows.map(toIngredientRecord);
+  const selected = input.ingredientIds === undefined ? undefined : new Set(input.ingredientIds);
+  const ingredients = ingredientRows
+    .filter((row) => selected === undefined || selected.has(row.id))
+    .map(toIngredientRecord);
 
   const base = recipe.servingsAmount;
   const target = input.servings;
