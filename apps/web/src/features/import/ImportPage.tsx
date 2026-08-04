@@ -432,11 +432,17 @@ export default function ImportPage() {
             </p>
           ) : null}
 
+          {/* The sentence must be ONE flex item. Left directly in the flex container,
+              every text run and every <span> becomes its own flex item: each gets the
+              1.5 gap around it and wraps on its own, so the emphasised hostnames drifted
+              apart and the full stop after them started a line of its own. */}
           <p className="flex items-start gap-1.5 text-xs text-fg-muted">
             <Info aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            Getestet mit <span className="font-medium">chefkoch.de</span> und{" "}
-            <span className="font-medium">biancazapatka.com</span>. Andere Seiten funktionieren, wenn sie
-            Rezeptdaten im Standardformat mitliefern.
+            <span>
+              Getestet mit <span className="font-medium">chefkoch.de</span> und{" "}
+              <span className="font-medium">biancazapatka.com</span>. Andere Seiten funktionieren,
+              wenn sie Rezeptdaten im Standardformat mitliefern.
+            </span>
           </p>
 
           <Button type="button" onClick={() => void runUrlImport()} disabled={!urlValid || busy} className="w-full sm:w-auto">

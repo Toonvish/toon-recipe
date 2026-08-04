@@ -271,6 +271,19 @@ add to that panel instead.
   `RequireAuth` renders a restored session even when the refetch failed. `/api/auth/*` and the import
   endpoints must stay out of `runtimeCaching`. `PERSIST_BUSTER` is `v2` since the blob also carries
   paused mutations.
+- **`controlClasses` carries `min-w-0`, and removing it breaks phone layouts.** A form control's
+  intrinsic width is ~20 characters (~200px with our padding), and a flex/grid item's automatic
+  minimum size is its content's min-content width — so `w-full` alone does NOT let an input shrink.
+  Two fields in a `grid-cols-2` demanded ~412px and pushed their card past a 390px phone. Same trap
+  in a grid template: use `minmax(0,1fr)`, never a bare `1fr`, for a track holding a control, and put
+  `min-w-0` on grid items that hold arbitrary content.
+- **A page component must NOT re-apply `mx-auto max-w-5xl px-4 pt-4 pb-tabbar`** — `AppShell`'s
+  `<main>` already does all four. `ImportReviewPage`'s `PageShell` did, which cost a phone 32px of
+  the 390 it has and doubled the bottom padding. Page roots here are plain `flex flex-col gap-4`.
+- **Text next to an icon in a `flex` `<p>` must be ONE child.** Left bare, every text run and every
+  `<span>` becomes its own flex item: each gets the container's `gap` around it and wraps
+  independently, so emphasised words drift apart and punctuation starts its own line. Wrap the
+  sentence in a single `<span>` (the "Getestet mit chefkoch.de und …" hint on `/import`).
 - **A bottom action bar needs `bottom-tabbar`, never `bottom-0`.** `BottomTabBar` is `fixed
   inset-x-0 bottom-0 z-30` and `AppShell` renders it AFTER `<main>`, so a `bottom-0` bar in a page is
   painted underneath it and simply cannot be tapped on a phone. That is what hid Speichern/Verwerfen

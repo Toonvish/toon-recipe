@@ -561,7 +561,10 @@ function IngredientsSection({
                       : "border-line",
                   )}
                 >
-                  <div className="grid grid-cols-[4rem_4.5rem_1fr] gap-2">
+                  {/* minmax(0,1fr), not 1fr: a plain `1fr` track keeps its automatic
+                      minimum, so the name field's intrinsic width would widen the row
+                      past the viewport on a phone. */}
+                  <div className="grid grid-cols-[4rem_4.5rem_minmax(0,1fr)] gap-2">
                     <QuantityField
                       ariaLabel={`Menge Zeile ${index + 1}`}
                       placeholder="Menge"

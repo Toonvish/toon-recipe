@@ -336,11 +336,14 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
       </div>
 
       {/* ------------------------------ panes ------------------------------ */}
+      {/* `min-w-0` on both panes: a grid item's automatic minimum is its content's
+          min-content width, so one wide child (a form row, a long raw-text line) would
+          otherwise stretch the track past the viewport instead of wrapping. */}
       <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-        <div className={clsx("lg:sticky lg:top-4", mobileTab === "source" ? "block" : "hidden lg:block")}>
+        <div className={clsx("min-w-0 lg:sticky lg:top-4", mobileTab === "source" ? "block" : "hidden lg:block")}>
           <SourceViewer draft={draft} onLineToIngredient={addLineAsIngredient} onLineToStep={addLineAsStep} />
         </div>
-        <div className={mobileTab === "form" ? "block" : "hidden lg:block"}>
+        <div className={clsx("min-w-0", mobileTab === "form" ? "block" : "hidden lg:block")}>
           <ParsedRecipeEditor value={parsed} onChange={setParsed} tagSuggestions={tagSuggestions} />
         </div>
       </div>
@@ -420,9 +423,14 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
   );
 }
 
+/**
+ * No `mx-auto max-w-5xl px-4 pt-4 pb-tabbar` here: AppShell's `<main>` already applies
+ * every one of those. Repeating them cost a phone 32px of the 390 it has — the reason
+ * the Grunddaten card did not fit — and doubled the bottom padding.
+ */
 function PageShell({ children, onBack }: { children: ReactNode; onBack: () => void }) {
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4 px-4 pt-4 pb-tabbar">
+    <div className="space-y-4">
       <button
         type="button"
         onClick={onBack}

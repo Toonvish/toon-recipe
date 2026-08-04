@@ -3,8 +3,18 @@ import { Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Label } from "./Label";
 
+/**
+ * Shared by Input, Select and Textarea.
+ *
+ * `min-w-0` is load-bearing, not cosmetic. A form control has an intrinsic width of
+ * roughly 20 characters (~200px with our padding), and a flex/grid item's automatic
+ * minimum size is its content's min-content width — so `w-full` alone does NOT let a
+ * control shrink. Two side-by-side fields in a `grid-cols-2` therefore demanded
+ * ~412px and pushed their card wider than a 390px phone. `min-w-0` drops that
+ * minimum to zero so the container decides the width, which is what `w-full` implies.
+ */
 export const controlClasses =
-  "w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-fg " +
+  "w-full min-w-0 rounded-xl border border-line bg-surface px-3.5 py-2.5 text-fg " +
   "placeholder:text-fg-subtle shadow-soft transition-colors duration-150 " +
   "focus:border-brand focus:outline-2 focus:outline-offset-0 focus:outline-brand/40 " +
   "disabled:cursor-not-allowed disabled:opacity-60 " +
