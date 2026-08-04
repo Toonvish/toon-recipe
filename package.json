@@ -19,7 +19,9 @@
     "db:migrate": "bun --filter @toon/api db:migrate",
     "db:studio": "bun --filter @toon/api db:studio",
     "seed": "bun --filter @toon/api seed",
-    "ocr:prefetch": "bun --filter @toon/api ocr:prefetch"
+    "ocr:prefetch": "bun --filter @toon/api ocr:prefetch",
+    "auth:reset-password": "bun --filter @toon/api auth:reset-password --",
+    "uploads:gc": "bun --filter @toon/api uploads:gc --"
   },
   "devDependencies": {
     "@types/bun": "^1.3.14",

@@ -44,8 +44,20 @@ export const ERROR_CODES = [
   "email_taken",
   "group_name_taken",
   "tag_name_taken",
+  "shopping_list_name_taken",
+  /** The list already holds `SHOPPING_LIMITS.itemsPerList` lines. */
+  "shopping_list_full",
+  /** The group already has `SHOPPING_LIMITS.listsPerGroup` lists. */
+  "too_many_shopping_lists",
   "invite_invalid",
   "invite_expired",
+  /**
+   * A password-reset token is unknown, expired or already used. ONE code for all
+   * three on purpose: telling them apart would confirm that a token existed.
+   */
+  "reset_token_invalid",
+  /** An e-mail-confirmation token is unknown, expired or already used. */
+  "verification_token_invalid",
   "last_owner",
   "payload_too_large",
   "unsupported_media_type",

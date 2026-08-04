@@ -27,6 +27,13 @@ export const UserSchema = z.object({
   name: z.string(),
   avatarUrl: z.string().nullish(),
   emailVerified: z.boolean(),
+  /**
+   * WHEN the address was proved — either by a confirmation click
+   * (`POST /api/auth/email/verify/confirm`) or by an OAuth provider that reported
+   * it as verified. Null while `emailVerified` is false. This timestamp, never the
+   * boolean alone, is what a future OAuth auto-link may be gated on.
+   */
+  emailVerifiedAt: IsoDateSchema.nullish(),
   /** false when the account was created via OAuth only. */
   hasPassword: z.boolean(),
   /** Last group the user had active; the web app restores it after login. */
@@ -109,6 +116,36 @@ export const ChangePasswordRequestSchema = z.object({
   newPassword: PasswordSchema,
 });
 export type ChangePasswordRequest = z.infer<typeof ChangePasswordRequestSchema>;
+
+/**
+ * Opaque single-use secret from a mailed link (password reset, e-mail
+ * confirmation). 32 random bytes as base64url = 43 chars; the bounds are wide
+ * enough for a future format change and narrow enough to reject junk early.
+ */
+export const OpaqueTokenSchema = z.string().trim().min(20).max(200);
+
+/**
+ * POST /api/auth/password/forgot — ALWAYS answers 204, whether or not the address
+ * exists. Anything else would turn this endpoint into a user-enumeration oracle.
+ */
+export const ForgotPasswordRequestSchema = z.object({ email: EmailSchema });
+export type ForgotPasswordRequest = z.infer<typeof ForgotPasswordRequestSchema>;
+
+/**
+ * POST /api/auth/password/reset — consumes the token, sets the new password and
+ * deletes EVERY session of that user. The client then signs in at /login.
+ * `password` reuses {@link PasswordSchema}, so the reset rule and the register
+ * rule can never drift apart.
+ */
+export const ResetPasswordRequestSchema = z.object({
+  token: OpaqueTokenSchema,
+  password: PasswordSchema,
+});
+export type ResetPasswordRequest = z.infer<typeof ResetPasswordRequestSchema>;
+
+/** POST /api/auth/email/verify/confirm */
+export const VerifyEmailRequestSchema = z.object({ token: OpaqueTokenSchema });
+export type VerifyEmailRequest = z.infer<typeof VerifyEmailRequestSchema>;
 
 /* ------------------------------- responses ------------------------------- */
 

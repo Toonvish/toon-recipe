@@ -73,7 +73,13 @@ if (!userId) {
     id: userId,
     email: DEMO_EMAIL,
     name: "Demo Koch",
+    // The flag and its evidence ALWAYS move together — see the column comment in
+    // db/schema.ts and markEmailVerified() in services/auth/emailVerification.ts.
+    // `true` is fine here because the demo account's address is fictional and the
+    // seed is the thing vouching for it; leaving `emailVerifiedAt` null would have
+    // shipped a row that contradicts the invariant.
     emailVerified: true,
+    emailVerifiedAt: now,
     passwordHash: await Bun.password.hash(DEMO_PASSWORD, { algorithm: "argon2id" }),
     createdAt: now,
     updatedAt: now,

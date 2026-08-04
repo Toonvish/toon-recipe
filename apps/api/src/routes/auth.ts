@@ -14,14 +14,17 @@
 import {
   type AuthSessionResponse,
   ChangePasswordRequestSchema,
+  ForgotPasswordRequestSchema,
   LoginRequestSchema,
   type MeResponse,
   type OAuthProvidersResponse,
   OAuthProviderSchema,
   RegisterRequestSchema,
+  ResetPasswordRequestSchema,
   type SessionListResponse,
   UpdateProfileRequestSchema,
   type UserResponse,
+  VerifyEmailRequestSchema,
 } from "@toon/shared";
 import { Hono } from "hono";
 import type { z } from "zod";
@@ -45,9 +48,15 @@ import {
   webUrl,
 } from "../lib/oauth.ts";
 import { type AppContext, type AppEnv, requireUser } from "../lib/types.ts";
+import { normalizeStoredUploadUrl } from "../lib/uploadUrls.ts";
 import { resolveMembership } from "../middleware/group.ts";
 import { optionalSession, requireSession } from "../middleware/session.ts";
 import { buildAuthSession } from "../services/auth/bootstrap.ts";
+import {
+  EMAIL_VERIFICATION_TTL_HOURS,
+  confirmEmailVerification,
+  createEmailVerificationToken,
+} from "../services/auth/emailVerification.ts";
 import { acceptInvite, loadRedeemableInvite } from "../services/auth/invites.ts";
 import {
   linkOAuthAccount,
@@ -55,16 +64,30 @@ import {
   loginWithOAuthProfile,
   unlinkOAuthAccount,
 } from "../services/auth/oauthAccounts.ts";
+import {
+  PASSWORD_RESET_TTL_MINUTES,
+  consumePasswordReset,
+  createPasswordResetToken,
+} from "../services/auth/passwordReset.ts";
 import { hashPassword, verifyPassword } from "../services/auth/passwords.ts";
 import {
+  EMAIL_VERIFY_RULE,
+  FORGOT_PASSWORD_EMAIL_RULE,
+  FORGOT_PASSWORD_RULE,
   LOGIN_EMAIL_RULE,
   LOGIN_RULE,
   OAUTH_RULE,
+  PASSWORD_RESET_RULE,
   PASSWORD_RULE,
   REGISTER_RULE,
   clientIp,
   enforceRateLimit,
 } from "../services/auth/rateLimit.ts";
+import {
+  passwordResetMail,
+  trySendMail,
+  verifyEmailMail,
+} from "../services/mail/index.ts";
 import {
   createSession,
   deleteOtherSessions,
@@ -227,7 +250,11 @@ authRoutes.patch("/me", requireSession(), async (c) => {
 
   const patch: Parameters<typeof updateUser>[2] = {};
   if (body.name !== undefined) patch.name = body.name;
-  if (body.avatarUrl !== undefined) patch.avatarUrl = body.avatarUrl ?? null;
+  // The client sends back the signed avatar URL it was served; store the bare
+  // `/uploads/<file>` so the row never holds an expiring value (lib/uploadUrls.ts).
+  if (body.avatarUrl !== undefined) {
+    patch.avatarUrl = normalizeStoredUploadUrl(body.avatarUrl) ?? null;
+  }
   if (body.activeGroupId !== undefined) patch.activeGroupId = body.activeGroupId ?? null;
 
   const row = await updateUser(db, user.id, patch);
@@ -259,6 +286,117 @@ authRoutes.post("/password", requireSession(), async (c) => {
   // A password change signs every other device out.
   await deleteOtherSessions(db, user.id, c.get("sessionId"));
   return noContent(c);
+});
+
+/* --------------------------- forgot / reset ------------------------------- */
+
+/**
+ * POST /api/auth/password/forgot — mails a reset link.
+ *
+ * ALWAYS 204. Not "204 when it worked": the response, its status, its timing and
+ * its body are identical for a known and an unknown address, because anything else
+ * turns this into a "does this person have an account here?" oracle. The three
+ * things that make that true:
+ *
+ *  - the rate limit is enforced BEFORE the lookup, so a limited request and an
+ *    unknown address are indistinguishable,
+ *  - a missing account simply skips the send,
+ *  - a failed send is swallowed by `trySendMail` and never becomes a 5xx.
+ *
+ * With no MAIL_TRANSPORT configured the ConsoleMailer logs the link, so a
+ * self-hosted install without mail is served by `bun run auth:reset-password`
+ * (apps/api/scripts/reset-password.ts) instead — same tokens, same endpoint.
+ */
+authRoutes.post("/password/forgot", async (c) => {
+  const body = await readJson(c, ForgotPasswordRequestSchema);
+  enforceRateLimit(c, "password-forgot", clientIp(c), FORGOT_PASSWORD_RULE);
+  enforceRateLimit(c, "password-forgot-email", body.email, FORGOT_PASSWORD_EMAIL_RULE);
+
+  const user = await findUserByEmail(db, body.email);
+  if (user) {
+    // An OAuth-only account has no password to reset. Sending the link anyway
+    // would be a dead end; not sending it keeps the answer uniform.
+    const { token } = await createPasswordResetToken(db, user.id, { requestedIp: clientIp(c) });
+    await trySendMail(
+      passwordResetMail({
+        to: user.email,
+        name: user.name,
+        resetUrl: webUrl(`/reset-password/${token}`),
+        expiresInMinutes: PASSWORD_RESET_TTL_MINUTES,
+      }),
+    );
+  }
+
+  return noContent(c);
+});
+
+/**
+ * POST /api/auth/password/reset — spends the token and sets the new password.
+ *
+ * Answers 204 and does NOT sign the user in: every session of that user is
+ * deleted (the whole point — a stolen cookie must not survive a reset), and the
+ * web app sends them to `/login` to prove they know the new password. See
+ * docs/API.md.
+ */
+authRoutes.post("/password/reset", async (c) => {
+  const body = await readJson(c, ResetPasswordRequestSchema);
+  enforceRateLimit(c, "password-reset", clientIp(c), PASSWORD_RESET_RULE);
+
+  await consumePasswordReset(db, body.token, body.password);
+  // The caller had no session, and every existing one was just revoked, so there
+  // is nothing to clear — but be explicit in case a stale cookie is present.
+  clearSessionCookie(c);
+  return noContent(c);
+});
+
+/* --------------------------- e-mail verification -------------------------- */
+
+/**
+ * POST /api/auth/email/verify/request — mails a confirmation link to the address
+ * of the CURRENT session's account. Authenticated on purpose: an unauthenticated
+ * variant would be another enumeration oracle, and there is no reason to need one.
+ *
+ * 409 when the address is already confirmed.
+ */
+authRoutes.post("/email/verify/request", requireSession(), async (c) => {
+  const user = requireUser(c);
+  enforceRateLimit(c, "email-verify", user.id, EMAIL_VERIFY_RULE);
+
+  const row = await findUserById(db, user.id);
+  if (!row) throw ApiError.unauthorized();
+
+  const { token } = await createEmailVerificationToken(db, row, { requestedIp: clientIp(c) });
+  await trySendMail(
+    verifyEmailMail({
+      to: row.email,
+      name: row.name,
+      verifyUrl: webUrl(`/verify-email/${token}`),
+      expiresInHours: EMAIL_VERIFICATION_TTL_HOURS,
+    }),
+  );
+  return noContent(c);
+});
+
+/**
+ * POST /api/auth/email/verify/confirm — spends the token and sets
+ * `users.email_verified_at`.
+ *
+ * Deliberately usable WITHOUT a session: the link is often opened on a different
+ * device than the one that is signed in. The token is the authorisation.
+ *
+ * NOTE FOR WHOEVER TOUCHES OAUTH NEXT: a confirmed address still does NOT enable
+ * auto-linking. `loginWithOAuthProfile()` answers 409 `email_taken` for a taken
+ * address by design; the takeover this prevents is described in
+ * services/auth/oauthAccounts.ts. This timestamp is the flag such a feature would
+ * have to be gated on — it is not a switch that turns it on.
+ */
+authRoutes.post("/email/verify/confirm", optionalSession(), async (c) => {
+  const body = await readJson(c, VerifyEmailRequestSchema);
+  enforceRateLimit(c, "email-verify-confirm", clientIp(c), EMAIL_VERIFY_RULE);
+
+  const { user } = await confirmEmailVerification(db, body.token);
+  const payload: UserResponse = { user: (await buildAuthSession(db, user)).user };
+  return json(c, payload);
 });
 
 /* ------------------------------- sessions -------------------------------- */

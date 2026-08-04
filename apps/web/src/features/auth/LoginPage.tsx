@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "@tanstack/react-router";
-import { Mail } from "lucide-react";
+import { CheckCircle2, Mail } from "lucide-react";
 import { LoginRequestSchema } from "@toon/shared";
 import { useLogin, useSession } from "@/lib/session";
 import { safeNextPath, useGoTo, useSearchParams } from "@/lib/navigation";
@@ -69,6 +69,19 @@ export function LoginPage() {
         />
       ) : null}
 
+      {/* `?reset=1` is set by ResetPasswordPage: the reset revoked every session, so
+          landing here and being asked to sign in again is the expected outcome, not
+          an error. */}
+      {search.reset === "1" ? (
+        <p
+          role="status"
+          className="mb-4 flex items-start gap-2 rounded-card border border-success/30 bg-success-soft p-3 text-sm text-success-soft-fg"
+        >
+          <CheckCircle2 aria-hidden className="mt-0.5 size-4 shrink-0" />
+          Dein Passwort wurde geändert. Melde dich einmal mit dem neuen Passwort an.
+        </p>
+      ) : null}
+
       <OAuthButtons next={next} disabled={login.isPending} />
       {hasOAuth ? <AuthDivider label="oder mit E-Mail" /> : null}
 
@@ -94,19 +107,27 @@ export function LoginPage() {
           }}
         />
 
-        <PasswordInput
-          label="Passwort"
-          name="password"
-          autoComplete="current-password"
-          required
-          placeholder="••••••••"
-          value={password}
-          error={errors.password}
-          onChange={(event) => {
-            setPassword(event.currentTarget.value);
-            setErrors((current) => clearField(current, "password"));
-          }}
-        />
+        <div className="flex flex-col gap-1.5">
+          <PasswordInput
+            label="Passwort"
+            name="password"
+            autoComplete="current-password"
+            required
+            placeholder="••••••••"
+            value={password}
+            error={errors.password}
+            onChange={(event) => {
+              setPassword(event.currentTarget.value);
+              setErrors((current) => clearField(current, "password"));
+            }}
+          />
+          <Link
+            to="/forgot-password"
+            className="self-end text-sm font-medium text-brand underline-offset-2 hover:underline"
+          >
+            Passwort vergessen?
+          </Link>
+        </div>
 
         <Button type="submit" size="lg" fullWidth loading={login.isPending}>
           Anmelden

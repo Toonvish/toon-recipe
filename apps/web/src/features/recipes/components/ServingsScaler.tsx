@@ -2,6 +2,7 @@
  * Servings stepper. Scaling itself happens with `scaleIngredients` from @toon/shared
  * (same function the API uses), so client and server always agree.
  */
+import { useId } from "react";
 import { Minus, Plus, RotateCcw } from "lucide-react";
 import { formatQuantity } from "@toon/shared";
 import { cn } from "@/lib/cn";
@@ -32,12 +33,15 @@ export function ServingsScaler({
   onChange,
   className,
 }: ServingsScalerProps) {
+  // A generated id, not a constant: two scalers can be on screen at once (the recipe
+  // page plus the "zur Einkaufsliste" dialog), and a duplicate id breaks both labels.
+  const labelId = useId();
   const noun = typeof unit === "string" && unit.trim().length > 0 ? unit.trim() : "Portionen";
   const changed = Math.abs(value - baseValue) > 0.001;
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      <span id="servings-label" className="sr-only">
+      <span id={labelId} className="sr-only">
         Anzahl {noun}
       </span>
       <div className="inline-flex items-center rounded-full border border-line bg-surface shadow-soft">
@@ -52,7 +56,7 @@ export function ServingsScaler({
         </button>
         <output
           aria-live="polite"
-          aria-labelledby="servings-label"
+          aria-labelledby={labelId}
           className="min-w-24 px-1 text-center font-medium tabular-nums text-fg"
         >
           {formatQuantity(value)} {noun}

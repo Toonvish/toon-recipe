@@ -1,6 +1,20 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Link2, Link2Off, LogOut, Monitor, Moon, Smartphone, Sun, Trash2 } from "lucide-react";
+import {
+  BadgeCheck,
+  Check,
+  ChevronRight,
+  Link2,
+  Link2Off,
+  LogOut,
+  MailWarning,
+  Monitor,
+  Moon,
+  Smartphone,
+  Sun,
+  Trash2,
+  Users,
+} from "lucide-react";
 import {
   ChangePasswordRequestSchema,
   UpdateProfileRequestSchema,
@@ -10,6 +24,7 @@ import {
 } from "@toon/shared";
 import {
   changePassword,
+  requestEmailVerification,
   revokeSession,
   startOAuthLink,
   unlinkOAuthProvider,
@@ -18,26 +33,36 @@ import {
 import { formatDateTime, formatRelative, truncate } from "@/lib/format";
 import { invalidate, oauthProvidersQuery, sessionsQuery } from "@/lib/queries";
 import { useSearchParams } from "@/lib/navigation";
-import { useCurrentUser, useLogout, useSession } from "@/lib/session";
+import { useActiveGroup, useCurrentUser, useLogout, useSession } from "@/lib/session";
 import { useTheme, type ThemePreference } from "@/lib/theme";
 import { apiFieldErrors, validate, type FieldErrors } from "@/lib/validation";
 import { PageHeader } from "@/components/layout/AppShell";
+import { AppLink } from "@/features/recipes/lib/nav";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Input, PasswordInput } from "@/components/ui/Input";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { plural } from "@/lib/format";
 import { useToast } from "@/components/ui/Toast";
 
 /**
- * `/settings` — profile, password, appearance and active sessions.
+ * `/settings` — profile, groups, password, appearance and active sessions.
+ *
  * This is the auth-owned fallback screen; a dedicated settings page under
  * `src/features/settings/SettingsPage.tsx` takes precedence if one exists.
+ *
+ * GROUPS LIVE HERE, and on a phone this is the ONLY way to reach them: "Gruppen" is no
+ * longer a bottom-tab destination (see components/layout/nav-items.ts), and the sidebar
+ * that also lists it does not exist below `lg`. If the card below is removed, group
+ * management becomes unreachable on mobile.
  */
 export function AccountSettingsPage() {
   const user = useCurrentUser();
-  const { refetch } = useSession();
+  const { refetch, groups } = useSession();
+  // `useActiveGroup()` resolves the persisted choice; `groups` is only the count.
+  const { group: activeGroup } = useActiveGroup();
   const queryClient = useQueryClient();
   const toast = useToast();
   const logout = useLogout();
@@ -62,7 +87,10 @@ export function AccountSettingsPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="Profil" description="Konto, Aussehen und angemeldete Geräte." />
+      <PageHeader
+        title="Profil"
+        description="Konto, Gruppen, Aussehen und angemeldete Geräte."
+      />
 
       <Card padding="lg">
         <CardHeader title="Dein Konto" description={user.email} />
@@ -88,6 +116,14 @@ export function AccountSettingsPage() {
         </form>
       </Card>
 
+      <GroupsCard count={groups.length} activeGroupName={activeGroup?.name ?? null} />
+
+      <EmailVerificationCard
+        email={user.email}
+        verified={user.emailVerified}
+        verifiedAt={user.emailVerifiedAt ?? null}
+      />
+
       <AppearanceCard preference={theme.preference} onChange={theme.setPreference} />
 
       <PasswordCard hasPassword={user.hasPassword} />
@@ -108,6 +144,126 @@ export function AccountSettingsPage() {
         </Button>
       </Card>
     </div>
+  );
+}
+
+/**
+ * "E-Mail bestätigen".
+ *
+ * Confirming is worth something concrete — it is what makes a mailed password reset
+ * trustworthy — but it is NOT a switch that re-enables OAuth auto-linking. The API
+ * still answers 409 `email_taken` for a provider login on a taken address; see
+ * apps/api/src/services/auth/oauthAccounts.ts for the takeover that prevents.
+ */
+/**
+ * Entry point to group management. Deliberately a LINK, not an inlined group editor: the
+ * `/groups` screen already owns members, invites and roles, and duplicating it here would
+ * be a second implementation of the same rules.
+ *
+ * The active group is named because that is what a member actually wonders on this screen
+ * ("which group am I adding recipes to?") — switching it is still the `GroupSwitcher` in
+ * the top bar, which is where it belongs.
+ */
+function GroupsCard({
+  count,
+  activeGroupName,
+}: {
+  count: number;
+  activeGroupName: string | null;
+}) {
+  return (
+    <Card padding="lg">
+      <CardHeader
+        title="Gruppen"
+        description={
+          count === 0
+            ? "Du bist noch in keiner Gruppe."
+            : `${plural(count, "Gruppe", "Gruppen")}${activeGroupName ? ` · aktiv: ${activeGroupName}` : ""}`
+        }
+      />
+      <AppLink
+        to="/groups"
+        className="flex min-h-11 items-center gap-3 rounded-xl border border-line px-3 text-fg transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      >
+        <Users aria-hidden="true" className="size-5 shrink-0 text-fg-muted" />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="text-sm font-medium">Gruppen verwalten</span>
+          <span className="text-xs text-fg-muted">
+            Mitglieder, Einladungen und Rollen
+          </span>
+        </span>
+        <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-fg-subtle" />
+      </AppLink>
+    </Card>
+  );
+}
+
+function EmailVerificationCard({
+  email,
+  verified,
+  verifiedAt,
+}: {
+  email: string;
+  verified: boolean;
+  verifiedAt: string | null;
+}) {
+  const toast = useToast();
+  const [sent, setSent] = useState(false);
+
+  const requestLink = useMutation({
+    mutationFn: () => requestEmailVerification(),
+    onSuccess: () => {
+      setSent(true);
+      toast.success("E-Mail unterwegs", `Wir haben einen Bestätigungslink an ${email} geschickt.`);
+    },
+    onError: (error) => {
+      const errors = apiFieldErrors(error);
+      toast.error("Konnte nicht verschickt werden", errors._form ?? "Bitte später erneut versuchen.");
+    },
+  });
+
+  if (verified) {
+    return (
+      <Card padding="lg">
+        <CardHeader
+          title="E-Mail-Adresse"
+          description={
+            verifiedAt === null
+              ? "Bestätigt."
+              : `Bestätigt am ${formatDateTime(verifiedAt)}.`
+          }
+        />
+        <p className="flex items-center gap-2 text-sm text-success-soft-fg">
+          <BadgeCheck aria-hidden className="size-4 shrink-0" />
+          {email}
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card padding="lg">
+      <CardHeader
+        title="E-Mail-Adresse bestätigen"
+        description="Noch nicht bestätigt."
+      />
+      <div className="flex flex-col gap-3">
+        <p className="flex items-start gap-2 text-sm text-fg-muted">
+          <MailWarning aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />
+          Bestätige <strong className="break-all font-medium text-fg">{email}</strong>, damit du dein
+          Passwort per E-Mail zurücksetzen kannst.
+        </p>
+        <div className="flex justify-start">
+          <Button
+            variant="secondary"
+            loading={requestLink.isPending}
+            onClick={() => requestLink.mutate()}
+          >
+            {sent ? "Erneut senden" : "Bestätigungslink senden"}
+          </Button>
+        </div>
+      </div>
+    </Card>
   );
 }
 

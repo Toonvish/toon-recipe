@@ -18,6 +18,7 @@ import { collectionRecipes, collections, recipes } from "../../db/schema.ts";
 import type { CollectionRow } from "../../db/schema.ts";
 import { ApiError } from "../../lib/errors.ts";
 import type { Membership } from "../../lib/types.ts";
+import { normalizeStoredUploadUrl } from "../../lib/uploadUrls.ts";
 import { assertRole } from "../groups/membership.ts";
 import { type DbLike, nowMs, unique, withTransaction } from "../groups/support.ts";
 import { toCollection } from "./mappers.ts";
@@ -107,7 +108,8 @@ export async function createCollection(
     groupId,
     name: input.name,
     description: input.description ?? null,
-    coverImageUrl: input.coverImageUrl ?? null,
+    // Bare `/uploads/<file>`, never the signed wire value (lib/uploadUrls.ts).
+    coverImageUrl: normalizeStoredUploadUrl(input.coverImageUrl) ?? null,
     createdBy: userId,
     createdAt: nowMs(),
     updatedAt: nowMs(),
@@ -157,7 +159,9 @@ export async function updateCollection(
   const patch: Partial<CollectionRow> = { updatedAt: nowMs() };
   if (input.name !== undefined) patch.name = input.name;
   if (input.description !== undefined) patch.description = input.description ?? null;
-  if (input.coverImageUrl !== undefined) patch.coverImageUrl = input.coverImageUrl ?? null;
+  if (input.coverImageUrl !== undefined) {
+    patch.coverImageUrl = normalizeStoredUploadUrl(input.coverImageUrl) ?? null;
+  }
 
   const recipeIds = input.recipeIds === undefined ? undefined : unique([...input.recipeIds]);
   if (recipeIds) await assertRecipesInGroup(db, groupId, recipeIds);

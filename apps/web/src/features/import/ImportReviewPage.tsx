@@ -13,7 +13,16 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import clsx from "clsx";
 import { ArrowLeft, Check, CircleAlert, FileText, LoaderCircle, PenLine, Save, Trash2, TriangleAlert, Users } from "lucide-react";
 import type { ParsedRecipe } from "@toon/shared";
-import { Button, ConfirmDialog, Label, Select, readChangeValue, useActiveGroupState, useShellToast } from "./lib/shell";
+import {
+  Button,
+  ConfirmDialog,
+  Label,
+  Select,
+  readChangeValue,
+  useActiveGroupState,
+  useImportAvailability,
+  useShellToast,
+} from "./lib/shell";
 import { useDraftIdFromRoute, useImportNavigation } from "./lib/navigation";
 import { useCommitDraft, useDeleteDraft, useDraft, useGroupTags } from "./lib/queries";
 import { useDraftAutosave } from "./lib/useAutosave";
@@ -36,6 +45,7 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
   const draftId = useDraftIdFromRoute(draftIdProp);
   const navigation = useImportNavigation();
   const toast = useShellToast();
+  const offline = useImportAvailability();
   const { groupId: activeGroupId, groups, switchGroup } = useActiveGroupState();
 
   const candidateGroupIds = useMemo(() => {
@@ -356,13 +366,21 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
             Verwerfen
           </Button>
           <span className="hidden flex-1 text-xs text-fg-muted sm:block">
-            {validation.ok ? autosave.label : (validation.problems[0] ?? "")}
+            {offline.enabled
+              ? validation.ok
+                ? autosave.label
+                : (validation.problems[0] ?? "")
+              : offline.reason}
           </span>
           <Button
             type="button"
             className="ml-auto flex-1 sm:flex-none"
             onClick={() => void handleSave()}
-            disabled={commit.isPending || !validation.ok}
+            // Offline the commit would fail after the whole review was typed, and
+            // the autosave PATCH cannot land either — the offline support here is
+            // read-only on purpose (see lib/persist.ts).
+            disabled={commit.isPending || !validation.ok || !offline.enabled}
+            title={offline.reason}
           >
             {commit.isPending ? (
               <LoaderCircle aria-hidden className="mr-2 h-4 w-4 animate-spin" />

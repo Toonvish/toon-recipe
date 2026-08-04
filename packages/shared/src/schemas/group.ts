@@ -120,8 +120,21 @@ export type GroupMemberListResponse = z.infer<typeof GroupMemberListResponseSche
 
 export const GroupInviteResponseSchema = z.object({
   invite: GroupInviteSchema,
-  /** Ready-to-share link built from WEB_ORIGIN. */
+  /**
+   * Ready-to-share link built from WEB_ORIGIN. THE SOURCE OF TRUTH — the invite is
+   * valid because this row exists, whether or not a mail went out, so the UI always
+   * shows the copyable link.
+   */
   inviteUrl: z.string(),
+  /**
+   * Whether an invite e-mail was actually delivered.
+   *
+   * `false` covers both "no MAIL_TRANSPORT configured" (the normal self-hosted
+   * case) and "the provider rejected it". Creating the invite still succeeded, so
+   * the UI renders this as a hint to forward the link by hand — never as an error.
+   * Optional so an older client keeps working.
+   */
+  emailSent: z.boolean().optional(),
 });
 export type GroupInviteResponse = z.infer<typeof GroupInviteResponseSchema>;
 

@@ -82,6 +82,51 @@ const EnvSchema = z
     UPLOAD_DIR: z.string().default("./data/uploads"),
     TESSERACT_LANGS: z.string().default("deu+eng"),
 
+    /**
+     * Directory of the built web app (`apps/web/dist`). When set, the API also
+     * serves the PWA from its own port — which is how the Docker image runs, and
+     * the reason a container needs no CORS, no second origin and no API URL baked
+     * into the bundle at build time. Unset in dev, where vite serves it.
+     */
+    WEB_DIST_DIR: z.string().optional(),
+
+    /**
+     * Outgoing mail. ALL OPTIONAL: with nothing configured the API uses the
+     * ConsoleMailer, which logs the message (including the link) and sends
+     * nothing — so `bun run dev` and `bun test` never touch the network and an
+     * install without mail still boots.
+     *
+     * "console" (default) | "smtp" | "resend"
+     *
+     * "smtp" is the self-hosted transport and needs no API key at all: the Docker
+     * compose stack points it at Mailpit on the private network, which accepts
+     * every message and shows it in a web UI. The same setting drives a real
+     * relay — see MAIL_HOST below.
+     */
+    MAIL_TRANSPORT: z.enum(["console", "smtp", "resend"]).optional(),
+    /** Sender, "Name <address>" or a bare address. Required for a real transport. */
+    MAIL_FROM: z.string().optional(),
+    /** Resend API key (re_…). Required when MAIL_TRANSPORT=resend. */
+    MAIL_API_KEY: z.string().optional(),
+
+    /** SMTP relay host. Required when MAIL_TRANSPORT=smtp ("mailpit" in compose). */
+    MAIL_HOST: z.string().optional(),
+    /** Defaults to 465 for MAIL_SECURITY=tls, otherwise 587. Mailpit listens on 1025. */
+    MAIL_PORT: z.coerce.number().int().min(1).max(65535).optional(),
+    /** Omit both for a relay that does not authenticate (Mailpit). */
+    MAIL_USER: z.string().optional(),
+    MAIL_PASSWORD: z.string().optional(),
+    /**
+     * "starttls" (default) — plaintext greeting then a MANDATORY upgrade, port 587,
+     * "tls"                — TLS from the first byte, port 465,
+     * "none"               — plaintext, only defensible for a relay on the same
+     *                        private network (that is Mailpit's case, and env.ts
+     *                        refuses to combine it with credentials).
+     */
+    MAIL_SECURITY: z.enum(["starttls", "tls", "none"]).optional(),
+    /** Accept a self-signed relay certificate. Off unless you know why you need it. */
+    MAIL_TLS_INSECURE: BooleanishSchema,
+
     /** Optional: set to 1 to log every SQL statement. */
     DEBUG_SQL: BooleanishSchema,
 
@@ -131,11 +176,51 @@ const EnvSchema = z
       /** SSRF guard escape hatch — can never be enabled in production. */
       allowPrivateImportHosts:
         value.IMPORT_ALLOW_PRIVATE_HOSTS === true && value.NODE_ENV !== "production",
+      /** Which mail adapter services/mail/index.ts builds. Always "console" in tests. */
+      mailTransport: (value.NODE_ENV === "test" ? "console" : value.MAIL_TRANSPORT ?? "console") as
+        | "console"
+        | "smtp"
+        | "resend",
+      /** Sender address; the ConsoleMailer is happy with the placeholder. */
+      mailFrom: value.MAIL_FROM ?? "Rezepte <noreply@localhost>",
+      /** How the SMTP session is encrypted; see MAIL_SECURITY. */
+      mailSecurity: (value.MAIL_SECURITY ?? "starttls") as "starttls" | "tls" | "none",
+      /** Submission port, defaulted from the chosen security rather than guessed. */
+      mailPort: value.MAIL_PORT ?? (value.MAIL_SECURITY === "tls" ? 465 : 587),
+      /** Absolute path of the built web app, or null when the API serves no UI. */
+      webDistDir:
+        value.WEB_DIST_DIR === undefined ? null : resolve(REPO_ROOT, value.WEB_DIST_DIR),
     };
   })
   .refine(
     (value) => value.databaseKind === "file" || (value.DATABASE_AUTH_TOKEN ?? "").length > 0,
     "DATABASE_AUTH_TOKEN ist für eine remote libsql:// Datenbank erforderlich",
+  )
+  // Fail at boot rather than at the first invite: a deployment that asked for a
+  // real transport but forgot the key would otherwise look fine and silently
+  // never deliver anything.
+  .refine(
+    (value) => value.mailTransport !== "resend" || (value.MAIL_API_KEY ?? "").length > 0,
+    "MAIL_API_KEY ist für MAIL_TRANSPORT=resend erforderlich",
+  )
+  .refine(
+    (value) => value.mailTransport === "console" || (value.MAIL_FROM ?? "").length > 0,
+    "MAIL_FROM ist für einen echten MAIL_TRANSPORT erforderlich (verifizierte Absenderdomain)",
+  )
+  .refine(
+    (value) => value.mailTransport !== "smtp" || (value.MAIL_HOST ?? "").length > 0,
+    'MAIL_HOST ist für MAIL_TRANSPORT=smtp erforderlich (im Docker-Stack: "mailpit")',
+  )
+  // Credentials over an unencrypted session would be readable by anything on the
+  // path. The only setup that legitimately uses MAIL_SECURITY=none is a relay in
+  // the same compose network, and that one needs no login — so this combination is
+  // always a mistake, and it is one that looks like it works.
+  .refine(
+    (value) =>
+      value.mailTransport !== "smtp" ||
+      (value.MAIL_SECURITY ?? "starttls") !== "none" ||
+      (value.MAIL_USER ?? "").length === 0,
+    "MAIL_USER/MAIL_PASSWORD dürfen nicht mit MAIL_SECURITY=none kombiniert werden — Zugangsdaten gingen im Klartext über das Netz (MAIL_SECURITY=starttls oder =tls verwenden)",
   );
 
 export type Env = z.infer<typeof EnvSchema>;

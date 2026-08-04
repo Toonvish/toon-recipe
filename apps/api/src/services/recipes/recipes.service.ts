@@ -38,6 +38,7 @@ import {
 import type { RecipeIngredientRow, RecipeRow, RecipeStepRow } from "../../db/schema.ts";
 import { ApiError } from "../../lib/errors.ts";
 import type { Membership } from "../../lib/types.ts";
+import { normalizeStoredUploadUrl } from "../../lib/uploadUrls.ts";
 import { toPublicUser } from "../groups/mappers.ts";
 import { assertRole } from "../groups/membership.ts";
 import {
@@ -375,7 +376,11 @@ function recipePatch(input: UpdateRecipeRequest): Partial<typeof recipes.$inferI
   const patch: Partial<typeof recipes.$inferInsert> = {};
   if (input.title !== undefined) patch.title = input.title;
   if (input.description !== undefined) patch.description = input.description ?? null;
-  if (input.imageUrl !== undefined) patch.imageUrl = input.imageUrl ?? null;
+  // The client sends back the SIGNED url it was served (see lib/uploadUrls.ts);
+  // store the bare `/uploads/<file>` so the row never holds an expiring value.
+  if (input.imageUrl !== undefined) {
+    patch.imageUrl = normalizeStoredUploadUrl(input.imageUrl) ?? null;
+  }
   if (input.sourceUrl !== undefined) patch.sourceUrl = input.sourceUrl ?? null;
   if (input.sourceName !== undefined) patch.sourceName = input.sourceName ?? null;
   if (input.servingsAmount !== undefined) patch.servingsAmount = input.servingsAmount ?? null;
@@ -493,7 +498,7 @@ export async function setRecipeImage(
   await loadRecipeRow(db, groupId, recipeId);
   await db
     .update(recipes)
-    .set({ imageUrl, updatedAt: nowMs() })
+    .set({ imageUrl: normalizeStoredUploadUrl(imageUrl), updatedAt: nowMs() })
     .where(eq(recipes.id, recipeId));
   return toRecipe(await loadRecipeRow(db, groupId, recipeId));
 }

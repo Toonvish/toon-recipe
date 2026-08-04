@@ -178,7 +178,15 @@ export interface StoredUpload {
   /** Bare filename (`<uuid>.<ext>`) — this is what goes into sourceMeta.storedPath. */
   filename: string;
   absolutePath: string;
-  /** Public URL served by the foundation's /uploads/:filename route. */
+  /**
+   * UNSIGNED, storage-shaped path (`/uploads/<uuid>.<ext>`).
+   *
+   * A signature is minted only when a row is serialised (see lib/uploadUrls.ts),
+   * and for an import SOURCE scan that never happens — those are private and are
+   * served exclusively by the membership-checked
+   * `GET /api/groups/:groupId/imports/:draftId/source`. The URL importer's hero
+   * image, which also lands here, does get signed because it becomes a recipe image.
+   */
   url: string;
   mimeType: string;
   size: number;

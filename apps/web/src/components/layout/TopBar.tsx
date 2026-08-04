@@ -5,6 +5,10 @@ import { GroupSwitcher } from "@/features/groups/GroupSwitcher";
 /**
  * Sticky mobile top bar: active-group switcher on the left, search + "new recipe"
  * on the right. Hidden from `lg` up, where the sidebar carries the same controls.
+ *
+ * The magnifier points at `/`, not at a search screen — searching is part of the recipe
+ * list now (see {@link NAV_ITEMS}). It stays useful on `/` itself: tapping it scrolls
+ * back to the top, where the search field is.
  */
 export function TopBar() {
   return (
@@ -12,7 +16,7 @@ export function TopBar() {
       <div className="flex h-topbar items-center gap-2 px-2 px-safe">
         <GroupSwitcher className="min-w-0 flex-1" />
         <Link
-          to="/search"
+          to="/"
           aria-label="Rezepte suchen"
           title="Rezepte suchen"
           className="inline-flex size-11 shrink-0 items-center justify-center rounded-xl text-fg transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"

@@ -1,247 +1,223 @@
-# Open work — the four deferred gaps
+# The four deferred gaps — what shipped
 
-Written 2026-08-03, right after the initial build. Everything in [`README.md` → Known
-gaps](../README.md#known-gaps) is *described*; this file is the **implementation plan** for the four
-items that were deliberately left open, because each needs a product decision rather than more code.
-
-Nothing here blocks the seven verified user journeys. All four gates are green
-(`typecheck` · `600 pass / 0 fail` · `build` · smoke test).
+Written 2026-08-03 as an implementation plan; **rewritten 2026-08-04, when all four were built.**
+This file is now the record of the decision taken for each one, what it actually does, and where the
+remaining sharp edges are. [`README.md` → Known gaps](../README.md#known-gaps) is the honest list of
+what is still open; [`docs/API.md`](./API.md) is the endpoint contract.
 
 Read [`CLAUDE.md`](../CLAUDE.md) first — the locked decisions and the gotchas section explain *why*
 the code looks the way it does.
 
-**Recommended order.** (1) unblocks (2) and the e-mail-verification follow-on; (3) is the only one
-with a security edge; (4) is the largest and the most optional.
-
-| # | Gap | Blocked on | Rough size |
+| # | Gap | Decision taken | Where it lives |
 | --- | --- | --- | --- |
-| 1 | [No mailer](#1--no-mailer-anywhere) | choice of transport | S (interface + one adapter) |
-| 2 | [No password reset](#2--no-password-reset) | #1, or accept the CLI stopgap | M |
-| 3 | [`/uploads` is public](#3--uploads-is-served-without-an-authorization-check) | how you deploy (same-origin?) | S–M |
-| 4 | [PWA is not usable offline](#4--the-pwa-is-installable-but-not-usable-offline) | scope: read-only or writes too | L |
+| 1 | [Mailer](#1--mailer) | Resend over HTTP, `ConsoleMailer` as the no-config default | `apps/api/src/services/mail/` |
+| 2 | [Password reset](#2--password-reset) | Mailed flow **and** an operator CLI; redirect to `/login` | `services/auth/passwordReset.ts` |
+| 3 | [`/uploads`](#3--uploads-authorisation) | Split by sensitivity **+** signed URLs | `apps/api/src/lib/uploadUrls.ts` |
+| 4 | [Offline PWA](#4--offline-pwa) | Read-only — since **superseded** for the shopping list, see below | `apps/web/src/lib/persist.ts` |
+| + | [E-mail verification](#5--e-mail-verification-follow-on) | Flow built, OAuth auto-linking still off | `services/auth/emailVerification.ts` |
 
-Two conventions that apply to all four: **new user-facing copy is German**, and **new API errors go
-through `ApiError` + `ERROR_CODES` in `@toon/shared`** so the client can branch on a code instead of
-a message.
-
----
-
-## 1 — No mailer anywhere
-
-**Current behaviour (verified)**
-
-- There is no mailer, no SMTP env var, and no mail dependency in any `package.json`.
-- `createInvite()` (`apps/api/src/services/groups/invites.service.ts:57`) stores the row and returns
-  `{ invite, inviteUrl }`; `buildInviteUrl()` (`:44`) builds `${env.webOrigins[0]}/invite/<token>`.
-  The admin copies that link and forwards it by hand — `InvitePanel.tsx` says so in as many words.
-- Registration therefore stores `emailVerified: false` (`apps/api/src/routes/auth.ts:127`), and
-  because nothing can ever set that flag, **OAuth never auto-links** to a matching password account
-  (409 `email_taken`). That is a deliberate fix for a real account-takeover, not an oversight — see
-  Known gaps.
-
-**Why it was left open.** A mailer is a deployment decision (own SMTP vs. a provider), it needs a
-secret and a verified sender domain, and every path that wants it (invites, reset, verification)
-still works or degrades cleanly without it.
-
-**Decisions needed**
-
-1. Transport: SMTP via `nodemailer` (works under Bun, self-host friendly, one dependency) **or** an
-   HTTP provider like Resend/Postmark (`fetch` only, no dependency, but an external service).
-2. Sender identity: `MAIL_FROM` and, for a provider, a verified domain.
-3. Does a failed send break the action? **Recommendation: no.** Creating an invite must still
-   succeed and still return `inviteUrl`, with the send failure logged and surfaced as a soft warning
-   in the UI. The link is the source of truth; e-mail is a convenience.
-
-**Implementation sketch**
-
-- Mirror the existing swappable-adapter pattern (`OcrEngine`, `apps/api/src/services/ocr/index.ts`)
-  — that consistency is the point:
-  ```
-  apps/api/src/services/mail/index.ts     Mailer interface + selection from env
-  apps/api/src/services/mail/smtp.ts      or provider.ts
-  apps/api/src/services/mail/console.ts   dev default: logs the mail + link, sends nothing
-  apps/api/src/services/mail/templates.ts German text+HTML: invite, reset, verify
-  ```
-  `interface Mailer { send(msg: { to, subject, text, html? }): Promise<void> }`.
-- `ConsoleMailer` is the **default when no transport is configured**, so `bun run dev` keeps working
-  and tests never touch the network. Inject a fake mailer in tests exactly as the OCR tests inject a
-  fake `OcrEngine`.
-- Add `MAIL_TRANSPORT`, `MAIL_FROM`, `SMTP_URL` (or `MAIL_API_KEY`) to `apps/api/src/env.ts` **and**
-  `.env.example`. `env.ts` is Zod-validated and fails fast — keep the mail vars optional so an
-  install without mail still boots.
-- Wire the first caller: `createInvite()` sends the invite mail after the row is committed, inside a
-  `try/catch` that never rethrows.
-
-**Follow-on this unlocks (do not skip the reasoning).** An e-mail-verification flow
-(`POST /api/auth/email/verify/request` + `/confirm`, setting `users.emailVerified`) would let OAuth
-auto-linking come back — but **only** gated on a verification timestamp earned through a real
-confirmation click, never on the registration default. Re-read the takeover note in Known gaps
-before touching `loginWithOAuthProfile()` (`apps/api/src/services/auth/oauthAccounts.ts`).
-
-**Done when.** An invite e-mail arrives with a working link; with no transport configured the app
-behaves exactly as it does today; `bun test` still passes offline.
+Both conventions from the original plan held: **new user-facing copy is German**, and **new API errors
+go through `ApiError` + `ERROR_CODES` in `@toon/shared`** (`reset_token_invalid`,
+`verification_token_invalid`).
 
 ---
 
-## 2 — No password reset
+## 1 — Mailer
 
-**Current behaviour (verified)**
+**Decision.** HTTP provider (Resend), not SMTP: no dependency, just `fetch`, and one API key plus a
+verified domain is the whole setup. An SMTP adapter is a new file next to `resend.ts` implementing the
+same three-line interface — nothing else would change.
 
-- Auth endpoints are `register`, `login`, `logout`, `me`, `PATCH /me`, `POST /password` (requires a
-  session **and** the current password), `sessions`, `oauth*` — there is no forgot/reset anywhere
-  (`apps/api/src/routes/auth.ts`).
-- `LoginPage.tsx` has no "Passwort vergessen?" link; `docs/API.md` has no reset endpoint.
-- A user with a password and no linked provider who forgets it is locked out, and there is no
-  operator escape hatch either. The only workaround is DB access.
+**What it is.** Mirrors the `OcrEngine` seam exactly, which was the point:
 
-**Decision needed.** Do you want the **mailed** flow (needs #1) or is the **operator CLI** enough for
-a family-scale install? They share all the server-side work, so building the CLI first is not wasted
-— it is the same token table and the same reset endpoint, minus the mail.
+```
+services/mail/types.ts      Mailer interface + MailSendResult
+services/mail/index.ts      getMailer() / setMailer() / trySendMail() / isMailConfigured()
+services/mail/console.ts    ConsoleMailer — the DEFAULT: logs the mail + link, sends nothing
+services/mail/resend.ts     ResendMailer — fetch POST, 10 s timeout
+services/mail/templates.ts  German text+HTML: invite, reset, verify
+```
 
-**Implementation sketch**
+`MAIL_TRANSPORT` / `MAIL_FROM` / `MAIL_API_KEY` in `env.ts` and `.env.example`, all optional. `env.ts`
+*does* refuse to boot when `MAIL_TRANSPORT="resend"` is set without a key or sender — a deployment that
+asked for real mail and typo'd the key should fail loudly, not look healthy and deliver nothing.
 
-1. **Schema** — new table in `apps/api/src/db/schema.ts`, then `bun run db:generate`:
-   `password_reset_tokens(id, user_id → users.id cascade, token_hash, expires_at, used_at,
-   created_at, requested_ip)`.
-   Store a **SHA-256 hash** of the token, not the token. Note the deliberate difference from
-   `group_invites.token` (`schema.ts:138`), which stores the raw token — a leaked DB there costs you
-   group membership; here it would cost account takeover. TTL 1 h (not the invites' 14 days).
-2. **Service** — `apps/api/src/services/auth/passwordReset.ts`: create (invalidating any outstanding
-   token for that user), consume-once, and reject expired/used tokens with an indistinguishable
-   error.
-3. **Routes**
-   - `POST /api/auth/password/forgot { email }` → **always `204`**, whether or not the address
-     exists. No user enumeration. Rate-limit it with a new rule alongside `LOGIN_EMAIL_RULE` in
-     `apps/api/src/services/auth/rateLimit.ts` (per-IP *and* per-email, as login does — and note
-     that IP is only trustworthy when `TRUST_PROXY=1`).
-   - `POST /api/auth/password/reset { token, password }` → sets the hash via `Bun.password`, marks
-     the token used, and **deletes every session for that user** (the sessions service already has
-     the query) so a thief holding a stolen cookie is logged out. Then sign the user in, or redirect
-     to `/login` — your call, say which in `docs/API.md`.
-   - Reuse the register password rule (min 10 chars) from the shared schema; do not re-invent it.
-4. **Web** — "Passwort vergessen?" on `LoginPage.tsx`, plus `/forgot-password` and
-   `/reset-password/:token` routes in `apps/web/src/router.tsx`, and the two API functions in
-   `apps/web/src/lib/api.ts` (the only file allowed to talk to the network). German copy; the
-   forgot screen must show the same confirmation regardless of whether the address exists.
-5. **Operator stopgap, valuable on its own** — `apps/api/scripts/reset-password.ts`
-   (`bun run auth:reset-password <email>`) mints a token and prints the reset URL. Works with no
-   mailer at all and is the answer for a locked-out user today.
+**A failed send never fails its action** (the recommendation in the original plan, kept).
+`trySendMail()` returns `{ delivered, transport, error? }` and never throws. `createInvite()` sends
+*after* the row is committed and reports `emailSent` in `GroupInviteResponse`; the invite panel shows
+the copyable link either way and only claims "verschickt" when it was. `POST /password/forgot` answers
+204 regardless.
 
-**Tests.** Happy path; expired token; reused token; unknown e-mail still returns 204; existing
-sessions are dead after a reset; rate limit trips. Integration tests run against `file::memory:` —
-but see the libSQL transaction gotcha in `CLAUDE.md` if you wrap the reset in a transaction.
-
-**Done when.** A locked-out password-only user can get back in without DB access, and a stolen
-session cookie does not survive the reset.
+**Sharp edges.** One delivery attempt, no retry queue. `bun test` gets a silent ConsoleMailer, and a
+test that calls `setMailer()` must hand it back — every file shares one process.
 
 ---
 
-## 3 — `/uploads` is served without an authorization check
+## 2 — Password reset
 
-The only gap with a security edge. It is also the one that is already 90 % built.
+**Decision.** Both halves. The mailed flow *and* `bun run auth:reset-password <email> [--send]`,
+because they are the same token table and the same endpoint minus the mail, and the CLI is the only
+answer on an install with no transport configured. After a reset the user is **sent to `/login`**, not
+signed in — the reset kills every session, so proving they know the new password is the natural next
+step and there is nothing to document about a half-authenticated state.
 
-**Current behaviour (verified)**
+**Schema.** `password_reset_tokens(id, user_id → cascade, token_hash, expires_at, used_at,
+requested_ip, created_at)`, migration `0001`. **SHA-256 hash, never the token** — the deliberate
+difference from `group_invites.token`, which keeps the raw value. TTL **1 h**, not the invites' 14 days.
+Unsalted and unstretched on purpose: the input is already 256 bits of CSPRNG output, so there is
+nothing to grind, and a salted digest could not be looked up by token at all.
 
-- `app.get("/uploads/:filename")` (`apps/api/src/index.ts:56-68`) serves any file in `UPLOAD_DIR`
-  with **no session and no membership check**, `Cache-Control: public, max-age=31536000, immutable`.
-  Path traversal *is* blocked (normalize + prefix re-check), and names are unguessable UUIDs
-  (`storeUpload`, `apps/api/src/services/import/files.ts:202`).
-- A membership-checked alternative already exists and is unused:
-  `GET /api/groups/:groupId/imports/:draftId/source` (`apps/api/src/routes/imports.ts:243`).
-  The review screen instead builds `${apiBaseUrl()}/uploads/<filename>`
-  (`apps/web/src/features/import/lib/importApi.ts:38`).
-- Consequence: anyone who ever saw an upload URL — **including a removed group member** — can still
-  fetch that file forever. For an import that file can be a photo of a private page.
+**Endpoints.** `POST /api/auth/password/forgot` → **always 204**. Three things make that true and all
+three matter: the rate limit is enforced *before* the lookup, a missing account just skips the send,
+and a failed send is swallowed. Two buckets, like login: per-IP (5/15 min) and IP-independent
+per-address (3/15 min), because without `TRUST_PROXY=1` the IP is a shared socket address.
 
-**Why it is public, which is the actual constraint.** `UPLOAD_DIR` holds *two* kinds of file:
-recipe **hero images**, rendered with plain `<img>` in at least six components via the resolver at
-`apps/web/src/lib/api.ts:93`, and import **source scans**. A cross-origin `<img>` cannot send
-cookies, and the default dev/deploy setup is cross-origin (`localhost:5173` → `:3001`) — so a
-cookie-checked `/uploads` would break every recipe image. That is why the comment above the route
-says what it says. Any fix has to answer this, not just add middleware.
+`POST /api/auth/password/reset` marks the token used *first* (so a replay cannot set a password even
+if a later step fails), writes the hash, then deletes **every** session of that user. Not wrapped in a
+transaction: the order is safe at any interruption point, and `withTransaction()` degrades to
+sequential statements on a memory DB anyway.
 
-**Decision needed — pick one:**
+Unknown, expired and used tokens all answer one indistinguishable `400 reset_token_invalid`.
 
-- **(a) Split by sensitivity — smallest correct fix, recommended first.** Keep hero images on the
-  public UUID route (they are shown to every group member anyway and carry little private data), and
-  move **only import sources** to the existing checked endpoint: in
-  `apps/web/src/features/import/components/SourceViewer.tsx`, `fetch(...)` with
-  `credentials: "include"` and render a `URL.createObjectURL(blob)`, revoking it on unmount. Server
-  side is already done. Costs no infrastructure and closes the private-scan hole today.
-- **(b) Signed URLs — the fuller fix, keeps `<img>` working.** Mint `?exp=…&sig=…`
-  (HMAC-SHA256 over `filename|exp` with `SESSION_SECRET`) wherever a stored path is serialised, and
-  verify in the `/uploads` handler. Short TTL, so the URL a removed member kept goes dead.
-  Cost: every serialisation site must mint, and cache headers must drop to `private`.
-- **(c) Deploy same-origin.** Put API and web behind one origin (`PUBLIC_API_URL=""` + the Vite
-  proxy in dev, a reverse proxy in prod — both already supported, see `vite.config.ts:29-32`), then
-  a cookie check on `/uploads` works for `<img>` too. Simplest code, but it constrains hosting.
+**Web.** "Passwort vergessen?" under the password field, `/forgot-password` and
+`/reset-password/$token`. The confirmation panel says "Wenn es ein Konto mit dieser Adresse gibt …" —
+the screen must not undo the server's non-enumeration. Token in the path, not a query param.
 
-(a) and (c) compose; (b) is independent. Whatever you pick, keep the
-`navigateFallbackDenylist` for `/api` and `/uploads` in `vite.config.ts` so no service worker ever
-answers for these paths.
-
-**Also worth doing while in here**
-
-- Purge orphaned uploads. `deleteUpload()` runs when a draft is discarded, but a recipe deleted with
-  a stored hero image, or a draft abandoned forever, leaves the file on disk. A small sweeper script
-  (`bun run uploads:gc`, delete files referenced by no `recipes.imageUrl` and no
-  `import_drafts.sourceMeta.storedPath`) is ~30 lines.
-- `shutdownOcr()` exists but is not wired to `SIGTERM` (Known gaps) — same file neighbourhood.
-
-**Tests.** A non-member gets 403/404 from the source endpoint; a removed member loses access; path
-traversal stays blocked; for (b), an expired or tampered signature is rejected.
-
-**Done when.** An import source scan cannot be fetched by someone who is not currently a member of
-its group, and recipe images still render in whatever deployment mode you chose.
+**Tests.** `apps/api/test/password-reset.test.ts` — happy path, expired, reused, unknown-address-still-204,
+byte-identical responses, sessions dead after a reset, OAuth-only account gains a password, a rejected
+body does not burn the token.
 
 ---
 
-## 4 — The PWA is installable but not usable offline
+## 3 — `/uploads` authorisation
 
-**Current behaviour (verified)**
+**Decision.** (a) **and** (b): split by sensitivity *and* sign the public half. (a) alone left every
+hero image world-readable forever; (b) alone would have kept serving private scans from a URL that
+merely expires.
 
-- `VitePWA` (`apps/web/vite.config.ts:41`) uses `generateSW` with **`runtimeCaching: []`** and a
-  `navigateFallbackDenylist` of `[/^\/api\//, /^\/uploads\//]`. Only build output is precached
-  (104 entries, ~1.1 MB).
-- So an installed app opened with no connection renders the shell, then every screen fails with
-  "Keine Verbindung zum Server. Bist du offline?" (`apps/web/src/lib/api.ts:248`).
-- TanStack Query is configured with per-kind `staleTime` (`apps/web/src/lib/queries.ts`) but **no
-  persistence** — the cache dies with the tab, so even a warm cache does not survive a relaunch.
-- The install banner copy (`apps/web/src/components/layout/InstallPrompt.tsx:27`) was deliberately
-  narrowed to "own icon, no browser chrome" and no longer promises offline. **Update it when this
-  ships**, and not before.
+**The constraint that shaped it.** A cookie check is not available on `/uploads`: hero images are
+rendered with plain `<img>` in half a dozen components and the default deployment is cross-origin, so
+the authorisation has to travel *in* the URL.
 
-**Decision needed — scope.** These are very different jobs:
+**(a) Import source scans left the public route entirely.** Nothing mints a signature for
+`sourceMeta.storedPath`, so no working `/uploads` URL for one can exist. `SourceViewer` fetches
+`GET /api/groups/:groupId/imports/:draftId/source` with `credentials: "include"` and renders a
+`URL.createObjectURL()` blob, revoked on unmount and on draft change.
 
-- **Read-only offline (recommended).** Browse recipes you have already opened and use **cook mode**
-  in a kitchen with bad wifi. This is the real mobile use case and it is achievable.
-- **Offline writes.** Queued mutations, conflict resolution, an outbox. Much larger, and it needs a
-  conflict story for two members editing one recipe. Not worth it until read-only is in use.
+**(b) Everything else is signed.** `?exp=<unix ms>&sig=<hmac>`, HMAC-SHA256 over `"<filename>|<exp>"`
+keyed with `SESSION_SECRET`, truncated to 128 bits. Missing / forged / expired all answer **404**, so
+the route never confirms a UUID exists. `Cache-Control` dropped to `private`.
 
-**Why it was left open.** Caching authenticated, multi-tenant GETs needs an invalidation story, and
-getting it wrong leaks data: a cached response keyed only by URL would show **user A's recipes to
-user B** after a logout/login on a shared phone. That is the trap to design against.
+Two details worth keeping:
 
-**Implementation sketch (read-only)**
+- **Minted on serialisation, stripped on write.** Every row→DTO mapper wraps the value in
+  `signUploadUrl()`; every write path reduces it with `normalizeStoredUploadUrl()`. So a client that
+  round-trips the URL it was served cannot persist an expiring value, and columns stay origin-free.
+- **`exp` is quantised to a 12 h window.** A per-request `now + ttl` would mint a different URL on
+  every response, which permanently defeats the browser and service-worker image caches. Signatures
+  are therefore byte-identical inside a window and valid for 12–24 h — which is also the bound on how
+  long a link a removed member kept keeps working. That bound, not filename secrecy, is the guarantee.
 
-1. **Persist the query cache** so a relaunch has data: TanStack Query's
-   `persistQueryClient` + an IndexedDB persister, wired in `apps/web/src/lib/queries.ts`.
-   - **Namespace the persisted cache by user id** and **purge it on logout** (and on a user
-     mismatch at boot). This is the data-leak guard — do it first, not last.
-   - Persist recipe list/detail, collections and tags. **Never** persist `/api/auth/me`, imports, or
-     anything under `/uploads` that is a private source scan.
-2. **Service worker runtime caching** in `vite.config.ts`: `NetworkFirst` for recipe GETs with a
-   short `networkTimeoutSeconds`, `StaleWhileRevalidate` (or `CacheFirst`) for hero images.
-   Keep `/api/auth/*` and import endpoints **uncached**, and keep the denylist. Cap entries and set
-   an expiration so a phone does not fill up.
-3. **Honest offline UI.** An offline indicator (`navigator.onLine` + `online`/`offline` events);
-   editors and the import flow disabled with "Offline — Änderungen können nicht gespeichert werden";
-   cook mode explicitly works offline once the recipe has been opened.
-4. **Then** update the `InstallPrompt` copy to match reality.
-5. Note for testing: `devOptions` are off, so the manifest and worker only exist in a production
-   build — verify with `bun run build` + `bun run preview`, then DevTools → Application → offline.
-   `bun run dev` will never show you this.
+**Also done while in here.** `bun run uploads:gc [--dry-run] [--min-age-hours=N]` deletes files no row
+references (checks all five columns plus both fields inside `import_drafts`; keeps anything younger
+than 24 h, because a mid-flight upload is on disk before it is referenced). `shutdownOcr()` is wired
+to `SIGTERM`/`SIGINT`.
 
-**Done when.** Airplane mode → open the installed app → a previously viewed recipe and cook mode
-work; a logout clears the persisted cache; a second user on the same phone never sees the first
-user's recipes.
+**Tests.** `apps/api/test/uploads.test.ts` — the signing primitives, 404 without/with a tampered/expired
+signature, a signature for one file does not open another, `exp` cannot be extended, traversal still
+blocked, the column never holds a signature, and for source scans: not reachable via `/uploads`,
+non-member 403, **removed member loses access**.
+
+---
+
+## 4 — Offline PWA
+
+**Decision.** **Read-only.** Browse what you have already opened and use cook mode in a kitchen with
+bad wifi. Offline *writes* need an outbox and a conflict story for two members editing one recipe, and
+are not worth it until read-only is in use.
+
+> **Partly superseded (shopping lists).** The shopping list added later IS editable offline, with a
+> real outbox. The reasoning above still holds for everything else and is why the exception is narrow:
+> shopping-list operations are add/remove of *independent lines*, so last-writer-wins is a correct
+> answer rather than lost work, whereas two people editing one recipe body is not. What makes it safe
+> is in [`CLAUDE.md`](../CLAUDE.md) → gotchas ("THE SHOPPING LIST IS THE ONE THING EDITABLE OFFLINE");
+> the short version is four pieces that must all hold: `setMutationDefaults` (a dehydrated mutation
+> cannot carry a function), `networkMode: "offlineFirst"` (a failed write pauses instead of failing),
+> `shouldPersistMutation` + `resumePausedMutations()` (the queue survives a kill), and a client-minted
+> `mutationId` checked against a server-side ledger (`shopping_mutations`) so a replay is applied at
+> most once. Drop the last one and a lost response silently doubles an amount, because items merge.
+
+**The trap, and how it is avoided.** A persisted cache keyed only by query key shows user A's recipes
+to user B after a logout/login on a shared phone — the keys are identical. Four rules in
+`apps/web/src/lib/persist.ts`, all of which have to hold:
+
+1. the IndexedDB key contains the user id;
+2. the persister resolves that id at **call** time, so a login as a different user cannot save into
+   the previous user's blob;
+3. an id change **purges** the store, and so does logout (`onSettled`, so a failed logout request
+   still clears local state);
+4. `shouldPersistQuery` is an **allow**-list — recipes, tags, collections, shopping lists, and nothing
+   else by default. Import drafts, sessions and the OAuth provider list are excluded.
+   `shouldPersistMutation` is a second, much tighter allow-list: paused `["toon","shopping",…]`
+   mutations only.
+
+**The one judgement call: `/api/auth/me` is persisted.** The original plan said not to. Without it
+there is no offline mode at all — airplane mode cannot reach `/api/auth/me`, so the app would never
+learn who is signed in and never render past the guard. It lives inside the same per-user,
+purge-on-logout blob, and it grants nothing: the cookie is still the only thing the API accepts, and a
+401 once online clears the cache and redirects. `RequireAuth` therefore prefers a restored session
+over a failed refetch. The residual exposure (cached recipes readable on an unlocked stolen phone
+until someone taps "Abmelden") is inherent to any offline app and is written down in README → Known
+gaps rather than glossed over.
+
+**Service worker** (`vite.config.ts`): `NetworkOnly` for `/api/auth/*` **first** (a rule that came
+second would never be consulted), for imports, and for shopping lists — the last one because their
+offline copy is the persisted TanStack cache that also holds the queued edits, and an SW hit would
+hand TanStack a stale body that looks like a fresh success and overwrite optimistic state.
+`NetworkFirst` with a 4 s timeout for recipe GETs, `CacheFirst` for `/uploads`. Every entry bounded by `expiration` and `cacheableResponse: {statuses:[200]}`
+so a 401 is never stored as content. The `navigateFallbackDenylist` is unchanged.
+
+**Honest UI.** `OfflineBanner` (already existed), `useCanMutate()` disables the recipe form, the import
+screen and the draft commit with "Offline — Änderungen können nicht gespeichert werden", and the
+`InstallPrompt` copy was updated **in the same change** — it now promises already-opened recipes and
+no editing, which is exactly what ships. The shopping screens deliberately do NOT call
+`useCanMutate()`: it reports false when offline, which is backwards for the one feature that works
+offline. They show their own banner ("… werden später synchronisiert") and a queued-changes count.
+
+**Verifying it.** `devOptions` are off, so the manifest and worker only exist in a production build:
+`bun run build` + `bun --filter @toon/web preview`, then DevTools → Application → Offline. `bun run dev`
+will never show you this.
+
+---
+
+## 5 — E-mail verification (follow-on)
+
+Built, because the mailer unblocked it: `POST /api/auth/email/verify/request` (session-scoped, so it is
+not another enumeration oracle) and `/confirm` (works **without** a session — the link is regularly
+opened on a different device). 24 h TTL, hashed single-use token, bound to the address it was issued
+for so it cannot vouch for an address that changed in between.
+
+`markEmailVerified()` is the ONLY writer of `email_verified` + `email_verified_at`, which now always
+move together; `updateUser()` deliberately cannot patch them.
+
+**OAuth auto-linking is still OFF, on purpose.** A confirmed address does not re-enable it — a provider
+login on a taken address remains `409 email_taken`. `email_verified_at` is the evidence such a feature
+would have to be gated on, and a test asserts that confirming does *not* change the answer. Turning it
+on is a separate decision; re-read the takeover note in
+`apps/api/src/services/auth/oauthAccounts.ts` first.
+
+---
+
+## Gates
+
+All four were green when this was written:
+
+```
+bun install        Checked 451 installs across 648 packages
+bun run typecheck  [typecheck] OK           (packages/shared, apps/api, apps/web)
+bun test           674 pass, 0 fail, 1696 expect() calls across 22 files
+bun run build      ✓ built + PWA precache 104 entries (1130 KiB)
+```
+
+Anything touching persistence or auth also wants `bun run db:migrate` + `bun run seed` against a fresh
+`file:` DB and the curl walkthrough in README.md.

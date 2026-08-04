@@ -3,12 +3,12 @@
 Context for future sessions in this repo. Read `docs/API.md` (endpoint contract) and `README.md`
 (setup + known gaps) alongside this file.
 
-**Picking up unfinished work?** `docs/open-work.md` is the implementation plan for the four
-deliberately-deferred gaps (no mailer · no password reset · public `/uploads` · no offline support),
-including the decision each one is blocked on. Do not re-derive them from the code — in particular,
-read the `/uploads` entry before adding a cookie check there (cross-origin `<img>` sends no cookies,
-so the naive fix breaks every recipe image) and the mailer entry before re-enabling OAuth
-auto-linking (the old always-true `emailVerified` was an account-takeover).
+**Those four deferred gaps are DONE.** `docs/open-work.md` now records what shipped for each (mailer ·
+password reset · signed `/uploads` · read-only offline) and the decision behind it. Read it before
+touching any of them — in particular before adding a cookie check to `/uploads` (cross-origin `<img>`
+sends no cookies, which is why the fix is a signature) and before re-enabling OAuth auto-linking (the
+old always-true `emailVerified` was an account-takeover; `email_verified_at` is now the only evidence
+that counts, and auto-linking is still deliberately off).
 
 **What it is:** a German-first recipe manager for families/flatshares. Multi-user, group-shared
 recipes, import from URL / photo / PDF, mobile-first installable PWA. Bun workspaces monorepo.
@@ -27,15 +27,30 @@ recipes, import from URL / photo / PDF, mobile-first installable PWA. Bun worksp
 4. **Auth = e-mail+password AND OAuth (Google + GitHub).** `Bun.password` argon2id (no hashing lib).
    Sessions = opaque random ids in the `sessions` table, sent as `HttpOnly; SameSite=Lax;
    Secure(prod); Path=/` cookie `toon_session`, 30-day sliding expiry. OAuth via `arctic` with
-   state/PKCE cookies; an OAuth identity whose provider e-mail matches an existing **verified** user
-   links to that user.
+   state/PKCE cookies. Provider linking is an EXPLICIT authenticated action — there is no auto-link
+   on an e-mail match, verified or not (see the gotcha below).
+   Password reset + e-mail confirmation use hashed, single-use tokens from a mailed link.
 5. **Every import produces an editable `import_draft`.** Nothing is written to `recipes` until
    `POST …/imports/:draftId/commit`. Three sources: URL (JSON-LD `@graph`/array → microdata → site
    selectors), image (server-side OCR), PDF (text layer first, rasterize+OCR fallback,
    `422 pdf_no_text_layer` when rasterization is unavailable).
 6. **OCR is server-side** (`tesseract.js`, `deu+eng`, German first, `sharp` preprocessing) behind the
-   swappable `OcrEngine` interface in `src/services/ocr/`.
-7. **German-first content**: German units (`g kg ml l EL TL Prise Bund Pck. Stück Dose …`), unicode
+   swappable `OcrEngine` interface in `src/services/ocr/`. **Mail uses the same shape**: `Mailer`
+   interface in `src/services/mail/`, `ConsoleMailer` as the no-config default, then `SmtpMailer`
+   (dependency-free, `node:net`/`node:tls`) and `ResendMailer`. **SMTP is the self-hosted transport
+   and the default in Docker** — it talks to a Mailpit container, so a deployment needs no API key.
+9. **Deployment is ONE container serving ONE origin.** `WEB_DIST_DIR` makes the API serve the built
+   PWA from its own port (`middleware/staticWeb.ts`), so the image has `PUBLIC_API_URL=""`, the
+   client uses relative URLs, and there is no CORS entry, no second web server and no hostname baked
+   into the bundle. Caddy in front only terminates TLS. See `docs/deployment.md`.
+7. **Shopping lists are group-owned, merge by `(name, unit)` and have no `checked` column.**
+   Several named lists per group. Checking an item off DELETES the row and bumps a
+   `shopping_list_catalog` entry, so it leaves the list and reappears under "Häufig gekauft" — the
+   Bring behaviour, chosen deliberately over a flag. Adding merges: the unique index on
+   `shopping_list_items(list_id, merge_key)` turns 200 g + 200 g Mehl into one 400 g line. Amounts in
+   units with no fixed ratio (`EL`, `Dose`) never merge across units, and an amount-less line never
+   merges with a measured one. **This is the ONE feature that is editable offline** (see the gotcha).
+8. **German-first content**: German units (`g kg ml l EL TL Prise Bund Pck. Stück Dose …`), unicode
    fractions, ranges (`2-3 Eier`), ISO-8601 durations. All UI copy in German.
 
 ## Architecture
@@ -44,10 +59,11 @@ recipes, import from URL / photo / PDF, mobile-first installable PWA. Bun worksp
 packages/shared   Zod schemas + inferred types + PURE parsers. Single source of truth for every
                   request/response shape. Imported by api AND web as "@toon/shared".
 apps/api          Bun.serve + Hono. src/index.ts owns CORS/logger/health/uploads and mounts:
-                    /api/auth                     -> routes/auth.ts
-                    /api/groups                   -> routes/groups.ts
-                    /api/groups/:groupId/imports  -> routes/imports.ts
-                    /api/groups/:groupId          -> routes/recipes.ts   (also tags + collections)
+                    /api/auth                            -> routes/auth.ts
+                    /api/groups                          -> routes/groups.ts
+                    /api/groups/:groupId/imports         -> routes/imports.ts
+                    /api/groups/:groupId/shopping-lists  -> routes/shopping.ts
+                    /api/groups/:groupId                 -> routes/recipes.ts (also tags+collections)
                   Routers apply their own middleware via router.use("*", …).
 apps/web          React 19 + Vite + TanStack Router (code-based tree) + TanStack Query + Tailwind v4.
 ```
@@ -57,7 +73,7 @@ Data flow on the web side: `lib/api.ts` (the ONLY place that calls `fetch`) → 
 session/active group and exports the `RequireAuth` / `RequireActiveGroup` guards.
 
 Order matters in two places: register `/invites/:token` and `/invites/accept` **before** `/:groupId`
-in `routes/groups.ts`; mount `imports` before the catch-all `recipes` router in `src/index.ts`.
+in `routes/groups.ts`; mount `imports` AND `shopping` before the catch-all `recipes` router in `src/index.ts`.
 
 ## File layout (where things live)
 
@@ -66,20 +82,47 @@ apps/api/src/
   index.ts                 app wiring — CORS(origin=WEB_ORIGIN, credentials), health, /uploads/:file
   env.ts                   zod-validated env; loads the ROOT .env itself; forces file::memory: in tests
   db/{schema,client,migrate}.ts
-  lib/{errors,http,types,cookies,oauth}.ts
+  lib/{errors,http,types,cookies,oauth,uploadUrls}.ts
   middleware/session.ts    requireSession / optionalSession / loadSession  (sets user, sessionId)
   middleware/group.ts      requireGroupRole(role) — resolves the group from :groupId or from
                            recipeId|collectionId|tagId|draftId|inviteId; sets membership
-  routes/{auth,groups,recipes,imports}.ts
-  services/auth|groups|recipes|import|ocr/
+  middleware/staticWeb.ts  serves apps/web/dist when WEB_DIST_DIR is set (the Docker
+                           single-origin setup); mounted LAST, owns the SPA fallback
+  routes/{auth,groups,recipes,imports,shopping}.ts
+  services/auth|groups|recipes|import|ocr|mail|shopping/
+                           mail/: console.ts · smtp.ts (self-hosted default) · resend.ts
+  scripts/{migrate,seed,ocr-prefetch,reset-password,uploads-gc}.ts
   test/                    ALL api tests (test/, NOT tests/ — tsconfig only includes test/**)
 apps/web/src/
   router.tsx               the route tree; screens resolved lazily by lib/lazy-page.tsx
-  lib/{api,queries,query-client,session,validation,format,navigation,theme,storage,pwa,cn}.ts
+  lib/{api,queries,query-client,session,validation,format,navigation,theme,storage,pwa,persist,cn}.ts
   components/ui/           the ONLY UI primitives — never re-implement one
   components/layout/       AppShell, TopBar, BottomTabBar, SideNav, InstallPrompt, ErrorBoundary
-  features/{auth,recipes,groups,collections,tags,import}/
+  features/{auth,recipes,groups,collections,tags,import,shopping}/
 ```
+
+## Navigation (four tabs, and what is deliberately NOT one)
+
+`components/layout/nav-items.ts` is the single source: `NAV_ITEMS` is the phone tab bar
+**and** the top of the sidebar; `SECONDARY_NAV_ITEMS` is sidebar-only.
+
+| | |
+| --- | --- |
+| Tabs | Rezepte `/` · Einkauf `/shopping` · Importieren `/import` · Profil `/settings` |
+| Sidebar-only | Gruppen `/groups` · Sammlungen `/collections` · Tags `/tags` |
+
+**There is no sidebar below `lg`**, so everything in `SECONDARY_NAV_ITEMS` MUST also be
+reachable from a tab screen, or it is unreachable on a phone:
+
+- **Gruppen** ← the `GroupsCard` on `/settings`. Deleting that card orphans group
+  management on mobile. (Switching the active group is the `GroupSwitcher` in the top
+  bar, which is a different job and always visible.)
+- **Sammlungen / Tags** ← the "Erweiterte Suche" panel on `/`.
+
+**Search is not a destination.** `/search` used to be a tab rendering a second list of
+recipes off the same hook; it is now a redirect to `/`, and searching is the always-visible
+field plus the "Erweiterte Suche" panel in `RecipeFilters`. Do not re-add a search screen —
+add to that panel instead.
 
 ## Conventions
 
@@ -132,11 +175,14 @@ apps/web/src/
   `pdf_no_text_layer`. `test/import/pdf-rasterize.test.ts` is the only import test that uses the real
   rasterizer — **never** `mock.module("pdf-to-img")` in it, and keep its rendered-size assertion
   (a leaked mock from another file would otherwise make it pass).
-- **Registration stores `emailVerified: false` and OAuth never auto-links on an e-mail match.** There
-  is no confirmation-mail flow, so that flag cannot be earned; auto-linking on it let an attacker
-  pre-register a victim's address and capture their later Google/GitHub login. Linking is explicit:
-  `GET /api/auth/oauth/:provider/link` (session + `toon_oauth_intent=link` cookie). `createUser`
-  defaults `emailVerified` to **false** — only pass `true` where a provider vouched.
+- **OAuth never auto-links on an e-mail match, even a CONFIRMED one.** Auto-linking on the old
+  always-true `emailVerified` let an attacker pre-register a victim's address and capture their later
+  Google/GitHub login. Linking is explicit: `GET /api/auth/oauth/:provider/link` (session +
+  `toon_oauth_intent=link` cookie). There is now a confirmation flow
+  (`POST /api/auth/email/verify/request|confirm`) and a real `users.email_verified_at`, but turning
+  auto-linking back on is a separate decision — if you ever do, gate it on the TIMESTAMP, never on the
+  boolean. `markEmailVerified()` in `services/auth/emailVerification.ts` is the ONLY writer of that
+  pair; `updateUser()` deliberately cannot patch it.
 - **`safeNextPath` must reject backslashes, control characters and spaces**, not just `//` — the URL
   parser treats `\` like `/` for http(s), so `/\evil.com` resolves to `http://evil.com/`. It exists
   twice on purpose (`apps/api/src/lib/oauth.ts`, `apps/web/src/lib/navigation.ts`); keep them in
@@ -154,9 +200,103 @@ apps/web/src/
   `services/ocr/tesseract.ts` mkdirs `data/tessdata`; without it every cache write ENOENTs silently
   and each restart re-downloads ~15 MB. `bun run ocr:prefetch` warms it at deploy time.
 - **Recipe list/search filters live in the URL**, owned by `useUrlRecipeFilters`
-  (`apps/web/src/features/recipes/lib/url-filters.ts`). `/` and `/search` must declare the SAME
-  search params (`RECIPE_FILTER_PARAMS` in `router.tsx`) — `pick()` drops anything unlisted.
+  (`apps/web/src/features/recipes/lib/url-filters.ts`). A new filter needs a line in
+  `RECIPE_FILTER_PARAMS` (`router.tsx`) — `pick()` drops anything unlisted. **`/search` must
+  keep declaring the SAME params even though it only redirects to `/`**: `validateSearch`
+  runs before `beforeLoad`, so a param missing there is stripped before the redirect can
+  forward it, and an old `/search?q=…` bookmark would silently lose its query.
+- **`/uploads/:filename` needs a signature** (`?exp&sig`, `lib/uploadUrls.ts`). Minted where a row is
+  SERIALISED (`toRecipe`, `toCollection`, `toGroup`, `toPublicUser`, `toUserDto`, `toDraftWire`, the
+  upload response) and stripped on every WRITE (`normalizeStoredUploadUrl`) so a column never holds an
+  expiring value. `exp` is quantised to a 12 h window on purpose — a per-request `now + ttl` would
+  make every image a fresh cache entry forever. Import SOURCE scans are never signed: they are private
+  and only `GET /api/groups/:groupId/imports/:draftId/source` serves them. Do not "fix" that by signing
+  `sourceMeta.storedPath`.
+- **A failed mail send must never fail its action.** Always `trySendMail()` (returns
+  `{ delivered }`, never throws), always after the row is committed. `POST /password/forgot` answers
+  **204 for a known AND an unknown address**, with the rate limit enforced before the lookup — three
+  things that together keep it from being a user-enumeration oracle. Don't "improve" it with a 404.
+- **`bun test` gets a silent ConsoleMailer** (`env.isTest` in `services/mail/index.ts`). Tests that
+  assert on mail install their own `new ConsoleMailer(() => undefined)` and read `.sent`; `bun test`
+  runs every file in ONE process, so a test file that calls `setMailer()` must hand it back
+  (`afterEach`/`afterAll` → `setMailer(null)`) or the next file inherits the stub.
+- **THE SHOPPING LIST IS THE ONE THING EDITABLE OFFLINE, and four pieces make that safe.** Remove any
+  one and it breaks in a way that is hard to see. (1) The mutations are registered with
+  `setMutationDefaults` in `features/shopping/lib/offline.ts`, NOT inline in `useMutation` — a
+  dehydrated mutation keeps its variables but cannot keep a function, so a replay finds `mutationFn`
+  by mutation key. That file is imported by `app.tsx` FOR ITS SIDE EFFECT; the defaults must exist
+  before the persister restores. (2) `networkMode: "offlineFirst"` is what makes a failed write PAUSE
+  instead of fail. (3) `shouldPersistMutation` (lib/persist.ts) persists ONLY paused
+  `["toon","shopping",…]` mutations, and `PersistQueryClientProvider onSuccess` flushes them with
+  `resumePausedMutations()`. (4) Every queued write carries a client-minted `mutationId`, generated at
+  CALL time (never inside `mutationFn`, which re-runs on replay). Drop (4) and a request that reached
+  the server but lost its response is applied twice on replay — and because items MERGE, the symptom
+  is "500 g Mehl" quietly becoming "1 kg", not a visible duplicate row.
+- **`useCanMutate()` must NOT be used on the shopping screens.** It returns false when offline, which
+  is exactly backwards for the one feature that works offline. Those screens pass `canMutate` and only
+  gate *list* create/rename/delete on `isOnline` (those are genuinely online-only, so a list created
+  offline never needs a client-side id that queued item mutations would have to be rewritten to).
+- **`/api/groups/:groupId/shopping-lists` is `NetworkOnly` in the service worker** (`vite.config.ts`),
+  deliberately, even though it is the most offline-critical screen. Its offline copy is the persisted
+  TanStack cache — the same store the queued mutations live in. A `NetworkFirst` SW hit would hand
+  TanStack a stale body that looks like a fresh success, and `onSuccess` would write it over the
+  optimistic state, silently un-ticking items the user just checked off.
+- **`foldText`/`FOLD_PAIRS` live in `@toon/shared` (src/text.ts), not in the API.** Three things must
+  agree: `foldSql()` in `services/groups/support.ts` builds the SAME replacements as nested SQLite
+  `replace(lower(…))` calls, the web app folds client-side for the merge preview, and the stored
+  `name_key`/`merge_key` columns hold folded values. Adding a pair changes stored keys — existing rows
+  keep their old key until rewritten.
+- **`shoppingItemKey`'s separator is U+001F, not a space** (`packages/shared/src/shopping.ts`).
+  `nameKey` output contains spaces, so with a space an item literally named "Tomaten kind:g" and
+  "Tomaten" in grams would produce keys differing only in trailing whitespace — and the UNIQUE index
+  would merge two unrelated lines. There is a test pinning this.
+- **The persisted offline cache is namespaced per user id and purged on account change/logout**
+  (`apps/web/src/lib/persist.ts`). Without that, user B sees user A's recipes on a shared phone — the
+  query keys are identical. The persister reads the active user at CALL time, never captures it. The
+  allow-list `shouldPersistQuery` is allow, not deny: a new endpoint is excluded until listed.
+  `/api/auth/me` IS persisted (otherwise airplane mode never learns who is signed in) — hence
+  `RequireAuth` renders a restored session even when the refetch failed. `/api/auth/*` and the import
+  endpoints must stay out of `runtimeCaching`. `PERSIST_BUSTER` is `v2` since the blob also carries
+  paused mutations.
 - **`build.sourcemap` is off** so the client TypeScript is not published with the bundle.
+- **Bun 1.3 uses the ISOLATED linker for workspaces**, so `node_modules/` at the root holds nothing
+  but the `.bun` store and each workspace gets its OWN symlink tree. A Dockerfile that copies only
+  `/app/node_modules` builds and starts fine and then dies on the first request with
+  `Cannot find module '@libsql/client'`. All three paths have to be copied: root,
+  `apps/api/node_modules`, `packages/shared/node_modules`.
+- **`new TLSSocket(socket, { isServer: true })` never completes a handshake under Bun**, so the
+  server side of a STARTTLS upgrade cannot be written the obvious way — and it hangs identically
+  whether or not the client is correct, which makes it useless as a test. The client side
+  (`tls.connect({ socket })`, which `services/mail/smtp.ts` uses) is fine. The fake relay in
+  `test/mail/smtp.test.ts` therefore pipes the plaintext socket into a real `tls.createServer()`
+  once its 220 is on the wire. Do not "simplify" that back into a TLSSocket.
+- **`servername` must be omitted for an IP literal.** Node throws `ERR_INVALID_ARG_VALUE` outright,
+  and `MAIL_HOST=192.168.1.20` is a normal self-hosted config — hence `sni()` in `smtp.ts`.
+- **`sw.js` and `index.html` must never be cached**, and `middleware/staticWeb.ts` is the only thing
+  enforcing it now that the API serves them. Cache either one and the app can never update itself
+  again; the symptom is "the Pi serves a stale app for days". Hashed `/assets/*` are immutable, and
+  `.webmanifest` needs `application/manifest+json` or the install prompt silently never appears.
+- **A missing file WITH an extension must 404, not fall back to the SPA shell.** Answering HTML for a
+  missing `.js` produces a MIME console error that says nothing about the real problem.
+- **`docker/Caddyfile`'s `header_up X-Forwarded-For {remote_host}` stays, even though Caddy logs it
+  as "unnecessary".** Measured: Caddy's default already drops a client-supplied `X-Forwarded-For`,
+  but adding a `trusted_proxies` line (a common copy-paste) makes the forged value the FIRST entry —
+  which is the one `clientIp()` uses, so every rate limit becomes a no-op. The overwrite survives
+  that.
+- **A self-signed certificate alone does NOT give you the PWA.** An untrusted-CA origin is not a
+  secure context even after the user clicks through, so the service worker never registers and the
+  offline shopping list is dead. Caddy's local CA root must be installed per device
+  (`http://<host>/toon-root-ca.crt`, served over plain http on purpose — a device that does not trust
+  the CA yet cannot fetch it over the HTTPS that CA signed).
+- **Mailpit is bound to `127.0.0.1` in compose, not the LAN.** Its UI shows every password-reset and
+  invite link, so LAN access there is account takeover for anyone on the wifi. Reach it via
+  `ssh -L 8025:127.0.0.1:8025`.
+- **`/app/data` is a VOLUME, so anything written there at build time is invisible at runtime.** The
+  OCR traineddata is therefore baked to `/app/seed/tessdata` and copied in by `docker/entrypoint.sh`
+  when the volume has none. Prefetching straight into `/app/data` looks like it works and silently
+  re-downloads ~15 MB on every fresh volume.
+- **Never verify a Docker build through a pipe** (`docker build … | tail`): the pipeline's exit code
+  is `tail`'s, so a failed build reads as success. Redirect to a file and check `$?`.
 
 ## Verification gates
 
@@ -165,9 +305,17 @@ All four must be clean before calling anything done:
 ```bash
 bun install
 bun run typecheck    # tsc for packages/shared, apps/api, apps/web
-bun test             # 600 tests
+bun test             # 821 tests
 bun run build        # vite build + PWA
 ```
 
 Plus, for anything touching persistence or auth: `bun run db:migrate` and `bun run seed` against a
 fresh `file:` DB, then the curl walkthrough in README.md ("Smoke test against a real server").
+
+For anything touching the Dockerfile, the compose stack or `middleware/staticWeb.ts`, the image has
+to be built and the stack actually run — a Dockerfile can be wrong in ways no test catches:
+
+```bash
+docker build -t toon-recipe:local . > /tmp/build.log 2>&1; echo $?   # NOT through a pipe
+docker compose --env-file .env.local-stack -p toonstack up -d        # see docs/deployment.md
+```

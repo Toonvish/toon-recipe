@@ -29,7 +29,9 @@ Base URL: `PUBLIC_API_URL` (default `http://localhost:3001`). Everything below `
   ms in SQLite.
 - **Lists**: `{ items, total, limit, offset }` (`listResponse(...)`), `limit` default 24, max 100.
 - **Uploads**: max 15 MB (`MAX_UPLOAD_BYTES`), real content type sniffed server-side, stored as
-  `data/uploads/<uuid>.<ext>`, served publicly from `GET /uploads/:filename`.
+  `data/uploads/<uuid>.<ext>`. `GET /uploads/:filename` requires a **signature**
+  (`?exp=<unix ms>&sig=<hmac>`, see "Uploads and signed URLs" below); import source scans are not
+  served there at all.
 - **Status codes**: `200` read/update, `201` create, `204` delete/no-body, `400` bad request,
   `401` unauthorized, `403` forbidden, `404` not found, `409` conflict, `413` too large,
   `415` unsupported media type, `422` validation/parse failure, `500` internal.
@@ -39,7 +41,7 @@ Base URL: `PUBLIC_API_URL` (default `http://localhost:3001`). Everything below `
 | Method | Path | Auth | Request | Response | Status |
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/health` | public | – | `HealthResponse` | 200 |
-| GET | `/uploads/:filename` | public | – | binary | 200, 404 |
+| GET | `/uploads/:filename` | signature | `?exp` + `?sig` | binary | 200, 404 (missing/forged/expired signature, or no such file) |
 
 ## Auth — `apps/api/src/routes/auth.ts`
 
@@ -51,6 +53,10 @@ Base URL: `PUBLIC_API_URL` (default `http://localhost:3001`). Everything below `
 | GET | `/api/auth/me` | session | – | `MeResponse` | 200, 401 |
 | PATCH | `/api/auth/me` | session | `UpdateProfileRequest` | `UserResponse` | 200, 401, 422 |
 | POST | `/api/auth/password` | session | `ChangePasswordRequest` | – | 204, 401 `invalid_credentials`, 422 |
+| POST | `/api/auth/password/forgot` | public | `ForgotPasswordRequest` | – | **always 204**, 422 (malformed address), 429 |
+| POST | `/api/auth/password/reset` | public | `ResetPasswordRequest` | – | 204, 400 `reset_token_invalid`, 422, 429 |
+| POST | `/api/auth/email/verify/request` | session | – | – | 204, 401, 409 `conflict` (already verified), 429 |
+| POST | `/api/auth/email/verify/confirm` | public | `VerifyEmailRequest` | `UserResponse` | 200, 400 `verification_token_invalid`, 422, 429 |
 | GET | `/api/auth/sessions` | session | – | `SessionListResponse` | 200, 401 |
 | DELETE | `/api/auth/sessions/:sessionId` | session | – | – | 204, 401, 404 |
 | GET | `/api/auth/oauth` | public (session optional) | – | `OAuthProvidersResponse` | 200 |
@@ -82,6 +88,35 @@ Notes
 - Login is rate limited twice: `login:<ip>|<email>` (10/min) plus an IP-independent
   `login-email:<email>` (20/15 min). Forwarding headers are only trusted when `TRUST_PROXY=1`.
 - `hasPassword: false` accounts may call `POST /api/auth/password` without `currentPassword`.
+
+### Password reset
+
+- `POST /api/auth/password/forgot` answers **204 whether or not the address exists**, with an
+  identical body and identical timing. Anything else would make it a user-enumeration oracle. A
+  failed mail send is swallowed (logged) and still answers 204.
+- Rate limited twice, like login: `password-forgot:<ip>` (5/15 min) plus an IP-independent
+  `password-forgot-email:<email>` (3/15 min).
+- `POST /api/auth/password/reset` consumes the token **once**, sets the hash via `Bun.password`, and
+  **deletes every session of that user** — a stolen cookie must not survive a reset. It answers
+  **204 and does NOT sign the user in**; the web app sends them to `/login?reset=1`.
+- Unknown, expired and already-used tokens all answer the same `400 reset_token_invalid`. TTL is
+  **1 hour** (contrast: invites are 14 days). Only a SHA-256 hash of the token is stored
+  (`password_reset_tokens.token_hash`); a new request invalidates any outstanding one.
+- The password rule is `PasswordSchema` from `@toon/shared` — the same one `register` uses.
+- Operator escape hatch with no mailer at all: `bun run auth:reset-password <email> [--send]` mints a
+  token and prints the URL.
+
+### E-mail verification
+
+- `POST /api/auth/email/verify/request` mails a link to the **session's own** address (authenticated,
+  so it is not another enumeration oracle). 24 h TTL, hash-only storage, one live token per user.
+- `POST /api/auth/email/verify/confirm` works **without a session** — the link is regularly opened on
+  a different device — and sets `users.email_verified` **and** `users.email_verified_at` together
+  (`markEmailVerified()` is the only writer). A token is bound to the address it was issued for, so
+  it cannot verify an address that changed in the meantime.
+- **A confirmed address still does NOT enable OAuth auto-linking.** `email_taken` remains the answer
+  for a provider login on a taken address; `email_verified_at` is the timestamp such a feature would
+  have to be gated on, not a switch that turns it on. Re-read the takeover note above first.
 
 ## Groups — `apps/api/src/routes/groups.ts`
 
@@ -185,9 +220,12 @@ Notes
   (`HttpUrlSchema`); anything else is 422. They are rendered into `<a href>`, and a `javascript:`
   value stored by a member would run on the app origin with the reader's session.
 - `POST /imports/file` is a convenience wrapper (added during integration): it sniffs the
-  uploaded bytes and dispatches to the image or the PDF pipeline. `GET /imports/:draftId/source`
-  serves the stored upload behind the membership check, so the review screen can show the
-  original photo/PDF without a public URL.
+  uploaded bytes and dispatches to the image or the PDF pipeline.
+- `GET /imports/:draftId/source` serves the stored upload behind the membership check, and is the
+  **only** way to read an import source scan — the review screen fetches it with
+  `credentials: "include"` and renders a `URL.createObjectURL()` blob. Nothing mints an
+  `/uploads/…` signature for a source scan, so the public route cannot serve one. A non-member gets
+  403; a removed member loses access immediately.
 - `confidence` mirrors `parsed.confidence.overall`; the review screen warns below 0.5.
 - The URL importer refuses localhost / private / link-local targets (SSRF guard). For local
   testing only, `IMPORT_ALLOW_PRIVATE_HOSTS=1` disables that check; it is ignored when
@@ -195,14 +233,109 @@ Notes
 - `/commit` writes the recipe, links tags/collections, sets `import_drafts.status = "reviewed"` and
   `import_drafts.recipe_id`.
 
+## Shopping lists — `apps/api/src/routes/shopping.ts`
+
+Mounted at `/api/groups/:groupId/shopping-lists`, **before** the catch-all recipes router (same
+reason as `imports`). Several named lists per group ("Rewe", "Drogerie"); a list belongs to the
+group, not to a user.
+
+| Method | Path | Auth | Request | Response | Status |
+| --- | --- | --- | --- | --- | --- |
+| GET | `…/shopping-lists` | group:member | – | `ShoppingListListResponse` | 200, 403 |
+| POST | `…/shopping-lists` | group:member | `CreateShoppingListRequest` | `ShoppingListResponse` | 201, 403, 409 `shopping_list_name_taken`, 409 `too_many_shopping_lists`, 422 |
+| GET | `…/shopping-lists/:listId` | group:member | – | `ShoppingListDetailResponse` | 200, 403, 404 |
+| PATCH | `…/shopping-lists/:listId` | group:member | `UpdateShoppingListRequest` | `ShoppingListResponse` | 200, 403, 404, 409, 422 |
+| DELETE | `…/shopping-lists/:listId` | group:member (creator or admin) | – | – | 204, 403, 404 |
+| POST | `…/shopping-lists/:listId/items` | group:member | `AddShoppingItemsRequest` | `ShoppingListDetailResponse` | 200, 403, 404, 409 `shopping_list_full`, 422 |
+| DELETE | `…/shopping-lists/:listId/items` | group:member | – | `ShoppingListDetailResponse` | 200, 403, 404 |
+| PATCH | `…/shopping-lists/:listId/items/:itemId` | group:member | `UpdateShoppingItemRequest` | `ShoppingListDetailResponse` | 200, 403, 404, 422 |
+| DELETE | `…/shopping-lists/:listId/items/:itemId` | group:member | – | `ShoppingListDetailResponse` | 200, 403, 404 |
+| POST | `…/shopping-lists/:listId/items/:itemId/check` | group:member | `CheckShoppingItemRequest` (optional) | `ShoppingListDetailResponse` | 200, 403, 404 |
+| POST | `…/shopping-lists/:listId/recipes` | group:member | `AddRecipeToShoppingListRequest` | `ShoppingListDetailResponse` | 200, 403, 404, 422 |
+| POST | `…/shopping-lists/:listId/catalog/:entryId` | group:member | `CheckShoppingItemRequest` (optional) | `ShoppingListDetailResponse` | 200, 403, 404 |
+| DELETE | `…/shopping-lists/:listId/catalog/:entryId` | group:member | – | – | 204, 403, 404 |
+
+Notes
+- **Every mutation returns the WHOLE list** (`ShoppingListDetailResponse`: list + open items +
+  suggestions), never just the touched item. The web client replaces its cache entry with it rather
+  than patching, which is what keeps an optimistic offline edit from drifting — and merging means one
+  added line can change a different one.
+- **Items merge.** An item is identified by `shoppingItemKey(name, unit)` from `@toon/shared`: a
+  folded name plus the unit's *merge bucket*. Adding "200 g Mehl" to a list that already has 200 g
+  yields one **400 g** line, and `1 kg + 200 g` yields `1.2 kg`. Enforced by the unique index on
+  `shopping_list_items(list_id, merge_key)`, not by a read-modify-write.
+  Units with no fixed ratio (`EL`, `Dose`) only merge with themselves, and an **amount-less line
+  never merges with a measured one** — folding "Mehl" into "200 g Mehl" would invent or lose a
+  quantity.
+- **Checking off is a DELETE, not a flag.** There is no `checked` field anywhere: the row is removed
+  and its `shopping_list_catalog` entry is bumped, so the item leaves the list and reappears under
+  "Häufig gekauft". `use_count` counts check-offs, not adds, so the ranking reflects what actually
+  gets bought. Suggestions currently on the list are filtered out of the response.
+- **`POST …/recipes` scales** with the same `scaleIngredients` as `GET /recipes/:id/scale`, with
+  `keepNonScalingUnits` (a Prise stays a Prise). `servings` is the TARGET count; omit it for factor 1.
+  A recipe with no `servingsAmount` is added unscaled rather than refused. The recipe id is recorded
+  on every resulting line (`sourceRecipeIds`), and survives the recipe being deleted — the id stays,
+  it just stops resolving into `sources`.
+- **`mutationId` (optional, uuid) makes a replay safe.** The API records applied ids in
+  `shopping_mutations` and applies each at most once. This is what lets the PWA queue edits made
+  offline: without it, a request that reached the server but lost its response would be applied twice
+  on replay, and because items merge that is a silently **doubled amount**, not a visible duplicate.
+  `DELETE` of an item and `check` are idempotent by construction and safe without one.
+- Free text ("500g Mehl") is parsed **client-side** with `parseIngredientLine`
+  (`apps/web/src/features/shopping/lib/parse.ts`); the API only accepts structured items.
+
+## Uploads and signed URLs — `apps/api/src/lib/uploadUrls.ts`
+
+`UPLOAD_DIR` holds two kinds of file with two different rules.
+
+**Recipe hero images, avatars, group/collection covers** are served by `GET /uploads/:filename`,
+which requires `?exp=<unix ms>&sig=<hmac>`. The signature is HMAC-SHA256 over `"<filename>|<exp>"`
+keyed with `SESSION_SECRET`, truncated to 128 bits. Missing, forged and expired signatures all answer
+**404**, so the route never confirms that a UUID exists. Responses are
+`Cache-Control: private, max-age=21600, immutable`.
+
+- **Minted on serialisation**, not on storage: `toRecipe()`, `toCollection()`, `toGroup()`,
+  `toPublicUser()`, `toUserDto()`, `toDraftWire()` and the upload response wrap the stored value in
+  `signUploadUrl()`.
+- **Stripped on every write**: `normalizeStoredUploadUrl()` reduces whatever the client sends back to
+  the bare `/uploads/<filename>`, so a column never holds an expiring value or a pinned origin. A
+  client that round-trips the URL it was given is therefore harmless.
+- `exp` is **quantised to a 12 h window** (`SIGNED_URL_WINDOW_MS`), so every response inside one
+  window carries a byte-identical URL — otherwise the browser and service-worker image caches would
+  never hit. A signature is valid for 12–24 h, which is also the window in which a link a removed
+  member kept goes dead.
+- External URLs (`https://chefkoch.de/…`), `data:` URIs and anything with a path segment are passed
+  through untouched and never signed.
+
+**Import source scans** (the uploaded photo/PDF behind a draft) are the private half: no signature is
+ever minted for `sourceMeta.storedPath`, so `/uploads/…` cannot serve one at all. They are available
+only from `GET /api/groups/:groupId/imports/:draftId/source`, behind the membership check.
+
+Orphaned files (a deleted recipe's image, an abandoned draft) are swept by
+`bun run uploads:gc [--dry-run] [--min-age-hours=N]`.
+
 ## Tables (SQLite, `apps/api/src/db/schema.ts`)
 
-`users`, `oauth_accounts`, `sessions`, `groups`, `group_members`, `group_invites`, `recipes`,
-`recipe_ingredients`, `recipe_steps`, `tags`, `recipe_tags`, `collections`, `collection_recipes`,
-`import_drafts`.
+`users`, `oauth_accounts`, `sessions`, `password_reset_tokens`, `email_verification_tokens`,
+`groups`, `group_members`, `group_invites`, `recipes`, `recipe_ingredients`, `recipe_steps`, `tags`,
+`recipe_tags`, `collections`, `collection_recipes`, `import_drafts`, `shopping_lists`,
+`shopping_list_items`, `shopping_list_catalog`, `shopping_mutations`.
+
+`password_reset_tokens` / `email_verification_tokens` store a **SHA-256 hash** of the token, never
+the token — the deliberate difference from `group_invites.token`, which keeps the raw value (a leaked
+invites table costs group membership; a leaked reset table would cost every account). TTLs: 1 h and
+24 h. `used_at` makes each one single-use.
 
 Unique indexes: `users.email`, `oauth_accounts(provider, provider_user_id)`,
-`group_members(group_id, user_id)`, `tags(group_id, name)`, `group_invites.token`.
+`group_members(group_id, user_id)`, `tags(group_id, name)`, `group_invites.token`,
+`password_reset_tokens.token_hash`, `email_verification_tokens.token_hash`,
+`shopping_lists(group_id, name)`, `shopping_list_items(list_id, merge_key)`,
+`shopping_list_catalog(list_id, name_key)`.
+
+`shopping_list_items.merge_key` is the item's *identity*, not a cache: the unique index on it is what
+performs the merging, so two members adding the same ingredient at once cannot produce two lines.
+`shopping_mutations` is an idempotency ledger keyed by the client's `mutationId` (TTL 14 days, pruned
+on write) — see the Shopping lists notes above for why it has to exist.
 Composite primary keys: `recipe_tags(recipe_id, tag_id)`, `collection_recipes(collection_id, recipe_id)`.
 All group-scoped tables cascade from `groups`; child rows cascade from `recipes`.
 

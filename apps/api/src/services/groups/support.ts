@@ -4,6 +4,7 @@
  * Lives inside services/groups/ because that directory and services/recipes/
  * are owned by the same agent; both import from here.
  */
+import { FOLD_PAIRS, foldText } from "@toon/shared";
 import type { SQL } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import type { Database } from "../../db/client.ts";
@@ -57,32 +58,11 @@ export function nowMs(): number {
  * "Grieß" would never match "griess". We therefore fold BOTH sides (column and
  * search term) with the same replacement table before the LIKE comparison.
  * Umlauts are folded to their base letter so "Möhre" is found by "mohre" too.
+ *
+ * The table itself lives in `@toon/shared` (src/text.ts) because the web app and the
+ * `name_key` column of the shopping-list tables fold with the SAME pairs. Importing
+ * it here rather than repeating it is what keeps `foldSql` and `foldText` in step.
  */
-const FOLD_PAIRS: ReadonlyArray<readonly [string, string]> = [
-  ["Ä", "a"],
-  ["Ö", "o"],
-  ["Ü", "u"],
-  ["ä", "a"],
-  ["ö", "o"],
-  ["ü", "u"],
-  ["ß", "ss"],
-  ["é", "e"],
-  ["è", "e"],
-  ["ê", "e"],
-  ["á", "a"],
-  ["à", "a"],
-  ["â", "a"],
-  ["í", "i"],
-  ["ì", "i"],
-  ["î", "i"],
-  ["ó", "o"],
-  ["ò", "o"],
-  ["ô", "o"],
-  ["ú", "u"],
-  ["ù", "u"],
-  ["û", "u"],
-  ["ç", "c"],
-];
 
 /** Wraps a column/expression in `lower()` + the fold replacements. */
 export function foldSql(expression: SQL | SQL.Aliased | unknown): SQL<string> {
@@ -93,12 +73,11 @@ export function foldSql(expression: SQL | SQL.Aliased | unknown): SQL<string> {
   return folded as SQL<string>;
 }
 
-/** Applies the same folding as `foldSql` in JavaScript. */
-export function foldText(value: string): string {
-  let folded = value.toLowerCase();
-  for (const [from, to] of FOLD_PAIRS) folded = folded.split(from).join(to);
-  return folded;
-}
+/**
+ * Applies the same folding as `foldSql` in JavaScript.
+ * Re-exported from `@toon/shared` so existing call sites keep working.
+ */
+export { foldText };
 
 /** Escapes LIKE wildcards; pair with `escape '\'` (see likeFolded). */
 function escapeLike(value: string): string {

@@ -1,0 +1,132 @@
+/**
+ * One line on a shopping list, as a LARGE card.
+ *
+ * Sizing is the whole point: this is read and tapped one-handed, in a supermarket,
+ * possibly with a trolley in the other hand. So the card is ~72px tall on phones, the
+ * ENTIRE card is the check-off button (not a small checkbox), and the secondary actions
+ * sit in their own >=44px targets that stop the click from reaching it.
+ *
+ * Checking off REMOVES the line (it reappears under "Häufig gekauft"), so the visual
+ * feedback is a brief filled checkbox rather than a strikethrough — there is nothing
+ * left to strike through.
+ */
+import { useState } from "react";
+import { Pencil, Trash2 } from "lucide-react";
+import { formatQuantity, formatShoppingAmount, isVagueAmount, type ShoppingItem } from "@toon/shared";
+import { IconButton } from "@/components/ui";
+import { cn } from "@/lib/cn";
+import { isPendingItemId } from "../lib/offline";
+
+export interface ShoppingItemCardProps {
+  item: ShoppingItem;
+  onCheck: (itemId: string) => void;
+  onEdit: (item: ShoppingItem) => void;
+  onRemove: (itemId: string) => void;
+  /** False while the group is read-only for this user (see useCanMutate). */
+  canMutate: boolean;
+}
+
+export function ShoppingItemCard({
+  item,
+  onCheck,
+  onEdit,
+  onRemove,
+  canMutate,
+}: ShoppingItemCardProps) {
+  /**
+   * Purely visual: the row leaves the list as soon as the optimistic update lands, so
+   * without a beat of "ticked" feedback the item would simply vanish under the thumb.
+   */
+  const [ticking, setTicking] = useState(false);
+
+  // A line that only exists optimistically has no server id yet, so editing or
+  // deleting it by id would 404. Checking it off is fine — the queue is ordered.
+  const pending = isPendingItemId(item.id);
+  const amount = formatShoppingAmount(item, formatQuantity);
+  const vague = isVagueAmount(item);
+
+  const check = () => {
+    if (!canMutate || ticking) return;
+    setTicking(true);
+    onCheck(item.id);
+  };
+
+  return (
+    <li className="relative">
+      <button
+        type="button"
+        onClick={check}
+        disabled={!canMutate}
+        aria-label={`${item.name} abhaken`}
+        className={cn(
+          "flex w-full items-center gap-3 rounded-card border border-line bg-surface px-3 py-3 text-left",
+          "min-h-[4.5rem] transition-[background-color,border-color,opacity] duration-150",
+          "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+          "active:bg-surface-2 disabled:opacity-60 sm:min-h-16 sm:px-4",
+          ticking && "border-success bg-success-soft opacity-70",
+          // Room for the action buttons that overlay the right edge.
+          canMutate && !pending ? "pr-24" : "pr-4",
+        )}
+      >
+        <span
+          aria-hidden="true"
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-lg border-2 transition-colors duration-150 sm:size-7",
+            ticking ? "border-success bg-success text-success-fg" : "border-line-strong",
+          )}
+        >
+          {ticking ? (
+            <svg viewBox="0 0 20 20" className="size-5" fill="none" stroke="currentColor" strokeWidth="3">
+              <path d="M4 10.5 8 14.5 16 6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ) : null}
+        </span>
+
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            {amount ? (
+              <span
+                className={cn(
+                  "text-base font-semibold tabular-nums sm:text-[1.05rem]",
+                  vague ? "text-fg-muted" : "text-fg",
+                )}
+              >
+                {amount}
+              </span>
+            ) : null}
+            <span className="text-base leading-snug font-medium break-words text-fg sm:text-[1.05rem]">
+              {item.name}
+            </span>
+          </span>
+
+          {item.note ? (
+            <span className="text-sm text-fg-muted">{item.note}</span>
+          ) : null}
+
+          {item.sources.length > 0 ? (
+            <span className="truncate text-xs text-fg-muted">
+              aus {item.sources.map((source) => source.title).join(", ")}
+            </span>
+          ) : null}
+        </span>
+      </button>
+
+      {canMutate && !pending ? (
+        <span className="absolute inset-y-0 right-2 flex items-center gap-1">
+          <IconButton
+            label="Bearbeiten"
+            variant="ghost"
+            onClick={() => onEdit(item)}
+            icon={<Pencil />}
+          />
+          <IconButton
+            label="Von der Liste entfernen"
+            variant="ghost"
+            onClick={() => onRemove(item.id)}
+            icon={<Trash2 />}
+          />
+        </span>
+      ) : null}
+    </li>
+  );
+}

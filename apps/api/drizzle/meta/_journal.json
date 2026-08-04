@@ -8,6 +8,20 @@
       "when": 1785764610312,
       "tag": "0000_rare_ultron",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785820257598,
+      "tag": "0001_icy_adam_warlock",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785824789195,
+      "tag": "0002_bent_sunspot",
+      "breakpoints": true
     }
   ]
 }

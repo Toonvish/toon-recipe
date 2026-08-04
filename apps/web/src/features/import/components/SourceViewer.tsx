@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 import type { ImportDraft } from "@toon/shared";
 import { safeHttpUrl } from "@/lib/format";
-import { uploadUrl } from "../lib/importApi";
+import { fetchDraftSource } from "../lib/importApi";
 
 export interface SourceViewerProps {
   draft: ImportDraft;
@@ -60,36 +60,101 @@ function isPdfSource(draft: ImportDraft): boolean {
   return typeof meta.filename === "string" && /\.pdf$/i.test(meta.filename);
 }
 
-function storedFileUrl(draft: ImportDraft): string | undefined {
+/** True when this draft has an uploaded scan/PDF behind the checked endpoint. */
+function hasStoredSource(draft: ImportDraft): boolean {
   const stored = draft.sourceMeta?.storedPath;
-  if (typeof stored !== "string" || stored.length === 0) return undefined;
-  return uploadUrl(stored);
+  return typeof stored === "string" && stored.length > 0;
 }
 
-function imageSourceUrl(draft: ImportDraft): string | undefined {
-  if (!isPdfSource(draft)) {
-    const stored = storedFileUrl(draft);
-    if (stored !== undefined) return stored;
-  }
+/**
+ * A hero image that is safe to put in a plain `<img src>`: the parsed image from a
+ * URL import. The API signs its own `/uploads/…` values, so both an external
+ * `https://…` and a signed upload URL work here.
+ */
+function parsedImageUrl(draft: ImportDraft): string | undefined {
   const parsedImage = draft.parsed.imageUrl;
-  if (typeof parsedImage === "string" && /^https?:\/\//i.test(parsedImage)) return parsedImage;
+  if (typeof parsedImage !== "string" || parsedImage.length === 0) return undefined;
+  if (/^https?:\/\//i.test(parsedImage)) return parsedImage;
+  if (parsedImage.startsWith("/uploads/") && parsedImage.includes("sig=")) return parsedImage;
   return undefined;
 }
 
+/**
+ * Loads the uploaded source scan through the MEMBERSHIP-CHECKED endpoint and hands
+ * back an object URL.
+ *
+ * Why not just an `<img src="/uploads/…">`: the scan is the private half of
+ * UPLOAD_DIR (it can be a photo of a private page), the API mints no signature for
+ * it, and a cross-origin `<img>` could not send the session cookie anyway. So the
+ * bytes are fetched with credentials and wrapped in a blob URL.
+ *
+ * The object URL is revoked on unmount and whenever the draft changes — a leaked one
+ * keeps the whole image in memory for the lifetime of the document.
+ */
+function useDraftSourceObjectUrl(draft: ImportDraft): {
+  url: string | undefined;
+  mimeType: string | undefined;
+  loading: boolean;
+  failed: boolean;
+} {
+  const [state, setState] = useState<{
+    url?: string;
+    mimeType?: string;
+    loading: boolean;
+    failed: boolean;
+  }>({ loading: false, failed: false });
+
+  const available = hasStoredSource(draft);
+
+  useEffect(() => {
+    if (!available) {
+      setState({ loading: false, failed: false });
+      return;
+    }
+
+    const controller = new AbortController();
+    let objectUrl: string | undefined;
+    setState({ loading: true, failed: false });
+
+    fetchDraftSource(draft.groupId, draft.id, controller.signal)
+      .then((result) => {
+        objectUrl = result.objectUrl;
+        setState({ url: result.objectUrl, mimeType: result.mimeType, loading: false, failed: false });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setState({ loading: false, failed: true });
+      });
+
+    return () => {
+      controller.abort();
+      if (objectUrl !== undefined) URL.revokeObjectURL(objectUrl);
+    };
+  }, [available, draft.groupId, draft.id]);
+
+  return { url: state.url, mimeType: state.mimeType, loading: state.loading, failed: state.failed };
+}
+
 export function SourceViewer({ draft, onLineToIngredient, onLineToStep, className }: SourceViewerProps) {
-  const imageUrl = imageSourceUrl(draft);
-  const fileUrl = storedFileUrl(draft);
   const pdf = isPdfSource(draft);
+  const source = useDraftSourceObjectUrl(draft);
+  // Photo/scan -> the fetched blob; URL import -> the parsed hero image.
+  const imageUrl = pdf ? undefined : source.url ?? parsedImageUrl(draft);
+  const fileUrl = source.url;
   const rawText = typeof draft.rawText === "string" ? draft.rawText.trim() : "";
   const sourceUrl = typeof draft.sourceUrl === "string" && draft.sourceUrl.length > 0 ? draft.sourceUrl : undefined;
 
+  // `source.loading` keeps the Bild tab on screen while the blob is being fetched —
+  // otherwise the tab would vanish and re-appear a moment later, moving the
+  // selection out from under the user's finger.
+  const hasImageTab = imageUrl !== undefined || (!pdf && source.loading);
   const availableTabs = useMemo<SourceTab[]>(() => {
     const tabs: SourceTab[] = [];
-    if (imageUrl !== undefined) tabs.push("image");
+    if (hasImageTab) tabs.push("image");
     if (rawText.length > 0) tabs.push("text");
     if (sourceUrl !== undefined) tabs.push("link");
     return tabs;
-  }, [imageUrl, rawText.length, sourceUrl]);
+  }, [hasImageTab, rawText.length, sourceUrl]);
 
   const [tab, setTab] = useState<SourceTab>(() => availableTabs[0] ?? "text");
   useEffect(() => {
@@ -137,13 +202,28 @@ export function SourceViewer({ draft, onLineToIngredient, onLineToStep, classNam
         </div>
       ) : null}
 
-      {tab === "image" && imageUrl !== undefined ? <ZoomableImage src={imageUrl} /> : null}
+      {tab === "image" ? (
+        imageUrl !== undefined ? (
+          <ZoomableImage src={imageUrl} />
+        ) : source.failed ? (
+          <p className="rounded-xl border border-dashed border-line-strong p-4 text-sm text-fg-muted">
+            Das Quellbild konnte nicht geladen werden. Vielleicht bist du kein Mitglied dieser
+            Gruppe mehr, oder die Datei wurde gelöscht.
+          </p>
+        ) : (
+          <div
+            aria-busy="true"
+            className="h-[45vh] min-h-56 animate-pulse rounded-xl border border-line bg-surface-2"
+          />
+        )
+      ) : null}
 
       {tab === "text" ? (
         <RawTextPane
           text={rawText}
           pdf={pdf}
           fileUrl={pdf ? fileUrl : undefined}
+          fileLoading={pdf && source.loading}
           onLineToIngredient={onLineToIngredient}
           onLineToStep={onLineToStep}
         />
@@ -328,12 +408,15 @@ function RawTextPane({
   text,
   pdf,
   fileUrl,
+  fileLoading = false,
   onLineToIngredient,
   onLineToStep,
 }: {
   text: string;
   pdf: boolean;
+  /** Object URL of the original PDF, fetched through the checked endpoint. */
   fileUrl?: string;
+  fileLoading?: boolean;
   onLineToIngredient?: (line: string) => void;
   onLineToStep?: (line: string) => void;
 }) {
@@ -380,6 +463,9 @@ function RawTextPane({
           {copied ? <Check aria-hidden className="h-3.5 w-3.5" /> : <Clipboard aria-hidden className="h-3.5 w-3.5" />}
           {copied ? "Kopiert" : "Alles kopieren"}
         </button>
+        {pdf && fileLoading ? (
+          <span className="text-xs text-fg-subtle">PDF wird geladen …</span>
+        ) : null}
         {pdf && fileUrl !== undefined ? (
           <>
             <a

@@ -1,11 +1,13 @@
 /**
  * Recipe filters as REAL URL STATE.
  *
- * `/` and `/search` declare `q/tags/collectionId/maxMinutes/difficulty/sort` as
- * search params, but the list screen used to keep them in `useState` only — so a
- * filtered view could not be shared or bookmarked, and the back button after
- * filtering silently lost everything. This hook is the single owner of that
- * mapping, used by both RecipeListPage and SearchPage.
+ * `/` declares `q/tags/collectionId/maxMinutes/difficulty/sort` as search params, but the
+ * list screen used to keep them in `useState` only — so a filtered view could not be
+ * shared or bookmarked, and the back button after filtering silently lost everything.
+ * This hook is the single owner of that mapping.
+ *
+ * `/search` declares the same params and redirects to `/` with them, so links from before
+ * search moved into the list still land on the same filtered view.
  *
  * The search TEXT is special: it stays in local state for input responsiveness and
  * is written to the URL debounced, so typing does not create one history entry per
@@ -75,8 +77,8 @@ export interface UrlRecipeFilters {
 }
 
 /**
- * @param route the path the current screen is mounted at ("/" or "/search") —
- *   needed because the URL is rewritten in place.
+ * @param route the path the current screen is mounted at ("/") — needed because the URL
+ *   is rewritten in place.
  */
 export function useUrlRecipeFilters(route: string, debounceMs = 300): UrlRecipeFilters {
   const search = useSearchParams();

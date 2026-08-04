@@ -1,10 +1,14 @@
 /**
  * Group invites.
  *
- * No e-mail is sent: `POST /api/groups/:groupId/invites` returns a ready-made
- * `inviteUrl` that the admin shares however they like. The token IS the secret,
- * so anybody holding the link may accept it (a person often registers with a
- * different address than the one they were invited with).
+ * `POST /api/groups/:groupId/invites` mails the link AND returns it. The mail is a
+ * convenience; the returned `inviteUrl` is the source of truth, because a
+ * self-hosted install may well have no MAIL_TRANSPORT at all (then the
+ * ConsoleMailer logs it) and because a provider outage must not stop an admin from
+ * inviting somebody over WhatsApp. `emailSent` in the response says which happened.
+ *
+ * The token IS the secret, so anybody holding the link may accept it (a person
+ * often registers with a different address than the one they were invited with).
  */
 import type {
   AcceptInviteResponse,
@@ -21,6 +25,7 @@ import { groupInvites, groupMembers, groups, users } from "../../db/schema.ts";
 import { env } from "../../env.ts";
 import { ApiError } from "../../lib/errors.ts";
 import { toIso } from "../../lib/http.ts";
+import { inviteMail, trySendMail } from "../mail/index.ts";
 import { getGroupWithRole, getMember } from "./groups.service.ts";
 import { toGroupInvite, toInvitableRole, toInviteStatus } from "./mappers.ts";
 import { toGroupRole } from "./membership.ts";
@@ -99,7 +104,27 @@ export async function createInvite(
   });
 
   const invite = await loadInvite(db, { inviteId: id });
-  return { invite, inviteUrl: buildInviteUrl(token) };
+  const inviteUrl = buildInviteUrl(token);
+
+  // AFTER the row is committed, and never able to fail the request: an invite that
+  // exists but was not mailed is useful (copy the link); a 500 that leaves a
+  // committed invite behind is not. trySendMail() swallows and logs.
+  const [group] = await db
+    .select({ name: groups.name })
+    .from(groups)
+    .where(eq(groups.id, groupId))
+    .limit(1);
+  const sent = await trySendMail(
+    inviteMail({
+      to: input.email,
+      groupName: group?.name ?? "Rezepte",
+      invitedByName: invite.invitedByName,
+      inviteUrl,
+      expiresInDays: INVITE_TTL_DAYS,
+    }),
+  );
+
+  return { invite, inviteUrl, emailSent: sent.delivered };
 }
 
 /** One invite in contract shape, resolved by id or token. */

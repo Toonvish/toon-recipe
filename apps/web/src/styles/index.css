@@ -138,6 +138,19 @@
       padding-bottom: 2rem;
     }
   }
+  /*
+   * Pins a `sticky`/`fixed` element ABOVE the tab bar instead of behind it.
+   * `bottom-0` is wrong for anything sticky on a phone: the tab bar is `fixed`, so it
+   * covers the last ~3.75rem of the viewport. Used by the shopping list's add box.
+   */
+  .bottom-tabbar {
+    bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+  }
+  @media (width >= 1024px) {
+    .bottom-tabbar {
+      bottom: 0;
+    }
+  }
   /* Minimum comfortable touch target. */
   .tap {
     min-height: 2.75rem;

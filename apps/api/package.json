@@ -12,7 +12,9 @@
     "db:migrate": "bun scripts/migrate.ts",
     "db:studio": "bunx drizzle-kit studio",
     "seed": "bun scripts/seed.ts",
-    "ocr:prefetch": "bun scripts/ocr-prefetch.ts"
+    "ocr:prefetch": "bun scripts/ocr-prefetch.ts",
+    "auth:reset-password": "bun scripts/reset-password.ts",
+    "uploads:gc": "bun scripts/uploads-gc.ts"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.9.0",

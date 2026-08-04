@@ -2,8 +2,11 @@
  * Invite panel (admins/owners only): create an invite by e-mail, copy the ready-made
  * link, and see/revoke pending invites.
  *
- * The API returns `inviteUrl` (built from WEB_ORIGIN) plus the raw token, so the link can
- * be shared through any channel — the app itself does not send e-mails.
+ * The API mails the link AND returns it: `inviteUrl` (built from WEB_ORIGIN) plus the
+ * raw token, so it can also be shared through any other channel. `emailSent` says
+ * whether delivery actually happened — it is `false` on an install with no
+ * MAIL_TRANSPORT configured, and on a provider failure. Either way the invite is
+ * valid, so that is a hint ("bitte selbst weitergeben"), never an error.
  */
 import { useState } from "react";
 import { Copy, Link2, MailPlus, Share2, Undo2 } from "lucide-react";
@@ -52,6 +55,7 @@ export function InvitePanel({ groupId, groupName, enabled }: InvitePanelProps) {
   const [role, setRole] = useState<InvitableRole>("member");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [lastUrl, setLastUrl] = useState<string | null>(null);
+  const [lastMailed, setLastMailed] = useState(false);
 
   if (!enabled) {
     return (
@@ -75,12 +79,15 @@ export function InvitePanel({ groupId, groupName, enabled }: InvitePanelProps) {
       setErrors({});
       setEmail("");
       setLastUrl(response.inviteUrl);
+      setLastMailed(response.emailSent === true);
       const copied = await copyToClipboard(response.inviteUrl);
       toast.success(
         "Einladung erstellt",
-        copied
-          ? "Der Link ist in der Zwischenablage."
-          : "Kopiere den Link unten und schicke ihn weiter.",
+        response.emailSent === true
+          ? `Eine E-Mail ist an ${result.data.email} unterwegs.`
+          : copied
+            ? "Der Link ist in der Zwischenablage."
+            : "Kopiere den Link unten und schicke ihn weiter.",
       );
     } catch (error) {
       if (isApiError(error) && error.status === 409) {
@@ -135,14 +142,22 @@ export function InvitePanel({ groupId, groupName, enabled }: InvitePanelProps) {
             Einladungslink erstellen
           </Button>
           <p className="text-sm text-fg-muted">
-            Es wird keine E-Mail verschickt — du bekommst einen Link, den du selbst weitergibst.
-            Er ist 14 Tage gültig.
+            Wir verschicken eine E-Mail mit dem Einladungslink und zeigen dir den Link zusätzlich
+            an, damit du ihn auch selbst weitergeben kannst. Er ist 14 Tage gültig.
           </p>
         </form>
 
         {lastUrl ? (
           <div className="mt-3 flex flex-col gap-2 rounded-xl border border-success/40 bg-success-soft p-3">
-            <p className="text-sm font-medium text-success-soft-fg">Neuer Einladungslink</p>
+            <p className="text-sm font-medium text-success-soft-fg">
+              {lastMailed ? "Einladung verschickt" : "Neuer Einladungslink"}
+            </p>
+            {lastMailed ? null : (
+              <p className="text-xs text-success-soft-fg/90">
+                Es konnte keine E-Mail verschickt werden (auf diesem Server ist kein Mailversand
+                eingerichtet). Schicke den Link bitte selbst weiter.
+              </p>
+            )}
             <code className="block overflow-x-auto rounded-lg bg-surface p-2 text-xs text-fg">
               {lastUrl}
             </code>

@@ -14,6 +14,7 @@ import type {
 } from "@toon/shared";
 import type { GroupInviteRow, GroupMemberRow, GroupRow, UserRow } from "../../db/schema.ts";
 import { toIso, toIsoOrNull } from "../../lib/http.ts";
+import { signUploadUrl } from "../../lib/uploadUrls.ts";
 import { toGroupRole } from "./membership.ts";
 
 export function toGroup(row: GroupRow): Group {
@@ -21,7 +22,8 @@ export function toGroup(row: GroupRow): Group {
     id: row.id,
     name: row.name,
     description: row.description,
-    imageUrl: row.imageUrl,
+    // Signed on the way out — see toRecipe() and lib/uploadUrls.ts.
+    imageUrl: signUploadUrl(row.imageUrl),
     createdBy: row.createdBy,
     createdAt: toIso(row.createdAt),
     updatedAt: toIso(row.updatedAt),
@@ -38,7 +40,7 @@ export function toGroupWithRole(
 }
 
 export function toPublicUser(row: Pick<UserRow, "id" | "name" | "email" | "avatarUrl">): PublicUser {
-  return { id: row.id, name: row.name, email: row.email, avatarUrl: row.avatarUrl };
+  return { id: row.id, name: row.name, email: row.email, avatarUrl: signUploadUrl(row.avatarUrl) };
 }
 
 export function toGroupMember(

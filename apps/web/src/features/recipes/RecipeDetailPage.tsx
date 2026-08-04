@@ -24,6 +24,7 @@ import {
   Printer,
   RotateCcw,
   Share2,
+  ShoppingBasket,
   Star,
   Timer,
   Trash2,
@@ -61,6 +62,11 @@ import { IngredientList } from "./components/IngredientList";
 import { StepList } from "./components/StepList";
 import { ServingsScaler } from "./components/ServingsScaler";
 import { CookMode } from "./components/CookMode";
+import { AddRecipeToListDialog } from "@/features/shopping/components/AddRecipeToListDialog";
+import {
+  useAddRecipeToShoppingList,
+  useShoppingLists,
+} from "@/features/shopping/lib/queries";
 
 export default function RecipeDetailPage() {
   const recipeId = useRouteParam("recipeId");
@@ -78,6 +84,11 @@ export default function RecipeDetailPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [cookMode, setCookMode] = useState(false);
   const [servingsOverride, setServingsOverride] = useState<number | null>(null);
+  const [shoppingOpen, setShoppingOpen] = useState(false);
+
+  // Loaded up front so the button can say whether there is a list to add to at all.
+  const shoppingLists = useShoppingLists(groupId);
+  const addToShoppingList = useAddRecipeToShoppingList();
 
   const checked = useCheckedSteps(recipeId);
 
@@ -328,6 +339,22 @@ export default function RecipeDetailPage() {
           ) : null}
 
           <IngredientList ingredients={scaledIngredients} scaled={scaled} />
+
+          {/*
+            Sits under the ingredients on purpose: this is where the portion count was
+            just chosen, and the dialog carries that exact number over to the list.
+          */}
+          {recipe.ingredients.length > 0 ? (
+            <Button
+              data-print="hide"
+              variant="secondary"
+              fullWidth
+              leftIcon={<ShoppingBasket className="size-4" />}
+              onClick={() => setShoppingOpen(true)}
+            >
+              Zur Einkaufsliste
+            </Button>
+          ) : null}
         </Card>
 
         <div className="flex flex-col gap-4">
@@ -399,6 +426,33 @@ export default function RecipeDetailPage() {
           onClose={() => setCookMode(false)}
         />
       ) : null}
+
+      <AddRecipeToListDialog
+        open={shoppingOpen}
+        onClose={() => setShoppingOpen(false)}
+        recipe={recipe}
+        initialServings={servings}
+        lists={shoppingLists.data ?? []}
+        listsLoading={shoppingLists.isPending}
+        submitting={addToShoppingList.isPending}
+        onSubmit={async ({ listId, servings: targetServings }) => {
+          try {
+            const result = await addToShoppingList.addRecipe({
+              groupId: groupId ?? "",
+              listId,
+              recipeId: recipe.id,
+              servings: targetServings,
+            });
+            setShoppingOpen(false);
+            toast.success(
+              "Auf der Einkaufsliste",
+              `${result.list.name} · ${result.items.length} ${result.items.length === 1 ? "Position" : "Positionen"}`,
+            );
+          } catch (error) {
+            toast.fromError(error, "Konnte nicht hinzugefügt werden");
+          }
+        }}
+      />
 
       <ConfirmDialog
         open={confirmDelete}

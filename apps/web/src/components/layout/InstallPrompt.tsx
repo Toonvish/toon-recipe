@@ -8,6 +8,16 @@ import { IconButton } from "@/components/ui/IconButton";
  * Chromium/Android: triggers the native install prompt.
  * iOS Safari (no prompt event): explains the Teilen -> Zum Home-Bildschirm route.
  * Dismissal is remembered for 14 days.
+ *
+ * THE COPY MUST NOT OVERPROMISE — OR UNDERPROMISE. It used to say "Rezepte brauchen
+ * weiterhin eine Verbindung", which was true while `runtimeCaching` was empty. Then
+ * read-only offline support shipped (lib/persist.ts + the workbox rules in
+ * vite.config.ts) and it was changed to promise *already opened* recipes and no
+ * editing. The shopping list has since become editable offline
+ * (features/shopping/lib/offline.ts), so the text now names that exception too:
+ * claiming "Bearbeiten braucht Internet" would send someone to a supermarket without
+ * the one feature built for it. If any of those halves changes, change this text in the
+ * same commit.
  */
 export function InstallPrompt() {
   const install = useInstallPrompt();
@@ -25,7 +35,9 @@ export function InstallPrompt() {
           <>
             <p className="mt-0.5 text-sm opacity-90">
               Installiere die App, um sie wie eine normale App zu öffnen – mit eigenem Symbol
-              und ohne Browserleiste. Rezepte brauchen weiterhin eine Verbindung.
+              und ohne Browserleiste. Bereits geöffnete Rezepte kannst du auch ohne Verbindung
+              nachkochen, und die Einkaufsliste lässt sich offline abhaken; Rezepte bearbeiten
+              und Importieren brauchen Internet.
             </p>
             <Button
               size="sm"

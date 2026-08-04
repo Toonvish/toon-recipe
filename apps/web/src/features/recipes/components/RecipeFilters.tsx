@@ -1,6 +1,12 @@
 /**
- * Filter bar of the recipe list: debounced search, tag chips, collection + difficulty +
- * time + sort selects. Fully controlled — the page owns the state.
+ * Search + filter bar of the recipe list. Debounced search over title, description and
+ * ingredient names, plus an "Erweiterte Suche" panel with tag chips and the collection /
+ * difficulty / time / sort selects. Fully controlled — the page owns the state.
+ *
+ * This IS the app's search: there is no separate `/search` screen any more (it redirected
+ * to a second list of recipes with the same hook behind it), so the placeholder has to
+ * say what is searched, and the panel toggle has to read as search rather than as a
+ * secondary filter control.
  */
 import { useEffect, useState } from "react";
 import { FilterX, Search, SlidersHorizontal } from "lucide-react";
@@ -96,7 +102,7 @@ export function RecipeFilters({
           type="search"
           value={searchText}
           onChange={(event) => onSearchTextChange(event.target.value)}
-          placeholder="Rezepte durchsuchen …"
+          placeholder="Titel, Beschreibung oder Zutat …"
           aria-label="Rezepte durchsuchen"
           leftIcon={<Search />}
           containerClassName="flex-1"
@@ -108,10 +114,11 @@ export function RecipeFilters({
           onClick={() => setAdvancedOpen((value) => !value)}
           aria-expanded={advancedOpen}
           aria-controls="recipe-filter-panel"
+          aria-label="Erweiterte Suche"
           leftIcon={<SlidersHorizontal className="size-4" />}
           className="shrink-0"
         >
-          <span className="hidden sm:inline">Filter</span>
+          <span className="hidden sm:inline">Erweiterte Suche</span>
           {activeCount > 0 ? (
             <Badge size="sm" variant={advancedOpen ? "neutral" : "brand"}>
               {activeCount}

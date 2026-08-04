@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.4",
+    "@tanstack/react-query-persist-client": "^5.101.4",
     "@tanstack/react-router": "^1.170.18",
     "@toon/shared": "workspace:*",
     "clsx": "^2.1.1",

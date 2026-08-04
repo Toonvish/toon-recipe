@@ -5,6 +5,10 @@ import { NAV_ITEMS } from "./nav-items";
 /**
  * Fixed bottom tab bar for phones (hidden from `lg` up, where the sidebar takes over).
  * Every tab is a >=56px tall touch target and respects the home-indicator inset.
+ *
+ * Tabs share the width via `flex-1` and their labels truncate rather than wrap — a
+ * wrapped label would make one tab taller than its neighbours. See {@link NAV_ITEMS} for
+ * why there are four and what moved elsewhere.
  */
 export function BottomTabBar() {
   return (
@@ -14,18 +18,18 @@ export function BottomTabBar() {
     >
       <ul className="flex items-stretch justify-around px-safe">
         {NAV_ITEMS.map((item) => (
-          <li key={item.to} className="flex-1">
+          <li key={item.to} className="min-w-0 flex-1">
             <Link
               to={item.to}
               activeOptions={{ exact: item.exact }}
-              className="group flex h-tabbar flex-col items-center justify-center gap-1 text-fg-muted transition-colors duration-150"
+              className="group flex h-tabbar flex-col items-center justify-center gap-1 px-0.5 text-fg-muted transition-colors duration-150"
               activeProps={{ className: "text-brand", "aria-current": "page" }}
             >
               {({ isActive }) => (
                 <>
                   <span
                     className={cn(
-                      "flex h-7 w-12 items-center justify-center rounded-full transition-colors duration-150",
+                      "flex h-7 w-10 items-center justify-center rounded-full transition-colors duration-150",
                       isActive && "bg-brand-soft",
                     )}
                   >
@@ -35,7 +39,12 @@ export function BottomTabBar() {
                       aria-hidden="true"
                     />
                   </span>
-                  <span className={cn("text-[0.68rem] leading-none", isActive && "font-semibold")}>
+                  <span
+                    className={cn(
+                      "max-w-full truncate text-[0.68rem] leading-none",
+                      isActive && "font-semibold",
+                    )}
+                  >
                     {item.label}
                   </span>
                 </>

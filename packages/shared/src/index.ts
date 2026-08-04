@@ -12,9 +12,12 @@ export * from "./schemas/auth.ts";
 export * from "./schemas/group.ts";
 export * from "./schemas/recipe.ts";
 export * from "./schemas/import.ts";
+export * from "./schemas/shopping.ts";
 
 // --- pure parsers / helpers -------------------------------------------------
 export * from "./numbers.ts";
+export * from "./text.ts";
 export * from "./units.ts";
 export * from "./ingredients.ts";
 export * from "./duration.ts";
+export * from "./shopping.ts";

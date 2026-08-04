@@ -32,12 +32,6 @@ export function apiBaseUrl(): string {
   return API_BASE_URL;
 }
 
-/** Public URL of an uploaded file, from `sourceMeta.storedPath` or a bare filename. */
-export function uploadUrl(storedPathOrFilename: string): string {
-  const filename = storedPathOrFilename.split(/[\\/]/).pop() ?? storedPathOrFilename;
-  return `${apiBaseUrl()}/uploads/${encodeURIComponent(filename)}`;
-}
-
 /* -------------------------------------------------------------------------- */
 /* errors                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -501,6 +495,42 @@ export async function commitDraft(
 
 export async function deleteDraft(groupId: string, draftId: string): Promise<void> {
   await requestNoContent(`${groupBase(groupId)}/imports/${encodeURIComponent(draftId)}`, { method: "DELETE" });
+}
+
+/**
+ * Fetches the SOURCE SCAN of a draft (the uploaded photo or PDF) as an object URL.
+ *
+ * This deliberately goes through the membership-checked endpoint
+ * `GET /api/groups/:groupId/imports/:draftId/source` rather than `/uploads/<file>`.
+ * The scan can be a photo of a private page, and the public route used to hand it
+ * to anyone who had ever seen the URL, forever — including a member who had since
+ * been removed from the group. The public route now also demands a signature, and
+ * the API mints none for source scans, so this is the ONLY way to read one.
+ *
+ * A cross-origin `<img src>` cannot send the session cookie, hence fetch + blob.
+ * THE CALLER MUST `URL.revokeObjectURL()` the result when it stops rendering it,
+ * or the bytes stay alive for the lifetime of the document.
+ */
+export async function fetchDraftSource(
+  groupId: string,
+  draftId: string,
+  signal?: AbortSignal,
+): Promise<{ objectUrl: string; mimeType: string }> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `${apiBaseUrl()}${groupBase(groupId)}/imports/${encodeURIComponent(draftId)}/source`,
+      { credentials: "include", ...(signal === undefined ? {} : { signal }) },
+    );
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    throw toImportApiError(0, undefined);
+  }
+  if (!response.ok) {
+    throw toImportApiError(response.status, await readJson(response), response.statusText);
+  }
+  const blob = await response.blob();
+  return { objectUrl: URL.createObjectURL(blob), mimeType: blob.type };
 }
 
 /** Tag suggestions for the review screen's tag input. */

@@ -10,6 +10,14 @@ export const storageKeys = {
   theme: `${PREFIX}theme`,
   installPromptDismissedAt: `${PREFIX}installPromptDismissedAt`,
   lastRecipeSort: `${PREFIX}recipeSort`,
+  /**
+   * Which account the persisted offline cache belongs to (see lib/persist.ts).
+   *
+   * A POINTER, never data: it has to be readable synchronously at boot so an
+   * offline start knows which IndexedDB blob to restore before any network call.
+   * Cleared on logout, together with the blob itself.
+   */
+  lastUserId: `${PREFIX}lastUserId`,
 } as const;
 
 export function readStorage(key: string): string | null {

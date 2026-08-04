@@ -8,7 +8,7 @@
  * - submit is disabled while pending; navigating away while dirty asks for confirmation
  */
 import { useEffect, useMemo, useState } from "react";
-import { Save, X } from "lucide-react";
+import { Save, WifiOff, X } from "lucide-react";
 import {
   CreateRecipeRequestSchema,
   type CreateRecipeRequest,
@@ -18,6 +18,7 @@ import {
 import type { Collection } from "@toon/shared";
 import { Button, Card, ConfirmDialog, ErrorState, Input, Select, Textarea } from "@/components/ui";
 import { difficultyLabels } from "@/lib/format";
+import { useCanMutate } from "@/lib/session";
 import { apiFieldErrors, clearField, validate, type FieldErrors } from "@/lib/validation";
 import { TagCombobox } from "@/features/tags/components/TagCombobox";
 import { useNavigationGuard } from "../lib/nav";
@@ -97,6 +98,7 @@ export function RecipeForm({
     () => (error === undefined ? {} : apiFieldErrors(error)),
     [error],
   );
+  const { canMutate, reason: offlineReason } = useCanMutate();
   const allErrors: FieldErrors = { ...serverErrors, ...errors };
 
   function set<Key extends keyof RecipeFormValues>(key: Key, value: RecipeFormValues[Key]) {
@@ -112,6 +114,9 @@ export function RecipeForm({
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
+    // Belt and braces: the button is disabled offline, but Enter in a text field
+    // submits a form too.
+    if (!canMutate) return;
 
     const payload = formToRequest(values);
     const result = validate(CreateRecipeRequestSchema, payload);
@@ -344,25 +349,38 @@ export function RecipeForm({
       </Card>
 
       {/* Sticky action bar so "Speichern" is always reachable with the thumb. */}
-      <div className="sticky bottom-0 z-10 -mx-4 flex gap-2 border-t border-line bg-bg/95 px-4 py-3 backdrop-blur-sm lg:mx-0 lg:rounded-card lg:border">
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={onCancel}
-          disabled={pending}
-          fullWidth
-          leftIcon={<X className="size-4" />}
-        >
-          Abbrechen
-        </Button>
-        <Button
-          type="submit"
-          loading={pending}
-          fullWidth
-          leftIcon={<Save className="size-4" />}
-        >
-          {submitLabel}
-        </Button>
+      <div className="sticky bottom-0 z-10 -mx-4 flex flex-col gap-2 border-t border-line bg-bg/95 px-4 py-3 backdrop-blur-sm lg:mx-0 lg:rounded-card lg:border">
+        {/* Offline support is read-only (no mutation outbox, no conflict story for
+            two members editing one recipe), so say so instead of letting the save
+            fail after the user typed a whole recipe. */}
+        {canMutate ? null : (
+          <p role="status" className="flex items-center gap-2 text-sm text-warning-soft-fg">
+            <WifiOff aria-hidden className="size-4 shrink-0" />
+            {offlineReason}
+          </p>
+        )}
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onCancel}
+            disabled={pending}
+            fullWidth
+            leftIcon={<X className="size-4" />}
+          >
+            Abbrechen
+          </Button>
+          <Button
+            type="submit"
+            loading={pending}
+            disabled={!canMutate}
+            title={offlineReason}
+            fullWidth
+            leftIcon={<Save className="size-4" />}
+          >
+            {submitLabel}
+          </Button>
+        </div>
       </div>
 
       <ConfirmDialog

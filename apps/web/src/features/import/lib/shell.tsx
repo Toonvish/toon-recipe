@@ -4,7 +4,7 @@
  * The import feature only ever touches shell code through this file:
  *   - `@/components/ui`  -> Button, Input, Textarea, Select, Label, Card, Badge,
  *                           Spinner, EmptyState, ErrorState, ConfirmDialog, useToast
- *   - `@/lib/session`    -> useActiveGroup()
+ *   - `@/lib/session`    -> useActiveGroup(), useCanMutate()
  *
  * INTEGRATION NOTE: this module used to carry a full set of native fallback
  * primitives ("FallbackButton", "FallbackInput", …) in case the concurrently built
@@ -31,7 +31,7 @@ import {
   Textarea as ShellTextarea,
   useToast,
 } from "@/components/ui";
-import { useActiveGroup } from "@/lib/session";
+import { useActiveGroup, useCanMutate } from "@/lib/session";
 import {
   useCallback,
   useMemo,
@@ -220,6 +220,19 @@ export interface ActiveGroupState {
   groups: GroupOption[];
   isLoading: boolean;
   switchGroup: (groupId: string) => void;
+}
+
+/**
+ * Whether importing is possible at all right now.
+ *
+ * NOTHING in the import flow works offline: every source posts to the server, and
+ * OCR runs there. The offline PWA support is read-only by design (no mutation
+ * outbox), so the screen disables its entry points and says why rather than letting
+ * a 15 MB upload fail after the user picked a photo.
+ */
+export function useImportAvailability(): { enabled: boolean; reason: string | undefined } {
+  const { canMutate, reason } = useCanMutate();
+  return { enabled: canMutate, reason };
 }
 
 /** Normalised view of the shell's `useActiveGroup()`. */

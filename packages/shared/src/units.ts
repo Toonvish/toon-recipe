@@ -315,3 +315,119 @@ export function unitKind(raw: string): UnitKind {
  * (a "Prise" stays a "Prise"). Kept here so UI and API agree.
  */
 export const NON_SCALING_UNITS: readonly string[] = ["Prise", "Msp.", "Spritzer", "Schuss"];
+
+/* -------------------------------------------------------------------------- */
+/* conversion                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How many BASE units one of this unit is worth, per kind.
+ *
+ * Only kinds with a fixed physical ratio are listed. `spoon`, `count` and `unknown`
+ * are deliberately absent: an "EL" is not a reliable volume (it depends on what is
+ * in it), and a "Dose" has no size at all. Those units only ever compare equal to
+ * themselves — see {@link areUnitsCompatible}.
+ *
+ * `Tasse`/`Becher` are volume by kind but have no standard size in German recipes,
+ * so they are excluded here too and behave like countables.
+ */
+const BASE_FACTORS: Partial<Record<CanonicalUnit, number>> = {
+  // mass, base = g
+  mg: 0.001,
+  g: 1,
+  kg: 1000,
+  oz: 28.349523125,
+  lb: 453.59237,
+  // volume, base = ml
+  ml: 1,
+  cl: 10,
+  l: 1000,
+  // length, base = mm
+  mm: 1,
+  cm: 10,
+};
+
+/** Base unit each convertible kind is normalised to. */
+const BASE_UNIT: Partial<Record<UnitKind, CanonicalUnit>> = {
+  mass: "g",
+  volume: "ml",
+  length: "mm",
+};
+
+/**
+ * Display preference per kind, largest first: the first unit whose value comes out
+ * at >= 1 wins. `1200 g` therefore renders as `1.2 kg` and `800 g` stays `800 g`.
+ */
+const DISPLAY_LADDER: Partial<Record<UnitKind, readonly CanonicalUnit[]>> = {
+  mass: ["kg", "g"],
+  volume: ["l", "ml"],
+  length: ["cm", "mm"],
+};
+
+/** True when `raw` has a fixed ratio to its kind's base unit. */
+export function isConvertibleUnit(raw: string): boolean {
+  return normalizeUnit(raw) in BASE_FACTORS;
+}
+
+/**
+ * Converts `value` between two units of the SAME kind.
+ * Returns undefined when either unit has no fixed ratio or the kinds differ —
+ * callers must treat that as "cannot be combined", never as zero.
+ */
+export function convertUnit(value: number, from: string, to: string): number | undefined {
+  if (!Number.isFinite(value)) return undefined;
+  const fromUnit = normalizeUnit(from) as CanonicalUnit;
+  const toUnit = normalizeUnit(to) as CanonicalUnit;
+  if (fromUnit === toUnit) return value;
+  if (unitKind(fromUnit) !== unitKind(toUnit)) return undefined;
+  const fromFactor = BASE_FACTORS[fromUnit];
+  const toFactor = BASE_FACTORS[toUnit];
+  if (fromFactor === undefined || toFactor === undefined) return undefined;
+  return (value * fromFactor) / toFactor;
+}
+
+/**
+ * True when two amounts can be added into ONE amount.
+ *
+ * Either the units are the same token, or they belong to the same convertible kind
+ * ("g" + "kg"). Two absent units are compatible ("3 Eier" + "2 Eier"); an absent
+ * unit never merges with a present one, because "200 g Mehl" and "Mehl" are a
+ * different statement about how much to buy.
+ */
+export function areUnitsCompatible(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  const left = a ? normalizeUnit(a) : "";
+  const right = b ? normalizeUnit(b) : "";
+  if (left === right) return true;
+  if (left === "" || right === "") return false;
+  return convertUnit(1, left, right) !== undefined;
+}
+
+/**
+ * Picks the nicest unit for an amount within its own kind
+ * (`{ quantity: 1200, unit: "g" }` -> `{ quantity: 1.2, unit: "kg" }`).
+ * Non-convertible units are returned untouched.
+ */
+export function preferredDisplayUnit(
+  quantity: number,
+  unit: string,
+): { quantity: number; unit: string } {
+  const canonical = normalizeUnit(unit) as CanonicalUnit;
+  const kind = unitKind(canonical);
+  const ladder = DISPLAY_LADDER[kind];
+  const base = BASE_UNIT[kind];
+  if (!ladder || !base || BASE_FACTORS[canonical] === undefined) {
+    return { quantity, unit: canonical };
+  }
+  for (const candidate of ladder) {
+    const converted = convertUnit(quantity, canonical, candidate);
+    if (converted !== undefined && Math.abs(converted) >= 1) {
+      return { quantity: converted, unit: candidate };
+    }
+  }
+  // Everything below 1 of the smallest rung: keep the smallest rung.
+  const smallest = ladder[ladder.length - 1]!;
+  return { quantity: convertUnit(quantity, canonical, smallest) ?? quantity, unit: smallest };
+}

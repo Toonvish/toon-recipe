@@ -3,9 +3,12 @@
  *
  * Route map (all German-facing paths):
  *   public   /login  /register  /oauth/callback  /invite/$token
- *   guarded  /  /search  /recipes/new  /recipes/$recipeId  /recipes/$recipeId/edit
+ *            /forgot-password  /reset-password/$token  /verify-email/$token
+ *   guarded  /  /recipes/new  /recipes/$recipeId  /recipes/$recipeId/edit
  *            /import  /import/$draftId  /collections  /collections/$collectionId  /tags
+ *            /shopping  /shopping/$listId
  *            /groups  /groups/$groupId  /settings
+ *   redirect /search -> / (search lives in the recipe list; old links keep working)
  *
  * Screens owned by other agents are resolved lazily through `lazyPage` (see
  * lib/lazy-page.tsx) — the file paths below are the contract. Export the screen as
@@ -17,15 +20,19 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  redirect,
 } from "@tanstack/react-router";
 import { AppShell } from "@/components/layout/AppShell";
 import { NotFoundPage } from "@/components/layout/NotFoundPage";
 import { lazyPage } from "@/lib/lazy-page";
 import { RequireActiveGroup, RequireAuth, SessionProvider } from "@/lib/session";
+import { ForgotPasswordPage } from "@/features/auth/ForgotPasswordPage";
 import { InvitePage } from "@/features/auth/InvitePage";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { OAuthCallbackPage } from "@/features/auth/OAuthCallbackPage";
 import { RegisterPage } from "@/features/auth/RegisterPage";
+import { ResetPasswordPage } from "@/features/auth/ResetPasswordPage";
+import { VerifyEmailPage } from "@/features/auth/VerifyEmailPage";
 
 /* -------------------------------------------------------------------------- */
 /* helpers                                                                    */
@@ -52,10 +59,12 @@ function pick<Keys extends string>(
 }
 
 /**
- * Filter/search params of the recipe list AND the search screen. Both routes must
- * declare the same keys, because `useUrlRecipeFilters` (features/recipes/lib/
- * url-filters.ts) is the single owner of that state and `pick()` drops anything
- * that is not listed here.
+ * Filter/search params of the recipe list. `useUrlRecipeFilters`
+ * (features/recipes/lib/url-filters.ts) is the single owner of that state, and `pick()`
+ * drops anything not listed here — so a new filter needs a line in this array.
+ *
+ * `/search` declares the SAME keys even though it only redirects: `validateSearch` runs
+ * first, so anything missing here would be stripped before the redirect forwards it.
  */
 const RECIPE_FILTER_PARAMS = [
   "q",
@@ -102,8 +111,32 @@ const rootRoute = createRootRoute({
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
-  validateSearch: (search: Record<string, unknown>) => pick(search, ["next", "error"]),
+  // `reset=1` comes back from a completed password reset ("bitte neu anmelden").
+  validateSearch: (search: Record<string, unknown>) => pick(search, ["next", "error", "reset"]),
   component: LoginPage,
+});
+
+const forgotPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/forgot-password",
+  component: ForgotPasswordPage,
+});
+
+/**
+ * The token sits in the PATH, not in a query param: `?token=` values end up in
+ * `Referer` headers and in hono's request log (`c.req.path` is logged too, but a
+ * path segment at least does not travel to third-party assets the page loads).
+ */
+const resetPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/reset-password/$token",
+  component: ResetPasswordPage,
+});
+
+const verifyEmailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/verify-email/$token",
+  component: VerifyEmailPage,
 });
 
 const registerRoute = createRoute({
@@ -165,23 +198,22 @@ const recipeListRoute = createRoute({
   ),
 });
 
+/**
+ * `/search` is now a REDIRECT to `/`, not a screen.
+ *
+ * Searching moved into the recipe list (always-visible field + "Erweiterte Suche"
+ * panel), so a second screen that also listed recipes had no reason to exist. The route
+ * stays because `/search?q=…&tags=…` links were shareable and bookmarkable and must keep
+ * working — it still declares `RECIPE_FILTER_PARAMS`, because `validateSearch` runs
+ * BEFORE the redirect and `pick()` would otherwise drop the very params being forwarded.
+ */
 const searchRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/search",
-  // Same set as "/" so the shared filter hook can rewrite either URL in place.
   validateSearch: (search: Record<string, unknown>) => pick(search, RECIPE_FILTER_PARAMS),
-  component: groupScoped(
-    lazyPage({
-      candidates: [
-        "/src/features/recipes/SearchPage.tsx",
-        "/src/features/recipes/RecipeSearchPage.tsx",
-        "/src/features/recipes/RecipeListPage.tsx",
-      ],
-      exportNames: ["SearchPage", "RecipeSearchPage", "RecipeListPage"],
-      title: "Suche kommt gleich",
-      description: "Die Suchansicht wird von einem anderen Modul geliefert.",
-    }),
-  ),
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: "/", search, replace: true });
+  },
 });
 
 const recipeNewRoute = createRoute({
@@ -287,6 +319,35 @@ const collectionDetailRoute = createRoute({
   ),
 });
 
+/**
+ * Shopping lists. `/shopping/$listId` is the screen used IN a supermarket, so it is
+ * group-scoped like the recipe screens and its data is persisted for offline use
+ * (see lib/persist.ts).
+ */
+const shoppingRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/shopping",
+  component: groupScoped(
+    lazyPage({
+      candidates: ["/src/features/shopping/ShoppingListsPage.tsx"],
+      exportNames: ["ShoppingListsPage"],
+      title: "Einkaufslisten kommen gleich",
+    }),
+  ),
+});
+
+const shoppingListRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/shopping/$listId",
+  component: groupScoped(
+    lazyPage({
+      candidates: ["/src/features/shopping/ShoppingListDetailPage.tsx"],
+      exportNames: ["ShoppingListDetailPage"],
+      title: "Einkaufsliste kommt gleich",
+    }),
+  ),
+});
+
 const tagsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/tags",
@@ -345,6 +406,9 @@ const settingsRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
+  forgotPasswordRoute,
+  resetPasswordRoute,
+  verifyEmailRoute,
   oauthCallbackRoute,
   inviteRoute,
   appRoute.addChildren([
@@ -357,6 +421,8 @@ const routeTree = rootRoute.addChildren([
     importReviewRoute,
     collectionsRoute,
     collectionDetailRoute,
+    shoppingRoute,
+    shoppingListRoute,
     tagsRoute,
     groupsRoute,
     groupDetailRoute,
@@ -376,6 +442,9 @@ export const routes = {
   root: rootRoute,
   login: loginRoute,
   register: registerRoute,
+  forgotPassword: forgotPasswordRoute,
+  resetPassword: resetPasswordRoute,
+  verifyEmail: verifyEmailRoute,
   oauthCallback: oauthCallbackRoute,
   invite: inviteRoute,
   app: appRoute,
@@ -388,6 +457,8 @@ export const routes = {
   importReview: importReviewRoute,
   collections: collectionsRoute,
   collectionDetail: collectionDetailRoute,
+  shopping: shoppingRoute,
+  shoppingList: shoppingListRoute,
   tags: tagsRoute,
   groups: groupsRoute,
   groupDetail: groupDetailRoute,

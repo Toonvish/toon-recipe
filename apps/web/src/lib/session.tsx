@@ -18,6 +18,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -41,6 +42,9 @@ import {
   setUnauthorizedHandler,
   updateProfile,
 } from "./api";
+import { safeNextPath } from "./navigation";
+import { purgePersistedCache, setActiveCacheUser } from "./persist";
+import { useOnlineStatus } from "./pwa";
 import { invalidate, meQuery, queryKeys } from "./queries";
 import { readStorage, storageKeys, writeStorage } from "./storage";
 import { Button } from "@/components/ui/Button";
@@ -58,6 +62,18 @@ export interface SessionContextValue {
   error: unknown;
   refetch: () => Promise<unknown>;
 
+  /**
+   * False while the device reports no connection. Screens use it to disable writes
+   * BEFORE they fail (see `useCanMutate`), because offline the app is read-only.
+   */
+  isOnline: boolean;
+  /**
+   * True when the user/recipes on screen come from the persisted offline cache and
+   * the server could not be reached to confirm them. Cook mode is fine; anything
+   * that writes is not.
+   */
+  isOfflineData: boolean;
+
   activeGroupId: string | null;
   activeGroup: GroupWithRole | null;
   /** Switches the active group and remembers it on the server + in localStorage. */
@@ -74,10 +90,31 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const meResult = useQuery(meQuery());
+  const isOnline = useOnlineStatus();
 
   const me: MeResponse | null = meResult.data ?? null;
   const user = me?.user ?? null;
   const groups = useMemo<readonly GroupWithRole[]>(() => me?.groups ?? [], [me]);
+
+  /**
+   * Keep the offline cache pointed at the account on screen.
+   *
+   * This is the data-leak guard from lib/persist.ts: the id decides which
+   * IndexedDB blob is written, and a change purges the store, so a second person on
+   * the same phone can never restore the first one's recipes. Runs as an effect (not
+   * in render) because it performs I/O.
+   */
+  useEffect(() => {
+    if (user) setActiveCacheUser(user.id);
+  }, [user]);
+
+  /**
+   * `data` from the persisted cache plus a failed refetch = we are showing what the
+   * device already had. That is the honest signal for "read-only right now" — a
+   * plain `navigator.onLine === false` also covers the captive-wifi case where the
+   * browser thinks it is online and every request still fails.
+   */
+  const isOfflineData = user !== null && (!isOnline || meResult.isError);
 
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(() =>
     readStorage(storageKeys.activeGroupId),
@@ -140,6 +177,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       isAuthenticated: user !== null,
       error: meResult.error,
       refetch: () => meResult.refetch(),
+      isOnline,
+      isOfflineData,
       activeGroupId,
       activeGroup,
       setActiveGroup,
@@ -152,6 +191,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       meResult.isPending,
       meResult.error,
       meResult.refetch,
+      isOnline,
+      isOfflineData,
       activeGroupId,
       activeGroup,
       setActiveGroup,
@@ -204,6 +245,30 @@ export function useRequiredGroupId(): string {
   return activeGroupId;
 }
 
+/**
+ * Whether the app may write right now.
+ *
+ * Offline support here is READ-ONLY on purpose: there is no mutation outbox and no
+ * conflict story for two flatmates editing one recipe, so a "saved" that silently
+ * evaporates would be worse than a disabled button. Screens use this to disable
+ * editors, the import flow and every destructive action BEFORE the request fails,
+ * and to render `reason` next to them.
+ *
+ * ```tsx
+ * const { canMutate, reason } = useCanMutate();
+ * <Button disabled={!canMutate} title={reason}>Speichern</Button>
+ * ```
+ */
+export function useCanMutate(): { canMutate: boolean; reason: string | undefined } {
+  const { isOnline } = useSession();
+  return isOnline
+    ? { canMutate: true, reason: undefined }
+    : {
+        canMutate: false,
+        reason: "Offline — Änderungen können nicht gespeichert werden.",
+      };
+}
+
 /* -------------------------------------------------------------------------- */
 /* auth mutations                                                             */
 /* -------------------------------------------------------------------------- */
@@ -242,10 +307,18 @@ export function useLogout() {
   const navigate = useNavigate();
   return useMutation<void, unknown, void>({
     mutationFn: () => logoutRequest(),
+    // `onSettled`, not `onSuccess`: if the logout request itself fails (offline,
+    // server down) the local state must still be gone. Leaving a persisted cache
+    // behind on a phone whose owner just tapped "Abmelden" is the exact failure this
+    // feature must not introduce.
     onSettled: async () => {
       writeStorage(storageKeys.activeGroupId, null);
       queryClient.setQueryData(queryKeys.me(), null);
       queryClient.clear();
+      // Drops the IndexedDB blob AND the lastUserId pointer, so the next start has
+      // nothing to restore and no id to restore it under.
+      setActiveCacheUser(null);
+      await purgePersistedCache();
       await navigate({ to: "/login", replace: true });
     },
   });
@@ -260,14 +333,43 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   const { isLoading, isAuthenticated, error, refetch } = useSession();
   const navigate = useNavigate();
   const location = useLocation();
+  const redirecting = useRef(false);
 
+  /**
+   * AT MOST ONE REDIRECT PER MOUNT — the ref is the whole point.
+   *
+   * `useLocation()` reads `router.stores.location`, which flips to the new URL the
+   * moment `navigate()` touches history, while THIS tree is still rendered (matches
+   * only swap once the target route has loaded). So an effect keyed on
+   * `location.href` fires again with `/login?next=%2F` already in hand and folds it
+   * into the next redirect — `/login?next=%2Flogin%3Fnext%3D…`, growing on every
+   * pass until the app is wedged on a multi-kilobyte URL.
+   *
+   * `safeNextPath` is the second, independent stop: it rejects any target that
+   * itself starts with `/login`, so the parameter can never nest even once.
+   */
   useEffect(() => {
-    if (!isLoading && !isAuthenticated && !error) {
-      void navigate({ to: "/login", search: { next: location.href }, replace: true });
+    if (isLoading || error) return;
+    if (isAuthenticated) {
+      redirecting.current = false;
+      return;
     }
+    if (redirecting.current) return;
+    redirecting.current = true;
+    const next = safeNextPath(location.href);
+    void navigate({ to: "/login", search: next === "/" ? {} : { next }, replace: true });
   }, [isLoading, isAuthenticated, error, navigate, location.href]);
 
   if (isLoading) return <FullPageLoader label="Anmeldung wird geprüft …" />;
+
+  // A RESTORED SESSION WINS OVER A FAILED REFETCH. This is what makes the installed
+  // app usable in airplane mode: `/api/auth/me` cannot be reached, but the persisted
+  // bootstrap payload is there, so the app renders and cook mode works on recipes
+  // that were opened before. The banner and the disabled editors say the rest.
+  //
+  // It is not a way in: the cookie is still the only thing the API accepts, and a
+  // 401 once there IS a connection clears the cache and redirects (lib/api.ts).
+  if (isAuthenticated) return <>{children}</>;
 
   if (error) {
     return (
@@ -283,9 +385,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!isAuthenticated) return <FullPageLoader label="Weiterleitung zur Anmeldung …" />;
-
-  return <>{children}</>;
+  return <FullPageLoader label="Weiterleitung zur Anmeldung …" />;
 }
 
 /** For group-scoped screens: shows an onboarding card when the user has no group. */

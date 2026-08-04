@@ -29,6 +29,16 @@ export const users = sqliteTable(
     name: text("name").notNull(),
     avatarUrl: text("avatar_url"),
     emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
+    /**
+     * WHEN the address was proved: a confirmation click on a mailed link, or an
+     * OAuth provider that reported it verified. Always written together with
+     * `emailVerified` (see markEmailVerified in services/auth/emailVerification.ts).
+     *
+     * The boolean alone is NOT evidence — self-registration used to set it and that
+     * was an account-takeover via OAuth auto-linking. Anything that wants to trust
+     * the address must look at this timestamp.
+     */
+    emailVerifiedAt: integer("email_verified_at"),
     /** argon2id hash from Bun.password. NULL for OAuth-only accounts. */
     passwordHash: text("password_hash"),
     /**
@@ -80,6 +90,68 @@ export const sessions = sqliteTable(
   (table) => [
     index("sessions_user_id_idx").on(table.userId),
     index("sessions_expires_at_idx").on(table.expiresAt),
+  ],
+);
+
+/**
+ * Single-use secrets from a mailed link: password reset and e-mail confirmation.
+ *
+ * WE STORE A SHA-256 HASH, NEVER THE TOKEN. Note the deliberate difference from
+ * `group_invites.token` below, which keeps the raw value: a leaked invites table
+ * costs you group membership, a leaked reset table would cost every account. The
+ * hash is unsalted and un-stretched on purpose — the input is already 256 bits of
+ * CSPRNG output, so there is nothing to brute-force and argon2 here would only
+ * make lookup-by-token impossible.
+ *
+ * `used_at` makes consumption one-shot; rows are never updated in place, so a
+ * replay is a plain `used_at IS NOT NULL` check.
+ */
+export const passwordResetTokens = sqliteTable(
+  "password_reset_tokens",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** SHA-256 (hex) of the token that travelled in the link. */
+    tokenHash: text("token_hash").notNull(),
+    /** 1 hour after creation — far shorter than the invites' 14 days. */
+    expiresAt: integer("expires_at").notNull(),
+    usedAt: integer("used_at"),
+    /** For abuse forensics; only trustworthy when TRUST_PROXY=1. */
+    requestedIp: text("requested_ip"),
+    createdAt: integer("created_at").notNull().$defaultFn(now),
+  },
+  (table) => [
+    uniqueIndex("password_reset_tokens_hash_unique").on(table.tokenHash),
+    index("password_reset_tokens_user_id_idx").on(table.userId),
+    index("password_reset_tokens_expires_at_idx").on(table.expiresAt),
+  ],
+);
+
+/** Same shape and the same hashing rule as `password_reset_tokens`, 24 h TTL. */
+export const emailVerificationTokens = sqliteTable(
+  "email_verification_tokens",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    /**
+     * Address the token was issued FOR. Checked on confirm, so a token minted
+     * before a profile e-mail change cannot verify the new address.
+     */
+    email: text("email").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    usedAt: integer("used_at"),
+    requestedIp: text("requested_ip"),
+    createdAt: integer("created_at").notNull().$defaultFn(now),
+  },
+  (table) => [
+    uniqueIndex("email_verification_tokens_hash_unique").on(table.tokenHash),
+    index("email_verification_tokens_user_id_idx").on(table.userId),
+    index("email_verification_tokens_expires_at_idx").on(table.expiresAt),
   ],
 );
 
@@ -360,6 +432,146 @@ export const importDrafts = sqliteTable(
 );
 
 /* -------------------------------------------------------------------------- */
+/* shopping lists                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A named shopping list owned by a GROUP — several per group are supported
+ * ("Rewe", "Drogerie", "Wochenendeinkauf").
+ *
+ * The unique index is on the RAW name, which only stops exact duplicates. The service
+ * additionally rejects names that merely FOLD to the same key (`eqFolded`), so "rewe"
+ * and "Rewe" collide too; the index is the backstop against a race between two
+ * concurrent creates.
+ */
+export const shoppingLists = sqliteTable(
+  "shopping_lists",
+  {
+    id: text("id").primaryKey(),
+    groupId: text("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at").notNull().$defaultFn(now),
+    updatedAt: integer("updated_at").notNull().$defaultFn(now),
+  },
+  (table) => [
+    uniqueIndex("shopping_lists_group_name_unique").on(table.groupId, table.name),
+    index("shopping_lists_group_id_idx").on(table.groupId),
+    index("shopping_lists_created_by_idx").on(table.createdBy),
+  ],
+);
+
+/**
+ * One line on a list. There is NO `checked` column: checking an item off deletes the
+ * row and bumps `shopping_list_catalog` instead, which is the Bring-style behaviour
+ * the UI mimics (item leaves the list, reappears under "Häufig gekauft").
+ *
+ * `merge_key` is `shoppingItemKey(name, unit)` from @toon/shared — a folded name plus
+ * the unit's merge bucket. The UNIQUE index on it is what makes "200 g Mehl" twice
+ * become "400 g Mehl" instead of two lines, enforced by the DB rather than by a
+ * read-modify-write that two members could interleave.
+ *
+ * `source_recipe_ids` is a JSON array and deliberately NOT a join table: ids are only
+ * ever read as a set for display, a merge rewrites the whole set anyway, and a FK
+ * would force a decision about what a deleted recipe does to an item that is already
+ * in someone's shopping basket. Unknown ids are simply not resolved (see toShoppingItem).
+ */
+export const shoppingListItems = sqliteTable(
+  "shopping_list_items",
+  {
+    id: text("id").primaryKey(),
+    listId: text("list_id")
+      .notNull()
+      .references(() => shoppingLists.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** shoppingItemKey(name, unit) — the merge identity. */
+    mergeKey: text("merge_key").notNull(),
+    /** NULL means "no amount given"; never store 0 for that. */
+    quantity: real("quantity"),
+    unit: text("unit"),
+    note: text("note"),
+    position: integer("position").notNull().default(0),
+    /** JSON string array of recipe ids this line was merged from. */
+    sourceRecipeIds: text("source_recipe_ids", { mode: "json" }).$type<string[]>(),
+    createdAt: integer("created_at").notNull().$defaultFn(now),
+    updatedAt: integer("updated_at").notNull().$defaultFn(now),
+  },
+  (table) => [
+    uniqueIndex("shopping_list_items_list_merge_key_unique").on(table.listId, table.mergeKey),
+    index("shopping_list_items_list_id_idx").on(table.listId),
+    index("shopping_list_items_list_position_idx").on(table.listId, table.position),
+  ],
+);
+
+/**
+ * "Häufig gekauft": everything that has been on this list before, so re-adding the
+ * weekly milk is one tap instead of typing.
+ *
+ * `use_count` counts CHECK-OFFS, not adds, so the ranking reflects what actually gets
+ * bought rather than what gets typed and deleted again. `name_key` is `nameKey(name)`
+ * from @toon/shared — the unit is remembered for convenience but is NOT part of the
+ * identity, because "Milch" is one suggestion whether you bought 1 l or 2 Flaschen.
+ */
+export const shoppingListCatalog = sqliteTable(
+  "shopping_list_catalog",
+  {
+    id: text("id").primaryKey(),
+    listId: text("list_id")
+      .notNull()
+      .references(() => shoppingLists.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** nameKey(name) — the suggestion identity. */
+    nameKey: text("name_key").notNull(),
+    /** Last unit this item was bought in, pre-filled on re-add. */
+    unit: text("unit"),
+    useCount: integer("use_count").notNull().default(0),
+    lastUsedAt: integer("last_used_at").notNull().$defaultFn(now),
+  },
+  (table) => [
+    uniqueIndex("shopping_list_catalog_list_name_unique").on(table.listId, table.nameKey),
+    index("shopping_list_catalog_list_rank_idx").on(
+      table.listId,
+      table.useCount,
+      table.lastUsedAt,
+    ),
+  ],
+);
+
+/**
+ * Idempotency ledger for shopping mutations — the thing that makes OFFLINE EDITING
+ * safe rather than merely possible.
+ *
+ * A phone that adds a recipe while offline queues the request and replays it on
+ * reconnect. If the original request DID reach the server but its response was lost,
+ * the replay would add every ingredient a second time — and because items merge by
+ * quantity, the failure mode is a silently doubled amount, not a visible duplicate.
+ *
+ * So every replayable mutation carries a client-generated `mutationId` and the API
+ * records it here before answering. A second request with the same id returns the
+ * current state without applying anything. Entries older than
+ * `MUTATION_LEDGER_TTL_MS` are pruned on write (services/shopping/idempotency.ts).
+ */
+export const shoppingMutations = sqliteTable(
+  "shopping_mutations",
+  {
+    /** The client-generated mutation id (uuid). */
+    id: text("id").primaryKey(),
+    listId: text("list_id")
+      .notNull()
+      .references(() => shoppingLists.id, { onDelete: "cascade" }),
+    appliedAt: integer("applied_at").notNull().$defaultFn(now),
+  },
+  (table) => [
+    index("shopping_mutations_list_id_idx").on(table.listId),
+    index("shopping_mutations_applied_at_idx").on(table.appliedAt),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
 /* relations (for drizzle query API)                                          */
 /* -------------------------------------------------------------------------- */
 
@@ -367,6 +579,16 @@ export const usersRelations = relations(users, ({ many }) => ({
   sessions: many(sessions),
   oauthAccounts: many(oauthAccounts),
   memberships: many(groupMembers),
+  passwordResetTokens: many(passwordResetTokens),
+  emailVerificationTokens: many(emailVerificationTokens),
+}));
+
+export const passwordResetTokensRelations = relations(passwordResetTokens, ({ one }) => ({
+  user: one(users, { fields: [passwordResetTokens.userId], references: [users.id] }),
+}));
+
+export const emailVerificationTokensRelations = relations(emailVerificationTokens, ({ one }) => ({
+  user: one(users, { fields: [emailVerificationTokens.userId], references: [users.id] }),
 }));
 
 export const groupsRelations = relations(groups, ({ many, one }) => ({
@@ -376,6 +598,7 @@ export const groupsRelations = relations(groups, ({ many, one }) => ({
   tags: many(tags),
   collections: many(collections),
   drafts: many(importDrafts),
+  shoppingLists: many(shoppingLists),
   creator: one(users, { fields: [groups.createdBy], references: [users.id] }),
 }));
 
@@ -422,6 +645,24 @@ export const importDraftsRelations = relations(importDrafts, ({ one }) => ({
   recipe: one(recipes, { fields: [importDrafts.recipeId], references: [recipes.id] }),
 }));
 
+export const shoppingListsRelations = relations(shoppingLists, ({ many, one }) => ({
+  group: one(groups, { fields: [shoppingLists.groupId], references: [groups.id] }),
+  creator: one(users, { fields: [shoppingLists.createdBy], references: [users.id] }),
+  items: many(shoppingListItems),
+  catalog: many(shoppingListCatalog),
+}));
+
+export const shoppingListItemsRelations = relations(shoppingListItems, ({ one }) => ({
+  list: one(shoppingLists, { fields: [shoppingListItems.listId], references: [shoppingLists.id] }),
+}));
+
+export const shoppingListCatalogRelations = relations(shoppingListCatalog, ({ one }) => ({
+  list: one(shoppingLists, {
+    fields: [shoppingListCatalog.listId],
+    references: [shoppingLists.id],
+  }),
+}));
+
 /* -------------------------------------------------------------------------- */
 /* row types                                                                  */
 /* -------------------------------------------------------------------------- */
@@ -432,6 +673,10 @@ export type OAuthAccountRow = typeof oauthAccounts.$inferSelect;
 export type NewOAuthAccountRow = typeof oauthAccounts.$inferInsert;
 export type SessionRow = typeof sessions.$inferSelect;
 export type NewSessionRow = typeof sessions.$inferInsert;
+export type PasswordResetTokenRow = typeof passwordResetTokens.$inferSelect;
+export type NewPasswordResetTokenRow = typeof passwordResetTokens.$inferInsert;
+export type EmailVerificationTokenRow = typeof emailVerificationTokens.$inferSelect;
+export type NewEmailVerificationTokenRow = typeof emailVerificationTokens.$inferInsert;
 export type GroupRow = typeof groups.$inferSelect;
 export type NewGroupRow = typeof groups.$inferInsert;
 export type GroupMemberRow = typeof groupMembers.$inferSelect;
@@ -452,3 +697,10 @@ export type NewCollectionRow = typeof collections.$inferInsert;
 export type CollectionRecipeRow = typeof collectionRecipes.$inferSelect;
 export type ImportDraftRow = typeof importDrafts.$inferSelect;
 export type NewImportDraftRow = typeof importDrafts.$inferInsert;
+export type ShoppingListRow = typeof shoppingLists.$inferSelect;
+export type NewShoppingListRow = typeof shoppingLists.$inferInsert;
+export type ShoppingListItemRow = typeof shoppingListItems.$inferSelect;
+export type NewShoppingListItemRow = typeof shoppingListItems.$inferInsert;
+export type ShoppingListCatalogRow = typeof shoppingListCatalog.$inferSelect;
+export type NewShoppingListCatalogRow = typeof shoppingListCatalog.$inferInsert;
+export type ShoppingMutationRow = typeof shoppingMutations.$inferSelect;

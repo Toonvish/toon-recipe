@@ -784,14 +784,22 @@ describe("recipe image upload", () => {
     expect(upload.filename).toMatch(/^[0-9a-f-]{36}\.png$/);
     expect(upload.filename).not.toContain("handy-foto");
     expect(upload.size).toBe(PNG.byteLength);
-    expect(upload.url.endsWith(`/uploads/${upload.filename}`)).toBe(true);
+    // The returned URL is SIGNED (lib/uploadUrls.ts) so the picker can render it
+    // straight away — path first, then the ?exp&sig capability.
+    const uploadUrl = new URL(upload.url, "http://test.local");
+    expect(uploadUrl.pathname).toBe(`/uploads/${upload.filename}`);
+    expect(uploadUrl.searchParams.get("sig")).toMatch(/^[0-9a-f]{32}$/);
+    expect(Number(uploadUrl.searchParams.get("exp"))).toBeGreaterThan(Date.now());
 
     const detail = (
       await body<RecipeDetailPayload>(
         await call(`/api/groups/${groupId}/recipes/${recipe.id}`, { cookie: owner.cookie }),
       )
     ).recipe;
-    expect(detail.imageUrl).toBe(upload.url);
+    // The COLUMN keeps the bare, origin-free path, so the serialised recipe is the
+    // relative form of the same signed URL — never the absolute one the upload
+    // response carried (a stored origin would break the moment the API moves).
+    expect(detail.imageUrl).toBe(`/uploads/${upload.filename}${uploadUrl.search}`);
 
     await unlink(join(env.uploadDir, upload.filename));
   });

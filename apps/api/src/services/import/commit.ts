@@ -33,6 +33,7 @@ import {
 } from "../../db/schema.ts";
 import { ApiError } from "../../lib/errors.ts";
 import { toIso } from "../../lib/http.ts";
+import { normalizeStoredUploadUrl, signUploadUrl } from "../../lib/uploadUrls.ts";
 import { dedupeTags } from "./parsed.ts";
 
 export interface CommitDraftInput {
@@ -103,7 +104,9 @@ export async function commitDraft(db: Database, input: CommitDraftInput): Promis
       groupId: input.groupId,
       title,
       description: parsed.description ?? null,
-      imageUrl: parsed.imageUrl ?? null,
+      // The review screen PATCHes back the signed hero-image URL it was served,
+      // so reduce it to the bare `/uploads/<file>` before it becomes a column.
+      imageUrl: normalizeStoredUploadUrl(parsed.imageUrl) ?? null,
       sourceUrl: parsed.sourceUrl ?? null,
       sourceName: parsed.sourceName ?? null,
       servingsAmount: parsed.servings?.amount ?? null,
@@ -246,7 +249,10 @@ async function loadRecipeDetail(db: Database, input: LoadRecipeDetailInput): Pro
     .from(users)
     .where(eq(users.id, input.userId))
     .limit(1);
-  const author: PublicUser = authorRows[0] ?? {
+  const found = authorRows[0];
+  const author: PublicUser = found
+    ? { ...found, avatarUrl: signUploadUrl(found.avatarUrl) }
+    : {
     id: input.userId,
     name: "Unbekannt",
     email: "",
@@ -261,7 +267,8 @@ async function loadRecipeDetail(db: Database, input: LoadRecipeDetailInput): Pro
     groupId: input.groupId,
     title: input.title,
     description: parsed.description ?? null,
-    imageUrl: parsed.imageUrl ?? null,
+    // Same wire shape as toRecipe(): what was stored is bare, what is sent is signed.
+    imageUrl: signUploadUrl(normalizeStoredUploadUrl(parsed.imageUrl)) ?? null,
     sourceUrl: parsed.sourceUrl ?? null,
     sourceName: parsed.sourceName ?? null,
     servingsAmount: parsed.servings?.amount ?? null,

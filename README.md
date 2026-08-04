@@ -13,7 +13,12 @@ These are **fixed** — do not redesign them.
 2. **Mobile = responsive mobile-first PWA.** ONE React app, installable (manifest + service worker
    via `vite-plugin-pwa`). Photo capture with
    `<input type="file" accept="image/*" capture="environment">`. No React Native, no Capacitor.
-   Bottom tab nav on mobile, sidebar from `lg` up.
+   Bottom tab nav on mobile (**Rezepte · Einkauf · Importieren · Profil**), sidebar from
+   `lg` up, which additionally lists Gruppen, Sammlungen and Tags. Anything sidebar-only
+   must also be reachable from a tab screen — Gruppen from Profil, Sammlungen and Tags
+   from the recipe-list filters. Searching is part of the recipe list ("Erweiterte
+   Suche"), not a destination of its own; `/search` redirects to `/` so older links keep
+   working.
 3. **Database = Turso / libSQL** (`@libsql/client` + `drizzle-orm/libsql`), so it can be self-hosted
    or run on Turso cloud. Config comes purely from `DATABASE_URL` / `DATABASE_AUTH_TOKEN`; the driver
    choice is never hardcoded.
@@ -30,7 +35,12 @@ These are **fixed** — do not redesign them.
    layer first, rasterize + OCR as fallback, clear actionable error if rasterization is unavailable).
 6. **OCR runs server-side in Bun** with `tesseract.js` (`deu+eng`, German first), preprocessed with
    `sharp` (grayscale, normalize, ~2000px wide), behind a swappable `OcrEngine` interface.
-7. **Content language is German-first**: German units (`g, kg, ml, l, EL, TL, Prise, Bund, Pck.,
+7. **Shopping lists ("Einkaufslisten") are group-owned and Bring-like.** Several named lists per
+   group; a recipe can be put on a list at any portion count and the amounts are rescaled; identical
+   articles are summed (`200 g + 200 g Mehl` = one `400 g` line, `1 kg + 200 g` = `1.2 kg`). Ticking
+   an item off REMOVES it from the list and it reappears under "Häufig gekauft" for a one-tap re-add.
+   This is the only screen that is also **editable offline** — see "Offline".
+8. **Content language is German-first**: German units (`g, kg, ml, l, EL, TL, Prise, Bund, Pck.,
    Stück, Dose …`), unicode fractions (`½ ¼ ⅓ ¾`), ranges (`2-3 Eier`), ISO-8601 durations
    (`PT30M`, `PT1H15M`). UI copy in German.
 
@@ -52,7 +62,7 @@ TypeScript `strict: true` everywhere, no `any` in exported signatures.
 apps/api/
   src/index.ts            Hono app: CORS, logger, /api/health, /uploads/:file, router mounts
   src/env.ts              Zod-validated env (loads the ROOT .env, fails fast)
-  src/db/schema.ts        complete Drizzle schema (14 tables)
+  src/db/schema.ts        complete Drizzle schema (20 tables)
   src/db/client.ts        libSQL client + drizzle instance (file: or libsql://)
   src/db/migrate.ts       runMigrations() — used by db:migrate AND by tests
   src/lib/errors.ts       ApiError + onError/notFound handlers
@@ -61,8 +71,11 @@ apps/api/
   src/routes/{auth,groups,recipes,imports}.ts   one file per owning agent
   src/middleware/         session + group middleware live here
   drizzle/                generated SQL migrations
-  scripts/{migrate,seed}.ts
-  src/services/auth/      passwords, sessions, users, invites, oauth accounts, rate limit
+  scripts/{migrate,seed,reset-password,uploads-gc}.ts
+  src/services/auth/      passwords, sessions, users, invites, oauth accounts, rate limit,
+                          password reset + e-mail verification (hashed single-use tokens)
+  src/services/mail/      Mailer interface + console (default) / resend adapters + German templates
+  src/lib/uploadUrls.ts   signs and verifies /uploads/... URLs (?exp&sig)
   src/services/groups/    group + invite services, membership helpers, validation
   src/services/recipes/   recipes, tags, collections, uploads, mappers
   src/services/import/    URL pipeline (html/, url/, adapters/), drafts, commit, files
@@ -72,7 +85,8 @@ apps/web/
   index.html              viewport-fit=cover, theme-color, pre-paint theme script
   vite.config.ts          react + tailwind v4 + VitePWA + aliases + dev proxy
   src/router.tsx          code-based TanStack Router tree (lazy pages via lib/lazy-page.tsx)
-  src/lib/                api.ts (the only network layer), queries.ts, session.tsx, pwa.ts, theme.ts
+  src/lib/                api.ts (the only network layer), queries.ts, session.tsx, pwa.ts, theme.ts,
+                          persist.ts (offline query cache, namespaced per user)
   src/components/ui/      the ONLY UI primitives (Button, Input, Card, Dialog, Toast, …)
   src/components/layout/  AppShell, TopBar, BottomTabBar, SideNav, InstallPrompt, ErrorBoundary
   src/features/           auth/, recipes/, groups/, collections/, tags/, import/
@@ -176,8 +190,17 @@ configured and the login/register screens render only those buttons. A direct br
 Every variable is documented in [`.env.example`](./.env.example): `DATABASE_URL`,
 `DATABASE_AUTH_TOKEN`, `SESSION_SECRET`, `API_PORT`, `WEB_ORIGIN`, `PUBLIC_API_URL`,
 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
-`OAUTH_REDIRECT_BASE`, `UPLOAD_DIR`, `TESSERACT_LANGS`, plus `NODE_ENV`, `DEBUG_SQL`, `TRUST_PROXY`,
-`TEST_DATABASE_URL` and `IMPORT_ALLOW_PRIVATE_HOSTS`.
+`OAUTH_REDIRECT_BASE`, `UPLOAD_DIR`, `TESSERACT_LANGS`, `MAIL_TRANSPORT`, `MAIL_FROM`,
+`MAIL_API_KEY`, plus `NODE_ENV`, `DEBUG_SQL`, `TRUST_PROXY`, `TEST_DATABASE_URL` and
+`IMPORT_ALLOW_PRIVATE_HOSTS`.
+
+**Mail is optional.** With no `MAIL_TRANSPORT` the API uses the `ConsoleMailer`: invite, reset and
+confirmation mails are printed to the log (link included) and nothing is sent, so `bun run dev` and
+`bun test` never touch the network. Set `MAIL_TRANSPORT="resend"` plus `MAIL_API_KEY` and a
+`MAIL_FROM` on a verified sender domain to deliver for real — the API refuses to start if one of
+those is missing, rather than silently swallowing every mail. A failed send never fails the action
+that triggered it (an invite still returns its `inviteUrl`; `POST /api/auth/password/forgot` still
+answers 204).
 
 `TRUST_PROXY=1` makes the rate limiter believe `X-Forwarded-For` / `X-Real-IP` / `CF-Connecting-IP`.
 **Set it only behind a proxy that overwrites those headers.** Without it the socket address is used,
@@ -206,16 +229,52 @@ the Vite config must therefore set `envDir: "../../"` and `envPrefix: ["VITE_", 
 | `bun run db:migrate` | Apply migrations to `DATABASE_URL` |
 | `bun run db:studio` | drizzle studio |
 | `bun run seed` | Demo user + group "Familie" + 3 recipes with sections (idempotent) |
-| `bun run ocr:prefetch` | Downloads + caches the tesseract `deu+eng` traineddata into `data/tessdata` once, so the first import does not have to (run it at deploy time) |
+| `bun run ocr:prefetch` | Downloads + caches the tesseract `deu+eng` traineddata into `data/tessdata` once, so the first import does not have to (the Docker image does this at build time) |
+| `bun run auth:reset-password <email> [--send]` | Mints a password-reset token and prints the link. Works with **no mailer at all** — the answer for a locked-out user on a self-hosted install |
+| `bun run uploads:gc [--dry-run] [--min-age-hours=N]` | Deletes files in `UPLOAD_DIR` that no row references any more (default: keeps anything younger than 24 h) |
 
 Current status of the four gates (run from the repo root):
 
 ```
-bun install        Checked 449 installs across 646 packages (no changes)
+bun install        Checked 451 installs across 648 packages (no changes)
 bun run typecheck  [typecheck] OK           (packages/shared, apps/api, apps/web)
-bun test           600 pass, 0 fail, 1462 expect() calls across 18 files
-bun run build      ✓ built in ~0.4s + PWA precache 102 entries (1107 KiB)
+bun test           821 pass, 0 fail, 2146 expect() calls across 26 files
+bun run build      ✓ built in ~0.3s + PWA precache 114 entries (1176 KiB)
 ```
+
+## Deployment (Docker on a Raspberry Pi)
+
+Full walkthrough: **[docs/deployment.md](docs/deployment.md)**. The short version:
+
+```bash
+docker build -t toon-recipe:local .          # one image: API + PWA, one port
+docker compose up -d                         # app + caddy (TLS) + mailpit (SMTP)
+```
+
+Three things about this setup are worth knowing before you touch it:
+
+- **One container, one origin.** The API serves the built PWA from its own port
+  (`WEB_DIST_DIR`, `apps/api/src/middleware/staticWeb.ts`), so `PUBLIC_API_URL` is **empty** in the
+  image and the client uses relative URLs. That is what lets a single build run behind any hostname
+  with no CORS entry, and it makes the session cookie first-party by construction.
+- **No API key is required anywhere.** The Resend key was replaced by an SMTP adapter
+  (`services/mail/smtp.ts`, no dependency) pointed at a Mailpit container on the private compose
+  network — every invite/reset/confirmation mail is readable in its web UI and nothing leaves the
+  machine. The database was already a local libSQL file and OCR already ran in-process, with the
+  `deu+eng` traineddata baked into the image at build time. Google/GitHub OAuth stays third-party and
+  is deliberately **off**; e-mail + password is the self-hosted path.
+- **TLS is not optional, and a self-signed certificate is not enough on its own.** Caddy issues the
+  certificate from its own local CA. A browser that does not trust that CA treats the origin as
+  insecure *even after you click through the warning*, which means **no service worker** — no install
+  prompt and no offline shopping list. Install the root certificate once per device
+  (`http://<host>/toon-root-ca.crt`) and it behaves exactly like a public site. Switching to a real
+  certificate later is one line in `docker/Caddyfile`.
+
+CI (`.github/workflows/`): `ci.yml` runs the four gates on every push; `release.yml` builds
+`linux/arm64` + `linux/amd64` and pushes to GHCR; `deploy.yml` copies the compose files to the Pi over
+SSH and restarts by image **digest**, waiting for the container's own healthcheck. The arm64 build
+stays fast because the web bundle and the OCR language data are built on the *build* platform (both
+outputs are architecture-independent) and only the native `node_modules` install runs under QEMU.
 
 ## Install the PWA on a phone
 
@@ -236,8 +295,28 @@ phone (see "Cookies in dev" above).
   app shows the manual instructions itself.
 
 After installing, the app launches standalone (no browser chrome), keeps the safe-area insets and
-serves the cached app shell when offline. `/api` and `/uploads` are **never** cached or answered by
-the worker (`navigateFallbackDenylist`, empty `runtimeCaching`), so you never see stale data.
+works without a connection:
+
+- **Reading is offline for everything you have opened.** Recipes, tags, collections and shopping lists
+  come back from the persisted query cache (IndexedDB), hero images from the service-worker cache, and
+  cook mode works.
+- **Writing is offline for the shopping list only.** Ticking items off, adding articles and editing a
+  line all work with no signal: the mutation is paused, persisted, and replayed on reconnect
+  (`apps/web/src/features/shopping/lib/offline.ts`). The header shows how many changes are still
+  waiting. Every queued write carries a `mutationId` so the API applies it at most once — without that,
+  a request whose response was lost would be replayed and, because articles merge, silently double an
+  amount.
+- **Every other write is disabled offline** with "Offline — Änderungen können nicht gespeichert
+  werden": the recipe editors, the import flow and the draft review, plus creating/renaming/deleting a
+  shopping list itself.
+
+`/api/auth/*`, the import endpoints **and the shopping-list endpoints** are never in `runtimeCaching`,
+and the SPA shell is never served for `/api` or `/uploads` (`navigateFallbackDenylist`). Shopping
+lists are excluded on purpose even though they are the most offline-critical screen: their offline copy
+is the persisted TanStack cache, which is also where the queued edits live, and a second cache layer
+would overwrite optimistic state with a stale body. The persisted cache is namespaced by user id and
+purged on logout, so a second person on the same phone can never see the first one's recipes — see
+`apps/web/src/lib/persist.ts`.
 
 ## Smoke test against a real server
 
@@ -277,31 +356,52 @@ curl -s -b /tmp/j -X POST localhost:3001/api/groups/<groupId>/imports/url \
 
 Honest list of what is **not** finished. Nothing here blocks the flows above.
 
-> Four of these were deferred because they need a product decision, not more code: **no mailer**,
-> **no password reset**, **public `/uploads`**, and **no offline support**. Each has a worked-out
-> implementation plan — decisions to make, files to touch, tests to add — in
-> [`docs/open-work.md`](./docs/open-work.md). Start there.
+> The four gaps that used to be listed here — **no mailer**, **no password reset**, **public
+> `/uploads`**, **no offline support** — are now implemented; the decisions taken and what each one
+> actually shipped are recorded in [`docs/open-work.md`](./docs/open-work.md). What follows is the
+> honest remainder.
 
 **Auth / accounts**
-- **No e-mail sending at all — no mailer, no SMTP settings, no dependency.** Three things follow:
-  - Invites only return an `inviteUrl` that an admin has to forward by hand (WhatsApp, …), and it is
-    built from `WEB_ORIGIN`, so that must be a real, reachable host before you invite anybody.
-  - There is **no "Passwort vergessen"** flow. A user with a password and no linked provider who
-    forgets it is locked out, and there is no operator reset command either. Workaround: an admin
-    with DB access clears `users.password_hash` (then the account can set a new password only via a
-    linked provider) — a real reset flow needs the mailer.
-  - There is **no e-mail verification**, so registration stores `emailVerified: false`.
-- Because of that, **an OAuth login is never auto-linked to a matching local account** — it answers
-  409 `email_taken`. Sign in with the password and link the provider under *Profil → Verknüpfte
-  Konten* (`GET /api/auth/oauth/:provider/link`). Auto-linking on the old always-true
-  `emailVerified` flag was an account-takeover: pre-register someone's address and you captured
-  their later Google/GitHub login. Once a confirmation-mail flow exists, auto-linking may return —
-  gated on a real verification timestamp.
+- **Mail delivery is opt-in and single-provider.** The only real transport is Resend
+  (`MAIL_TRANSPORT="resend"`); an SMTP adapter would be a new file next to
+  `apps/api/src/services/mail/resend.ts` and nothing else. With nothing configured the
+  `ConsoleMailer` logs every message instead of sending it, which means on such an install invites
+  still have to be forwarded by hand and "Passwort vergessen" cannot reach anyone — use
+  `bun run auth:reset-password <email>` there.
+- **A mail send is never retried.** One attempt, 10 s timeout, failure logged and reported as
+  `emailSent: false` / swallowed. Good enough for a family install; a job queue would be the fix.
+- **An OAuth login is still never auto-linked to a matching local account** — it answers 409
+  `email_taken`, even for a confirmed address. Sign in with the password and link the provider under
+  *Profil → Verknüpfte Konten* (`GET /api/auth/oauth/:provider/link`). Auto-linking on the old
+  always-true `emailVerified` flag was an account-takeover: pre-register someone's address and you
+  captured their later Google/GitHub login. `users.email_verified_at` now exists and is only ever
+  set by a real confirmation click, so auto-linking *could* be gated on it — that is a deliberate
+  next decision, not an oversight.
+- **E-mail verification is not enforced anywhere.** An unverified account can do everything; the flag
+  only drives a hint on the profile screen and is the evidence a future feature can build on.
 - No account deletion endpoint on purpose (`created_by` / `invited_by` cascade — see the comment in
   `src/db/schema.ts`). A future flow must transfer ownership and re-assign authorship first.
 - The rate limiter is an in-process sliding window, so it resets on restart and is per instance, not
   per cluster. Forwarding headers are ignored unless `TRUST_PROXY=1`; behind a proxy without that
   flag every client shares one bucket, so **set it when you deploy behind nginx/Caddy/Cloudflare**.
+
+**Shopping lists**
+- **Creating, renaming and deleting a LIST needs a connection.** Items are fully editable offline; the
+  list itself is not, because a list created offline would need a client-side id that every queued item
+  mutation would then have to be rewritten to point at. The buttons are disabled with a hint offline.
+- **No store categories.** The list is in insertion order, not grouped into "Obst & Gemüse" /
+  "Molkerei", so you cannot walk a shop in one pass yet. That needs a German ingredient→category
+  mapping and is a deliberate next step, not an oversight.
+- **No reordering** of items by hand, and no per-item assignment ("du holst das").
+- **`useCount` in "Häufig gekauft" only ever grows.** An article you bought weekly for a year and then
+  stopped buying keeps outranking a newer one for a long time; there is no decay. Dismiss it with the
+  × on the chip.
+- **A stale queued edit is replayed as-is.** An item ticked off offline is still ticked off when the
+  phone reconnects two days later, even if someone else has since re-added it — last writer wins, and
+  the `mutationId` ledger only guarantees each edit is applied *once*, not that it is still wanted.
+  The persisted cache expires after 7 days, which bounds how stale a replay can be.
+- The `shopping_mutations` ledger is pruned opportunistically on write (TTL 14 days), so a list that
+  is never touched again keeps its rows until it is.
 
 **Import**
 - OCR runs **synchronously** inside the request with a 60 s cap (`504 ocr_failed` beyond that). A
@@ -317,13 +417,14 @@ Honest list of what is **not** finished. Nothing here blocks the flows above.
   `MAX_CONCURRENT_OCR` (2 slots, 429 when full) live in memory. The 60 s OCR deadline answers the
   request on time but cannot actually kill the tesseract/unpdf work it abandoned, so a flood of
   malformed PDFs can still keep CPU busy for a while after the 429s start.
-- **Uploaded scans and photos are served from the public `/uploads/:filename` route** (unguessable
-  UUID, `Cache-Control: public, immutable`), and the review screen links straight to it. A
-  membership-checked alternative exists (`GET /api/groups/:groupId/imports/:draftId/source`) but the
-  client does not use it yet, so anyone who ever saw an upload URL — including a removed member —
-  can still fetch that file.
-- `shutdownOcr()` exists but is not wired to `SIGTERM`, so the tesseract worker is torn down by
-  process exit.
+- **`/uploads/:filename` is signature-gated, not session-gated.** Hero images carry
+  `?exp&sig` (HMAC over filename + expiry, `SESSION_SECRET`), because a cross-origin `<img>` cannot
+  send cookies. So the URL *is* the capability for 12–24 h: someone who copies a signed URL out of a
+  page keeps that one image until the window rolls over. Import source scans are not reachable there
+  at all — they go through the membership-checked
+  `GET /api/groups/:groupId/imports/:draftId/source`. See `apps/api/src/lib/uploadUrls.ts`.
+- `bun run uploads:gc` has to be run by hand (or from cron); nothing sweeps orphaned uploads
+  automatically.
 - The URL importer is verified against the bundled chefkoch.de and WP-Recipe-Maker (biancazapatka)
   fixtures. Live sites are not exercised by the test suite, on purpose.
 - `parseStepBlock` (shared) does not split a `Für den Belag:` heading that sits between two numbered
@@ -350,14 +451,25 @@ Honest list of what is **not** finished. Nothing here blocks the flows above.
   two test files rely on the local `bun:test` shim in `src/features/import/lib/bun-test.d.ts`.
 - Author/admin permissions are enforced server-side; the client only *hides* controls. Every 403 is
   rendered gracefully.
-- **The PWA is installable but not usable offline.** `runtimeCaching` is empty, so only the build
-  output is precached: an installed app opened without a connection renders the shell and then every
-  screen errors with "Keine Verbindung zum Server". The install banner promises exactly this much
-  (own icon, no browser chrome) and nothing more. Caching recipe GETs needs a real
-  staleness/invalidation story and is deliberately out of scope.
+- **Offline writing is limited to the shopping list, on purpose.** It has a mutation outbox (paused +
+  persisted + replayed, with a server-side at-most-once ledger); the recipe editors, the import flow
+  and the draft review are still disabled rather than queued, because two flatmates editing one recipe
+  needs a conflict story that does not exist yet. A "saved" that later evaporates would be worse than
+  a disabled button. The shopping list earns the exception because its operations are add/remove of
+  independent lines, where last-writer-wins is a correct answer rather than lost work.
+- **Offline, a session is trusted from the persisted cache.** `/api/auth/me` cannot be reached in
+  airplane mode, so the app renders from the stored bootstrap payload — otherwise there would be no
+  offline mode at all. It grants nothing (the cookie is still the only thing the API accepts, and a
+  401 once online clears the cache and redirects), but on an unlocked stolen phone the cached recipes
+  are readable until someone taps "Abmelden". Inherent to any offline app; noted so it is a decision
+  and not a surprise.
+- Only recipes/tags/collections/shopping lists are persisted. Group management, members, invites and import drafts
+  need a connection.
 - `build.sourcemap` is **off** so the client TypeScript is not published with the bundle. Switch it
   to `"hidden"` and upload the maps separately if you add error reporting.
 - `vite-plugin-pwa` `devOptions` are off, so the manifest link and service worker only appear in a
   production build (`bun run build` / `preview`).
 - The web app has no unit test for `router.tsx`; route reachability was verified manually
-  (every screen resolves through `lib/lazy-page.tsx`).
+  (every screen resolves through `lib/lazy-page.tsx`). The nav change that removed the Suche
+  and Gruppen tabs was checked in a real browser: four tabs, `/search?q=…` redirecting to `/`
+  with its params intact, and Profil → "Gruppen verwalten" reaching `/groups`.

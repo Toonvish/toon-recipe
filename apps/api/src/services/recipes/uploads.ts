@@ -2,8 +2,9 @@
  * Recipe photo upload.
  *
  * The client filename is never trusted: the real content type is sniffed from
- * the magic bytes and the file is stored as `data/uploads/<uuid>.<ext>`
- * (served publicly by GET /uploads/:filename, see src/index.ts).
+ * the magic bytes and the file is stored as `data/uploads/<uuid>.<ext>`, served by
+ * GET /uploads/:filename (src/index.ts) — which requires a signature, see
+ * lib/uploadUrls.ts.
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -11,6 +12,7 @@ import type { UploadResponse } from "@toon/shared";
 import { MAX_UPLOAD_BYTES } from "@toon/shared";
 import { env } from "../../env.ts";
 import { ApiError } from "../../lib/errors.ts";
+import { signUploadUrl } from "../../lib/uploadUrls.ts";
 
 interface SniffedType {
   mimeType: string;
@@ -93,7 +95,12 @@ export async function storeUploadedImage(
   return {
     // Absolute when PUBLIC_API_URL is configured, otherwise a path the web dev
     // server proxies — both resolve to GET /uploads/:filename.
-    url: `${(env.PUBLIC_API_URL ?? "").replace(/\/+$/, "")}/uploads/${filename}`,
+    //
+    // SIGNED, because the picker renders this URL straight into an <img> before
+    // the recipe is re-read. Sending it back as `imageUrl` is fine: every write
+    // path strips the signature again (normalizeStoredUploadUrl), so the column
+    // keeps the bare path. See lib/uploadUrls.ts.
+    url: signUploadUrl(`${(env.PUBLIC_API_URL ?? "").replace(/\/+$/, "")}/uploads/${filename}`),
     filename,
     mimeType: sniffed.mimeType,
     size: bytes.byteLength,

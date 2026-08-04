@@ -17,6 +17,7 @@ import type {
   TagRow,
 } from "../../db/schema.ts";
 import { toIso } from "../../lib/http.ts";
+import { signUploadUrl } from "../../lib/uploadUrls.ts";
 
 /** The difficulty column is free text in SQLite; unknown values become null. */
 export function toDifficulty(value: string | null): Difficulty | null {
@@ -29,7 +30,10 @@ export function toRecipe(row: RecipeRow): Recipe {
     groupId: row.groupId,
     title: row.title,
     description: row.description,
-    imageUrl: row.imageUrl,
+    // The stored column holds the bare `/uploads/<uuid>.<ext>`; the wire value
+    // carries a short-lived signature, because that URL is the only credential a
+    // cross-origin <img> can present. See lib/uploadUrls.ts.
+    imageUrl: signUploadUrl(row.imageUrl),
     sourceUrl: row.sourceUrl,
     sourceName: row.sourceName,
     servingsAmount: row.servingsAmount,
@@ -89,7 +93,7 @@ export function toCollection(row: CollectionRow, recipeCount?: number): Collecti
     groupId: row.groupId,
     name: row.name,
     description: row.description,
-    coverImageUrl: row.coverImageUrl,
+    coverImageUrl: signUploadUrl(row.coverImageUrl),
     createdBy: row.createdBy,
     createdAt: toIso(row.createdAt),
     updatedAt: toIso(row.updatedAt),

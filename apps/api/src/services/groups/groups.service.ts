@@ -19,6 +19,7 @@ import { groupMembers, groups, recipes, users } from "../../db/schema.ts";
 import type { GroupRow } from "../../db/schema.ts";
 import { ApiError } from "../../lib/errors.ts";
 import type { Membership } from "../../lib/types.ts";
+import { normalizeStoredUploadUrl } from "../../lib/uploadUrls.ts";
 import { toGroupMember, toGroupWithRole } from "./mappers.ts";
 import { assertRole, countOwners, toGroupRole } from "./membership.ts";
 import { type DbLike, eqFolded, nowMs, toCountMap, withTransaction } from "./support.ts";
@@ -186,7 +187,8 @@ export async function updateGroup(
   const patch: Partial<typeof groups.$inferInsert> = { updatedAt: nowMs() };
   if (input.name !== undefined) patch.name = input.name;
   if (input.description !== undefined) patch.description = input.description ?? null;
-  if (input.imageUrl !== undefined) patch.imageUrl = input.imageUrl ?? null;
+  // Bare `/uploads/<file>`, never the signed wire value (lib/uploadUrls.ts).
+  if (input.imageUrl !== undefined) patch.imageUrl = normalizeStoredUploadUrl(input.imageUrl) ?? null;
 
   await db.update(groups).set(patch).where(eq(groups.id, groupId));
   return getGroupWithRole(db, groupId, role);

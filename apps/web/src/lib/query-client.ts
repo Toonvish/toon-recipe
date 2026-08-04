@@ -2,9 +2,12 @@ import { QueryClient } from "@tanstack/react-query";
 import { STALE_TIME, retryDelay, shouldRetry } from "./queries";
 
 /**
- * The single QueryClient for the app. Defaults are tuned for a mobile PWA:
- * no refetch storms on focus, but stale data is refreshed when the phone
- * comes back online or a screen is remounted.
+ * Builds a QueryClient. Defaults are tuned for a mobile PWA: no refetch storms on
+ * focus, but stale data is refreshed when the phone comes back online or a screen is
+ * remounted.
+ *
+ * Prefer the {@link queryClient} singleton in app code; this factory is for tests that
+ * want an isolated cache.
  */
 export function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -24,3 +27,14 @@ export function createQueryClient(): QueryClient {
     },
   });
 }
+
+/**
+ * THE client for the running app, at module scope so HMR keeps the cache.
+ *
+ * It lives here rather than in app.tsx because the offline shopping-list queue has to
+ * register its mutation defaults on the same instance
+ * (features/shopping/lib/offline.ts), and a `useQueryClient()` call cannot do that: the
+ * defaults must exist before the persister restores paused mutations, which happens
+ * before any component renders.
+ */
+export const queryClient: QueryClient = createQueryClient();

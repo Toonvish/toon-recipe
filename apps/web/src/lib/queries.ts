@@ -33,6 +33,8 @@ import {
   fetchRecipes,
   fetchScaledRecipe,
   fetchSessions,
+  fetchShoppingList,
+  fetchShoppingLists,
   fetchTags,
   isApiError,
 } from "./api";
@@ -112,6 +114,10 @@ export const queryKeys = {
   importDraftsRoot: (groupId: string) => [ROOT, "group", groupId, "imports"] as const,
   importDraft: (groupId: string, draftId: string) =>
     [ROOT, "group", groupId, "import", draftId] as const,
+
+  shoppingLists: (groupId: string) => [ROOT, "group", groupId, "shopping-lists"] as const,
+  shoppingList: (groupId: string, listId: string) =>
+    [ROOT, "group", groupId, "shopping-list", listId] as const,
 } as const;
 
 /* -------------------------------------------------------------------------- */
@@ -257,6 +263,31 @@ export const importDraftQuery = (groupId: string, draftId: string) =>
     staleTime: Infinity,
   });
 
+export const shoppingListsQuery = (groupId: string) =>
+  queryOptions({
+    queryKey: queryKeys.shoppingLists(groupId),
+    queryFn: ({ signal }) => fetchShoppingLists(groupId, { signal }),
+    staleTime: STALE_TIME.list,
+  });
+
+/**
+ * One shopping list with its items and suggestions.
+ *
+ * `networkMode: "offlineFirst"` so a cold start in a supermarket basement renders the
+ * persisted copy instead of sitting in `pending` forever — the mutations that go with
+ * it queue the same way (features/shopping/lib/offline.ts).
+ *
+ * `staleTime: 0`: a shared list is the one thing in this app another person changes
+ * while you are looking at it, so every remount refetches.
+ */
+export const shoppingListQuery = (groupId: string, listId: string) =>
+  queryOptions({
+    queryKey: queryKeys.shoppingList(groupId, listId),
+    queryFn: ({ signal }) => fetchShoppingList(groupId, listId, { signal }),
+    staleTime: 0,
+    networkMode: "offlineFirst",
+  });
+
 /* -------------------------------------------------------------------------- */
 /* invalidation helpers                                                       */
 /* -------------------------------------------------------------------------- */
@@ -289,6 +320,10 @@ export const invalidate = {
     qc.invalidateQueries({ queryKey: queryKeys.importDraftsRoot(groupId) }),
   importDraft: (qc: QueryClient, groupId: string, draftId: string) =>
     qc.invalidateQueries({ queryKey: queryKeys.importDraft(groupId, draftId) }),
+  shoppingLists: (qc: QueryClient, groupId: string) =>
+    qc.invalidateQueries({ queryKey: queryKeys.shoppingLists(groupId) }),
+  shoppingList: (qc: QueryClient, groupId: string, listId: string) =>
+    qc.invalidateQueries({ queryKey: queryKeys.shoppingList(groupId, listId) }),
 } as const;
 
 /**

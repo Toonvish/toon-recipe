@@ -32,6 +32,30 @@ export const OAUTH_RULE: RateLimitRule = { limit: 20, windowMs: 60_000 };
 /** 10 password changes per session-user per 5 minutes. */
 export const PASSWORD_RULE: RateLimitRule = { limit: 10, windowMs: 5 * 60_000 };
 /**
+ * `POST /api/auth/password/forgot`, per IP: 5 per 15 minutes.
+ *
+ * This endpoint is unauthenticated and it SENDS MAIL, so without a ceiling it is
+ * both a way to mail-bomb a member and a way to burn a provider quota. It answers
+ * 204 either way, so the limit is the only feedback an abuser gets.
+ */
+export const FORGOT_PASSWORD_RULE: RateLimitRule = { limit: 5, windowMs: 15 * 60_000 };
+/**
+ * Second, IP-INDEPENDENT ceiling per target ADDRESS: 3 per 15 minutes.
+ *
+ * Same reasoning as LOGIN_EMAIL_RULE — without TRUST_PROXY the IP is the socket
+ * address, and behind a NAT or a proxy that is shared, so one bucket per address
+ * is what actually protects a specific person's inbox.
+ */
+export const FORGOT_PASSWORD_EMAIL_RULE: RateLimitRule = { limit: 3, windowMs: 15 * 60_000 };
+/**
+ * `POST /api/auth/password/reset`, per IP: 10 per 15 minutes. Guessing a 256-bit
+ * token is hopeless, but an unmetered endpoint that runs argon2id on every call is
+ * a cheap way to pin a CPU.
+ */
+export const PASSWORD_RESET_RULE: RateLimitRule = { limit: 10, windowMs: 15 * 60_000 };
+/** E-mail confirmation request/confirm: 5 per user (or IP) per 15 minutes. */
+export const EMAIL_VERIFY_RULE: RateLimitRule = { limit: 5, windowMs: 15 * 60_000 };
+/**
  * 10 imports per user per minute. Keyed on the USER, not the IP: every import
  * endpoint is behind a session, and a single PDF/photo costs seconds of CPU
  * (sharp + tesseract) plus up to 15 MB of RAM, so without a ceiling one member

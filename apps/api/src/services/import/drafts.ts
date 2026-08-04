@@ -24,13 +24,21 @@ import type { Database } from "../../db/client.ts";
 import { type ImportDraftRow, importDrafts } from "../../db/schema.ts";
 import { ApiError } from "../../lib/errors.ts";
 import { toIso } from "../../lib/http.ts";
+import { normalizeStoredUploadUrl, signUploadUrl } from "../../lib/uploadUrls.ts";
 
 /** Row -> contract shape. Never throws on malformed JSON columns. */
 export function toDraftWire(row: ImportDraftRow): ImportDraft {
   const parsedResult = ParsedRecipeSchema.safeParse(row.parsed);
-  const parsed: ParsedRecipe = parsedResult.success
+  const stored: ParsedRecipe = parsedResult.success
     ? parsedResult.data
     : emptyParsedRecipe({ confidence: { overall: 0 } });
+
+  // The URL importer downloads a hero image into UPLOAD_DIR and puts the bare
+  // `/uploads/<uuid>` into parsed.imageUrl, so the review screen needs it signed
+  // like any other hero image. `sourceMeta.storedPath` is deliberately NOT signed:
+  // the uploaded photo/PDF is private and is served only by the membership-checked
+  // /imports/:draftId/source route (see lib/uploadUrls.ts).
+  const parsed: ParsedRecipe = { ...stored, imageUrl: signUploadUrl(stored.imageUrl) };
 
   const metaResult = row.sourceMeta === null ? undefined : ImportSourceMetaSchema.safeParse(row.sourceMeta);
   const sourceMeta: ImportSourceMeta | null = metaResult?.success === true ? metaResult.data : null;
@@ -52,6 +60,17 @@ export function toDraftWire(row: ImportDraftRow): ImportDraft {
   };
 }
 
+/**
+ * Write-path counterpart of the signing in {@link toDraftWire}: the review screen
+ * PATCHes back the payload it was given, signature and all, and an expiring URL
+ * must never land in the `parsed` JSON column (it would still be there, dead, when
+ * the draft is committed into `recipes.image_url`).
+ */
+function normalizeParsedForStorage(parsed: ParsedRecipe): ParsedRecipe {
+  const imageUrl = normalizeStoredUploadUrl(parsed.imageUrl);
+  return imageUrl === parsed.imageUrl ? parsed : { ...parsed, imageUrl };
+}
+
 export interface CreateDraftInput {
   groupId: string;
   createdBy: string;
@@ -65,6 +84,7 @@ export interface CreateDraftInput {
 /** Inserts a pending draft and returns it in wire shape. */
 export async function createDraft(db: Database, input: CreateDraftInput): Promise<ImportDraft> {
   const now = Date.now();
+  const parsed = normalizeParsedForStorage(input.parsed);
   const row: ImportDraftRow = {
     id: crypto.randomUUID(),
     groupId: input.groupId,
@@ -73,8 +93,8 @@ export async function createDraft(db: Database, input: CreateDraftInput): Promis
     sourceType: input.sourceType,
     sourceUrl: input.sourceUrl ?? null,
     rawText: input.rawText ?? null,
-    parsed: input.parsed,
-    confidence: input.parsed.confidence.overall,
+    parsed,
+    confidence: parsed.confidence.overall,
     sourceMeta: input.sourceMeta ?? null,
     recipeId: null,
     createdAt: now,
@@ -153,8 +173,9 @@ export async function updateDraft(
 ): Promise<void> {
   const patch: Partial<ImportDraftRow> = { updatedAt: Date.now() };
   if (input.parsed !== undefined) {
-    patch.parsed = input.parsed;
-    patch.confidence = input.parsed.confidence.overall;
+    const parsed = normalizeParsedForStorage(input.parsed);
+    patch.parsed = parsed;
+    patch.confidence = parsed.confidence.overall;
   }
   if (input.status !== undefined) patch.status = input.status;
   if (input.recipeId !== undefined) patch.recipeId = input.recipeId;

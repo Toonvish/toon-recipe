@@ -3,7 +3,6 @@
  * modules, which is what `lib/lazy-page.tsx` resolves.
  */
 export { default as RecipeListPage } from "./RecipeListPage";
-export { default as SearchPage } from "./SearchPage";
 export { default as RecipeDetailPage } from "./RecipeDetailPage";
 export { default as RecipeNewPage } from "./RecipeNewPage";
 export { default as RecipeEditPage } from "./RecipeEditPage";

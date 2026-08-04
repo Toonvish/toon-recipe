@@ -9,7 +9,8 @@ import { eq } from "drizzle-orm";
 import type { Database } from "../../db/client.ts";
 import { type UserRow, groupMembers, groups, users } from "../../db/schema.ts";
 import { ApiError } from "../../lib/errors.ts";
-import { toIso } from "../../lib/http.ts";
+import { toIso, toIsoOrNull } from "../../lib/http.ts";
+import { signUploadUrl } from "../../lib/uploadUrls.ts";
 
 /** Default name of the group created for a brand-new account. */
 export const DEFAULT_GROUP_NAME = "Meine Rezepte";
@@ -20,8 +21,9 @@ export function toUserDto(row: UserRow, activeGroupId?: string | null): User {
     id: row.id,
     email: row.email,
     name: row.name,
-    avatarUrl: row.avatarUrl,
+    avatarUrl: signUploadUrl(row.avatarUrl),
     emailVerified: row.emailVerified,
+    emailVerifiedAt: toIsoOrNull(row.emailVerifiedAt),
     hasPassword: typeof row.passwordHash === "string" && row.passwordHash.length > 0,
     activeGroupId: activeGroupId === undefined ? row.activeGroupId : activeGroupId,
     createdAt: toIso(row.createdAt),
@@ -66,12 +68,16 @@ export interface CreateUserInput {
 /** Inserts a user, mapping the unique-email constraint to 409 `email_taken`. */
 export async function createUser(database: Database, input: CreateUserInput): Promise<UserRow> {
   const now = Date.now();
+  const emailVerified = input.emailVerified ?? false;
   const row: UserRow = {
     id: crypto.randomUUID(),
     email: input.email.trim().toLowerCase(),
     name: input.name.trim(),
     avatarUrl: input.avatarUrl ?? null,
-    emailVerified: input.emailVerified ?? false,
+    emailVerified,
+    // The flag and its evidence are always written together — see the column
+    // comment in db/schema.ts and markEmailVerified() in emailVerification.ts.
+    emailVerifiedAt: emailVerified ? now : null,
     passwordHash: input.passwordHash ?? null,
     activeGroupId: null,
     createdAt: now,
@@ -133,7 +139,12 @@ export async function setActiveGroup(
 export async function updateUser(
   database: Database,
   userId: string,
-  patch: Partial<Pick<UserRow, "name" | "avatarUrl" | "activeGroupId" | "passwordHash" | "emailVerified">>,
+  /**
+   * `emailVerified` is deliberately NOT patchable here: the flag and
+   * `emailVerifiedAt` must move together, so markEmailVerified()
+   * (services/auth/emailVerification.ts) is the only writer.
+   */
+  patch: Partial<Pick<UserRow, "name" | "avatarUrl" | "activeGroupId" | "passwordHash">>,
 ): Promise<UserRow> {
   await database
     .update(users)

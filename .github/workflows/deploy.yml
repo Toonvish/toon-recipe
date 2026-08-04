@@ -1,0 +1,189 @@
+# Deploys a published image to the Raspberry Pi over SSH.
+#
+# Called by release.yml after a successful build, and runnable on its own to
+# redeploy or roll back a specific image.
+#
+# WHAT THIS NEEDS ON THE PI (once — docs/deployment.md walks through it):
+#   * docker + the compose plugin,
+#   * a directory (PI_APP_DIR) containing a `.env` with SESSION_SECRET and
+#     TOON_HOSTNAME. Everything else — docker-compose.yml and docker/ — is copied
+#     from the repository on every deploy, so the Pi never drifts from main.
+#
+# SECRETS (Settings -> Secrets and variables -> Actions):
+#   PI_SSH_HOST         hostname or IP of the Pi as GitHub can reach it
+#   PI_SSH_USER         the ssh user (must be in the `docker` group)
+#   PI_SSH_KEY          private key, no passphrase, its own key for this job only
+#   PI_SSH_KNOWN_HOSTS  output of `ssh-keyscan -p <port> <host>` — see the note below
+#   PI_SSH_PORT         optional, defaults to 22
+#   PI_APP_DIR          optional, defaults to /opt/toon-recipe
+#   GHCR_PULL_TOKEN     optional; only needed while the GHCR package is private
+#
+# VARIABLE (not a secret — Settings -> Variables -> Actions):
+#   TOON_HOSTNAME       only used for the clickable link on the deployment; the Pi
+#                       reads its own hostname from its .env
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      image_digest:
+        description: "Image digest to deploy (sha256:…). Empty deploys the :latest tag."
+        type: string
+        required: false
+        default: ""
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: "Image digest (sha256:…) oder leer für :latest"
+        type: string
+        required: false
+        default: ""
+
+concurrency:
+  # Two deploys to one Pi at the same time would fight over the same containers.
+  group: deploy-pi
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Gate: add required reviewers to this environment in the repo settings and
+    # every deploy waits for an approval. Also the natural place to scope the
+    # secrets above so no other workflow can read them.
+    environment:
+      name: production
+      url: https://${{ vars.TOON_HOSTNAME }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Prepare SSH
+        env:
+          SSH_KEY: ${{ secrets.PI_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.PI_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          # STRICT HOST KEY CHECKING, DELIBERATELY.
+          #
+          # The convenient thing to write here is `StrictHostKeyChecking=no` or an
+          # `ssh-keyscan` at deploy time. Both accept whatever key answers on the
+          # day, which means a machine-in-the-middle on the path between GitHub and
+          # a home internet connection gets handed the deploy key and a root-ish
+          # shell. The expected key has to be pinned in a secret instead.
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          if [ ! -s ~/.ssh/known_hosts ]; then
+            echo "::error::PI_SSH_KNOWN_HOSTS ist leer. Auf dem Pi ausführen: ssh-keyscan -p <port> <host>"
+            exit 1
+          fi
+
+      - name: Copy compose files to the Pi
+        env:
+          HOST: ${{ secrets.PI_SSH_HOST }}
+          USER: ${{ secrets.PI_SSH_USER }}
+          PORT: ${{ secrets.PI_SSH_PORT || '22' }}
+          APP_DIR: ${{ secrets.PI_APP_DIR || '/opt/toon-recipe' }}
+        run: |
+          set -euo pipefail
+          # The Pi runs exactly the compose file and Caddyfile that this commit
+          # contains — no manual edits on the box to get out of sync with.
+          # `.env` is NEVER touched here: it holds the secrets and belongs to the host.
+          ssh -i ~/.ssh/deploy_key -p "$PORT" "$USER@$HOST" "mkdir -p '$APP_DIR/docker'"
+          scp -i ~/.ssh/deploy_key -P "$PORT" docker-compose.yml "$USER@$HOST:$APP_DIR/"
+          scp -i ~/.ssh/deploy_key -P "$PORT" docker/Caddyfile "$USER@$HOST:$APP_DIR/docker/"
+
+      - name: Pull and restart
+        env:
+          HOST: ${{ secrets.PI_SSH_HOST }}
+          USER: ${{ secrets.PI_SSH_USER }}
+          PORT: ${{ secrets.PI_SSH_PORT || '22' }}
+          APP_DIR: ${{ secrets.PI_APP_DIR || '/opt/toon-recipe' }}
+          REGISTRY_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          DIGEST: ${{ inputs.image_digest }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # LOWERCASE IS MANDATORY. `github.repository` keeps the owner's casing
+          # ("Toonvish/toon-recipe"), and docker rejects an image reference with an
+          # uppercase letter outright ("repository name must be lowercase"). The
+          # metadata-action does this for us when it builds the tags; here it has to
+          # be done by hand.
+          REPO_LC="$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')"
+
+          # Deploy BY DIGEST when we have one: that is the exact image this run
+          # built and tested, and it cannot be replaced under us the way a moving
+          # `:latest` tag can.
+          if [ -n "$DIGEST" ]; then
+            IMAGE="ghcr.io/${REPO_LC}@${DIGEST}"
+          else
+            IMAGE="ghcr.io/${REPO_LC}:latest"
+          fi
+          echo "Deploying $IMAGE"
+
+          ssh -i ~/.ssh/deploy_key -p "$PORT" "$USER@$HOST" \
+            APP_DIR="$APP_DIR" IMAGE="$IMAGE" \
+            REGISTRY_USER="$REGISTRY_USER" GHCR_TOKEN="${GHCR_TOKEN:-}" \
+            'bash -euo pipefail -s' <<'REMOTE'
+            cd "$APP_DIR"
+
+            if [ ! -f .env ]; then
+              echo "FEHLER: $APP_DIR/.env fehlt. Vorlage: docker/env.example (SESSION_SECRET + TOON_HOSTNAME)." >&2
+              exit 1
+            fi
+
+            # Only needed while the GHCR package is private.
+            if [ -n "${GHCR_TOKEN:-}" ]; then
+              echo "$GHCR_TOKEN" | docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
+            fi
+
+            # Pin the deployed image in .env, so a later manual `docker compose
+            # up -d` on the Pi brings up the SAME version rather than drifting back
+            # to whatever `latest` points at. Idempotent, and it leaves every other
+            # line (SESSION_SECRET included) untouched.
+            if grep -q '^TOON_IMAGE=' .env; then
+              sed -i "s|^TOON_IMAGE=.*|TOON_IMAGE=${IMAGE}|" .env
+            else
+              printf 'TOON_IMAGE=%s\n' "$IMAGE" >> .env
+            fi
+
+            docker compose pull
+            docker compose up -d --remove-orphans
+
+            # Wait for the app's OWN healthcheck (it calls /api/health, so healthy
+            # means Hono answers and the env validated) instead of assuming that
+            # `up -d` returning means anything.
+            echo "Warte auf healthy …"
+            for i in $(seq 1 40); do
+              status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+                "$(docker compose ps -q app)" 2>/dev/null || echo missing)"
+              case "$status" in
+                healthy) echo "app ist healthy"; break ;;
+                unhealthy) echo "FEHLER: Container ist unhealthy" >&2; docker compose logs --tail=60 app >&2; exit 1 ;;
+              esac
+              if [ "$i" = 40 ]; then
+                echo "FEHLER: Zeitüberschreitung, Status=$status" >&2
+                docker compose logs --tail=60 app >&2
+                exit 1
+              fi
+              sleep 3
+            done
+
+            # Old image layers add up fast on an SD card. Images only — never
+            # `system prune --volumes`, which would delete the database.
+            docker image prune -af --filter "until=168h" >/dev/null 2>&1 || true
+
+            docker compose ps
+          REMOTE
+
+      - name: Clean up the key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

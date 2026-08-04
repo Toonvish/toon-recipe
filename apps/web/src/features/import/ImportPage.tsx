@@ -21,10 +21,21 @@ import {
   Trash2,
   Upload,
   Users,
+  WifiOff,
   X,
 } from "lucide-react";
 import { MAX_UPLOAD_BYTES } from "@toon/shared";
-import { Button, Input, Label, Select, Textarea, readChangeValue, useActiveGroupState, useShellToast } from "./lib/shell";
+import {
+  Button,
+  Input,
+  Label,
+  Select,
+  Textarea,
+  readChangeValue,
+  useActiveGroupState,
+  useImportAvailability,
+  useShellToast,
+} from "./lib/shell";
 import { useImportNavigation } from "./lib/navigation";
 import { importFromText, importFromUrl, importImage, importPdf } from "./lib/importApi";
 import { checkFileSize, formatBytes, isImageFile, isPdfFile, prepareImageForUpload, stitchImagesForUpload } from "./lib/image";
@@ -74,7 +85,15 @@ export default function ImportPage() {
 
   const [job, setJob] = useState<JobState | undefined>(undefined);
   const [error, setError] = useState<{ source: ImportSource; error: unknown } | undefined>(undefined);
-  const busy = job !== undefined && job.phase !== "done" && job.phase !== "error";
+  const inFlight = job !== undefined && job.phase !== "done" && job.phase !== "error";
+  /**
+   * Every import entry point posts to the server and OCR runs there, so NOTHING
+   * here works offline. Folding that into the one flag that already disables the
+   * buttons keeps the guard in a single place — the offline PWA support is
+   * deliberately read-only (see lib/persist.ts).
+   */
+  const offline = useImportAvailability();
+  const busy = inFlight || !offline.enabled;
 
   /* ------------------------------ url import ------------------------------ */
   const [urlValue, setUrlValue] = useState("");
@@ -325,6 +344,17 @@ export default function ImportPage() {
           Aus dem Netz, vom Kochbuch-Foto oder aus einem PDF. Vor dem Speichern kannst du alles prüfen und korrigieren.
         </p>
       </header>
+
+      {offline.enabled ? null : (
+        <p
+          role="status"
+          className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning-soft p-3 text-sm text-warning-soft-fg"
+        >
+          <WifiOff aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+          Offline — Importieren braucht eine Verbindung, weil die Texterkennung auf dem Server
+          läuft. Gespeicherte Rezepte kannst du weiterhin ansehen und nachkochen.
+        </p>
+      )}
 
       {groups.length > 1 ? (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface p-3">

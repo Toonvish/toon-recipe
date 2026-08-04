@@ -15,8 +15,11 @@ import {
   MAX_UPLOAD_BYTES,
   type AcceptInviteRequest,
   type AcceptInviteResponse,
+  type AddRecipeToShoppingListRequest,
+  type AddShoppingItemsRequest,
   type AuthSessionResponse,
   type ChangePasswordRequest,
+  type CheckShoppingItemRequest,
   type CollectionDetailResponse,
   type CollectionListResponse,
   type CollectionResponse,
@@ -26,7 +29,9 @@ import {
   type CreateGroupRequest,
   type CreateInviteRequest,
   type CreateRecipeRequest,
+  type CreateShoppingListRequest,
   type CreateTagRequest,
+  type ForgotPasswordRequest,
   type GroupDetailResponse,
   type GroupInviteListResponse,
   type GroupInviteResponse,
@@ -51,8 +56,12 @@ import {
   type RecipeListResponse,
   type RecipeResponse,
   type RegisterRequest,
+  type ResetPasswordRequest,
   type ScaledRecipeResponse,
   type SessionListResponse,
+  type ShoppingListDetailResponse,
+  type ShoppingListListResponse,
+  type ShoppingListResponse,
   type TagListResponse,
   type TagResponse,
   type UpdateCollectionRequest,
@@ -61,9 +70,12 @@ import {
   type UpdateMemberRoleRequest,
   type UpdateProfileRequest,
   type UpdateRecipeRequest,
+  type UpdateShoppingItemRequest,
+  type UpdateShoppingListRequest,
   type UpdateTagRequest,
   type UploadResponse,
   type UserResponse,
+  type VerifyEmailRequest,
 } from "@toon/shared";
 
 /* -------------------------------------------------------------------------- */
@@ -398,6 +410,64 @@ export function changePassword(
   options?: RequestOptions,
 ): Promise<void> {
   return request<void>("/api/auth/password", { ...options, method: "POST", body });
+}
+
+/**
+ * "Passwort vergessen" — ALWAYS resolves for a syntactically valid address.
+ *
+ * The API answers 204 whether or not the account exists (no user enumeration), so
+ * the calling screen must show the same confirmation either way and must NOT try to
+ * infer anything from the result. A 429 still surfaces, which is intentional.
+ */
+export function requestPasswordReset(
+  body: ForgotPasswordRequest,
+  options?: RequestOptions,
+): Promise<void> {
+  return request<void>("/api/auth/password/forgot", {
+    ...options,
+    method: "POST",
+    body,
+    allowUnauthorized: true,
+  });
+}
+
+/**
+ * Spends a reset token from a mailed link. On success EVERY session of that user is
+ * gone — including any this browser held — and the user must sign in again, so the
+ * screen navigates to `/login`. 400 `reset_token_invalid` covers
+ * unknown/expired/already-used alike.
+ */
+export function resetPassword(
+  body: ResetPasswordRequest,
+  options?: RequestOptions,
+): Promise<void> {
+  return request<void>("/api/auth/password/reset", {
+    ...options,
+    method: "POST",
+    body,
+    allowUnauthorized: true,
+  });
+}
+
+/** Mails a confirmation link to the signed-in account's address. */
+export function requestEmailVerification(options?: RequestOptions): Promise<void> {
+  return request<void>("/api/auth/email/verify/request", { ...options, method: "POST", body: {} });
+}
+
+/**
+ * Confirms an address from a mailed link. Works without a session — the link is
+ * regularly opened on a different device than the one that is signed in.
+ */
+export function confirmEmailVerification(
+  body: VerifyEmailRequest,
+  options?: RequestOptions,
+): Promise<UserResponse> {
+  return request<UserResponse>("/api/auth/email/verify/confirm", {
+    ...options,
+    method: "POST",
+    body,
+    allowUnauthorized: true,
+  });
 }
 
 export function fetchSessions(options?: RequestOptions): Promise<SessionListResponse> {
@@ -913,6 +983,176 @@ export function deleteImportDraft(
 }
 
 /* -------------------------------------------------------------------------- */
+/* shopping lists                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Every MUTATION below returns the whole `ShoppingListDetailResponse`, not just the
+ * touched item. The caller writes that payload straight into the query cache, which is
+ * what keeps an optimistic offline edit from drifting: merging means one added line can
+ * change a different one, so a patch-in-place would be wrong.
+ *
+ * `mutationId` is a client-generated uuid that makes a replay after an offline spell
+ * safe (the API remembers applied ids per list). Pass one for anything queued.
+ */
+function shoppingBase(groupId: string, listId?: string): string {
+  const base = `/api/groups/${groupId}/shopping-lists`;
+  return listId === undefined ? base : `${base}/${listId}`;
+}
+
+export function fetchShoppingLists(
+  groupId: string,
+  options?: RequestOptions,
+): Promise<ShoppingListListResponse> {
+  return request<ShoppingListListResponse>(shoppingBase(groupId), options);
+}
+
+export function createShoppingList(
+  groupId: string,
+  body: CreateShoppingListRequest,
+  options?: RequestOptions,
+): Promise<ShoppingListResponse> {
+  return request<ShoppingListResponse>(shoppingBase(groupId), {
+    ...options,
+    method: "POST",
+    body,
+  });
+}
+
+export function fetchShoppingList(
+  groupId: string,
+  listId: string,
+  options?: RequestOptions,
+): Promise<ShoppingListDetailResponse> {
+  return request<ShoppingListDetailResponse>(shoppingBase(groupId, listId), options);
+}
+
+export function updateShoppingList(
+  groupId: string,
+  listId: string,
+  body: UpdateShoppingListRequest,
+  options?: RequestOptions,
+): Promise<ShoppingListResponse> {
+  return request<ShoppingListResponse>(shoppingBase(groupId, listId), {
+    ...options,
+    method: "PATCH",
+    body,
+  });
+}
+
+export function deleteShoppingList(
+  groupId: string,
+  listId: string,
+  options?: RequestOptions,
+): Promise<void> {
+  return request<void>(shoppingBase(groupId, listId), { ...options, method: "DELETE" });
+}
+
+export function addShoppingItems(
+  groupId: string,
+  listId: string,
+  body: AddShoppingItemsRequest,
+  options?: RequestOptions,
+): Promise<ShoppingListDetailResponse> {
+  return request<ShoppingListDetailResponse>(`${shoppingBase(groupId, listId)}/items`, {
+    ...options,
+    method: "POST",
+    body,
+  });
+}
+
+export function updateShoppingItem(
+  groupId: string,
+  listId: string,
+  itemId: string,
+  body: UpdateShoppingItemRequest,
+  options?: RequestOptions,
+): Promise<ShoppingListDetailResponse> {
+  return request<ShoppingListDetailResponse>(
+    `${shoppingBase(groupId, listId)}/items/${itemId}`,
+    { ...options, method: "PATCH", body },
+  );
+}
+
+/** Removes a line without counting it as bought. Idempotent, so safe to replay. */
+export function deleteShoppingItem(
+  groupId: string,
+  listId: string,
+  itemId: string,
+  options?: RequestOptions,
+): Promise<ShoppingListDetailResponse> {
+  return request<ShoppingListDetailResponse>(
+    `${shoppingBase(groupId, listId)}/items/${itemId}`,
+    { ...options, method: "DELETE" },
+  );
+}
+
+/** Checks a line off: it leaves the list and appears under "Häufig gekauft". */
+export function checkShoppingItem(
+  groupId: string,
+  listId: string,
+  itemId: string,
+  body: CheckShoppingItemRequest = {},
+  options?: RequestOptions,
+): Promise<ShoppingListDetailResponse> {
+  return request<ShoppingListDetailResponse>(
+    `${shoppingBase(groupId, listId)}/items/${itemId}/check`,
+    { ...options, method: "POST", body },
+  );
+}
+
+export function clearShoppingList(
+  groupId: string,
+  listId: string,
+  options?: RequestOptions,
+): Promise<ShoppingListDetailResponse> {
+  return request<ShoppingListDetailResponse>(`${shoppingBase(groupId, listId)}/items`, {
+    ...options,
+    method: "DELETE",
+  });
+}
+
+export function addRecipeToShoppingList(
+  groupId: string,
+  listId: string,
+  body: AddRecipeToShoppingListRequest,
+  options?: RequestOptions,
+): Promise<ShoppingListDetailResponse> {
+  return request<ShoppingListDetailResponse>(`${shoppingBase(groupId, listId)}/recipes`, {
+    ...options,
+    method: "POST",
+    body,
+  });
+}
+
+/** Re-adds a "Häufig gekauft" suggestion, deliberately without an amount. */
+export function addShoppingCatalogEntry(
+  groupId: string,
+  listId: string,
+  entryId: string,
+  body: CheckShoppingItemRequest = {},
+  options?: RequestOptions,
+): Promise<ShoppingListDetailResponse> {
+  return request<ShoppingListDetailResponse>(
+    `${shoppingBase(groupId, listId)}/catalog/${entryId}`,
+    { ...options, method: "POST", body },
+  );
+}
+
+/** "Nicht mehr vorschlagen". Idempotent. */
+export function deleteShoppingCatalogEntry(
+  groupId: string,
+  listId: string,
+  entryId: string,
+  options?: RequestOptions,
+): Promise<void> {
+  return request<void>(`${shoppingBase(groupId, listId)}/catalog/${entryId}`, {
+    ...options,
+    method: "DELETE",
+  });
+}
+
+/* -------------------------------------------------------------------------- */
 /* grouped facade (nice for autocomplete: api.recipes.list(...))              */
 /* -------------------------------------------------------------------------- */
 
@@ -925,6 +1165,10 @@ export const api = {
     me: fetchMe,
     updateProfile,
     changePassword,
+    requestPasswordReset,
+    resetPassword,
+    requestEmailVerification,
+    confirmEmailVerification,
     sessions: fetchSessions,
     revokeSession,
     oauthStartUrl,
@@ -972,6 +1216,21 @@ export const api = {
     remove: deleteCollection,
     addRecipe: addRecipeToCollection,
     removeRecipe: removeRecipeFromCollection,
+  },
+  shopping: {
+    lists: fetchShoppingLists,
+    createList: createShoppingList,
+    detail: fetchShoppingList,
+    updateList: updateShoppingList,
+    removeList: deleteShoppingList,
+    addItems: addShoppingItems,
+    updateItem: updateShoppingItem,
+    removeItem: deleteShoppingItem,
+    check: checkShoppingItem,
+    clear: clearShoppingList,
+    addRecipe: addRecipeToShoppingList,
+    addSuggestion: addShoppingCatalogEntry,
+    removeSuggestion: deleteShoppingCatalogEntry,
   },
   imports: {
     fromUrl: importFromUrl,
