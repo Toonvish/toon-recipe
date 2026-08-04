@@ -71,9 +71,9 @@ weil das Zertifikat pro Name ausgestellt wird. Der Name aus dem Imager steht in 
 - **Eigene Domain:** der beste Weg, wenn du später ein echtes Zertifikat willst — siehe
   „Auf ein echtes Zertifikat wechseln“ in [deployment.md](./deployment.md#auf-ein-echtes-zertifikat-wechseln).
 
-Sinnvoll, sobald der Pi per SSH von außen erreichbar sein soll (z. B. für den späteren
-Auto-Deploy): in `/etc/ssh/sshd_config` `PasswordAuthentication no` setzen und Schlüssel
-benutzen.
+Sinnvoll, sobald der Pi per SSH von außen erreichbar sein soll: in `/etc/ssh/sshd_config`
+`PasswordAuthentication no` setzen und Schlüssel benutzen. (Für Updates ist das nicht nötig —
+die laufen auf dem Pi selbst, siehe [Schritt 10](#10--updates-einspielen).)
 
 ---
 
@@ -250,8 +250,8 @@ sudo chown -R "$USER" /opt/toon-recipe
 cd /opt/toon-recipe
 ```
 
-`docker-compose.yml` und `docker/Caddyfile` kommen aus dem Repo. Beim späteren Auto-Deploy
-kopiert der Job sie bei jedem Lauf dorthin; jetzt einmal von Hand:
+`docker-compose.yml` und `docker/Caddyfile` kommen aus dem Repo und werden bei einem Update
+von Hand neu geholt, wenn sie sich geändert haben. Jetzt einmal holen:
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/Toonvish/toon-recipe/main/docker-compose.yml
@@ -341,7 +341,7 @@ signierte HTTPS laden.
 Die Installation unterscheidet sich pro Betriebssystem — **auf iOS sind es zwei Schritte**, und
 der zweite wird gern vergessen. Die Schritt-für-Schritt-Liste für iOS, Android, macOS, Windows
 und Linux steht in
-[deployment.md → Wurzelzertifikat](./deployment.md#5--das-wurzelzertifikat-auf-jedes-gerät-bringen).
+[deployment.md → Wurzelzertifikat](./deployment.md#4--das-wurzelzertifikat-auf-jedes-gerät-bringen).
 
 ---
 
@@ -366,18 +366,19 @@ Passwort-Reset-Link, im LAN wäre das Kontoübernahme für jeden im WLAN.
 
 ---
 
-## 10 — Optional: Auto-Deploy per GitHub Actions
+## 10 — Updates einspielen
 
-Ab hier deployt jeder Push auf `main` von selbst: `release.yml` baut das Image, `deploy.yml`
-kopiert die compose-Dateien auf den Pi und startet per Image-**Digest** neu. Einzurichten sind
-ein Deploy-Schlüssel auf dem Pi und ein paar Repository-Secrets — beschrieben in
-[deployment.md → Deploy-Zugang für GitHub Actions](./deployment.md#4--deploy-zugang-für-github-actions-einrichten).
-
-Ohne das bleibt das Update ein Zweizeiler auf dem Pi:
+`release.yml` baut bei jedem Push auf `main` ein neues Image und legt es auf GHCR ab —
+**ausgerollt wird von Hand**, es gibt bewusst keinen Auto-Deploy (kein SSH-Schlüssel für den
+Pi in GitHub-Secrets, kein SSH-Port aus dem Internet). Das Update ist ein Zweizeiler:
 
 ```bash
-cd /opt/toon-recipe && docker compose pull && docker compose up -d
+cd /opt/toon-recipe && docker compose pull && docker compose up -d --remove-orphans
+docker compose ps                     # app soll "healthy" sein
 ```
+
+Details, inklusive Rollback auf einen bestimmten Image-Digest, in
+[deployment.md → Update](./deployment.md#update).
 
 ---
 

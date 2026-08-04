@@ -11,16 +11,15 @@
 # takes roughly ten times as long.
 name: Release
 
+#
+# BUILD ONLY — there is no deploy stage on purpose. Deployment is manual on the Pi
+# (`docker compose pull && docker compose up -d`, see docs/deployment.md), so CI never
+# holds an SSH key to the box and never needs to reach a home network.
 on:
   push:
     branches: [main]
     tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      deploy:
-        description: "Nach dem Build auf den Pi deployen"
-        type: boolean
-        default: false
 
 concurrency:
   # Never let two publishes race for the `latest` tag.
@@ -41,9 +40,8 @@ jobs:
     permissions:
       contents: read
       packages: write
-    outputs:
-      digest: ${{ steps.build.outputs.digest }}
-      version: ${{ steps.meta.outputs.version }}
+    # No job `outputs`: the deploy job that consumed the digest is gone. It is
+    # published in the step summary instead, which is where a human reads it.
     steps:
       - uses: actions/checkout@v5
 
@@ -96,6 +94,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # The digest is the useful half of this summary: it is what you paste into the
+      # Pi's `.env` as TOON_IMAGE to deploy exactly this build instead of a moving
+      # `:latest`.
       - name: Summary
         run: |
           {
@@ -106,21 +107,10 @@ jobs:
             echo '```'
             echo
             echo "Digest: \`${{ steps.build.outputs.digest }}\`"
+            echo
+            echo "Deploy auf dem Pi (in \`/opt/toon-recipe\`):"
+            echo
+            echo '```bash'
+            echo "docker compose pull && docker compose up -d --remove-orphans"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-
-  # Deploys over SSH. Split into its own job so a failed deploy never un-publishes
-  # a good image, and gated on the `production` environment so GitHub can require a
-  # manual approval before anything touches the Pi.
-  deploy:
-    needs: build
-    # A push to main or a version tag deploys automatically. A manual run only
-    # deploys when the checkbox was ticked — without the event check below, the
-    # `refs/heads/main` clause would deploy anyway and the input would be a lie.
-    if: >-
-      (github.event_name == 'push' &&
-        (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))) ||
-      (github.event_name == 'workflow_dispatch' && inputs.deploy)
-    uses: ./.github/workflows/deploy.yml
-    with:
-      image_digest: ${{ needs.build.outputs.digest }}
-    secrets: inherit

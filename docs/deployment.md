@@ -1,8 +1,17 @@
 # Deployment auf einem Raspberry Pi
 
 Ein Container-Stack, ein Origin, keine fremden Dienste. Von einem frischen Pi bis zur
-installierten App auf dem Handy sind es die sechs Schritte in [Erstinstallation](#erstinstallation);
-danach deployt GitHub Actions jeden Push auf `main` automatisch.
+installierten App auf dem Handy sind es die fünf Schritte in [Erstinstallation](#erstinstallation).
+
+**GitHub Actions baut nur, es deployt nicht.** Jeder Push auf `main` veröffentlicht ein
+neues Image auf GHCR; ausgerollt wird es von Hand auf dem Pi:
+
+```bash
+cd /opt/toon-recipe && docker compose pull && docker compose up -d --remove-orphans
+```
+
+Das ist eine bewusste Entscheidung: so liegt kein SSH-Schlüssel für den Pi in den
+GitHub-Secrets, und der SSH-Port muss nicht aus dem Internet erreichbar sein.
 
 > **Ganz von vorn — leere SD-Karte, kein Docker, kein GitHub?** Dann ist
 > **[docs/pi-setup.md](./pi-setup.md)** die Anleitung: Betriebssystem schreiben, Pi-Eigenheiten
@@ -71,8 +80,8 @@ Push auf `main` (oder Actions → **Release** → *Run workflow*) baut das Image
 
 Danach einmal das Paket auf **public** stellen: GitHub → Profil/Organisation → *Packages*
 → `toon-recipe` → *Package settings* → *Change visibility*. Dann braucht der Pi keine
-Zugangsdaten zum Ziehen. (Alternative: privat lassen und ein Read-Only-PAT als Secret
-`GHCR_PULL_TOKEN` hinterlegen — der Deploy-Job loggt sich damit ein.)
+Zugangsdaten zum Ziehen. (Alternative: privat lassen und sich auf dem Pi einmalig mit
+einem Read-Only-PAT anmelden: `docker login ghcr.io -u <user>`.)
 
 ### 2 — Hostname festlegen
 
@@ -111,8 +120,8 @@ chmod 600 .env
 > `/uploads`-URLs. Ein neuer Wert macht alle bereits ausgelieferten Bild-URLs ungültig
 > (die Bilder selbst bleiben erhalten).
 
-`docker-compose.yml` und `docker/Caddyfile` kopiert der Deploy-Job bei jedem Lauf aus dem
-Repo dorthin — für den ersten Start von Hand:
+`docker-compose.yml` und `docker/Caddyfile` gehören ebenfalls dorthin. Sie kommen aus dem
+Repo und werden bei einem Update von Hand neu geholt (siehe [Update](#update)):
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/Toonvish/toon-recipe/main/docker-compose.yml
@@ -121,44 +130,7 @@ curl -fsSL  https://raw.githubusercontent.com/Toonvish/toon-recipe/main/docker/C
 docker compose up -d
 ```
 
-### 4 — Deploy-Zugang für GitHub Actions einrichten
-
-Auf dem **Pi** einen Schlüssel nur für diesen Zweck erzeugen:
-
-```bash
-ssh-keygen -t ed25519 -f ~/.ssh/gh-deploy -N "" -C "github-actions-deploy"
-cat ~/.ssh/gh-deploy.pub >> ~/.ssh/authorized_keys
-cat ~/.ssh/gh-deploy            # -> Secret PI_SSH_KEY
-ssh-keyscan -p 22 <pi-adresse>  # -> Secret PI_SSH_KNOWN_HOSTS
-```
-
-Damit GitHub den Pi erreicht, muss der SSH-Port von außen erreichbar sein — entweder per
-Portweiterleitung (dann **unbedingt** Passwort-Login abschalten:
-`PasswordAuthentication no` in `/etc/ssh/sshd_config`) oder über ein Tailscale-/VPN-Netz,
-in dem auch der Runner hängt.
-
-Dann in GitHub → *Settings* → *Secrets and variables* → *Actions*:
-
-| Secret | Wert |
-| --- | --- |
-| `PI_SSH_HOST` | Adresse des Pi, wie GitHub sie erreicht |
-| `PI_SSH_USER` | SSH-Benutzer (muss in der Gruppe `docker` sein) |
-| `PI_SSH_KEY` | privater Schlüssel aus `~/.ssh/gh-deploy` |
-| `PI_SSH_KNOWN_HOSTS` | Ausgabe von `ssh-keyscan` |
-| `PI_SSH_PORT` | optional, Standard 22 |
-| `PI_APP_DIR` | optional, Standard `/opt/toon-recipe` |
-| `GHCR_PULL_TOKEN` | nur solange das Package privat ist |
-
-Zusätzlich unter *Settings* → *Environments* ein Environment **`production`** anlegen.
-Dort lassen sich *Required reviewers* eintragen — dann wartet jeder Deploy auf eine
-Freigabe, statt sofort auf den Pi zu gehen.
-
-> **Warum `PI_SSH_KNOWN_HOSTS` und nicht `StrictHostKeyChecking=no`:** Letzteres
-> akzeptiert jeden Schlüssel, der an dem Tag antwortet. Wer sich zwischen GitHub und
-> deinen Anschluss setzt, bekommt damit den Deploy-Key und eine Shell auf dem Pi. Der
-> erwartete Fingerprint muss gepinnt sein.
-
-### 5 — Das Wurzelzertifikat auf jedes Gerät bringen
+### 4 — Das Wurzelzertifikat auf jedes Gerät bringen
 
 **Dieser Schritt ist nicht optional, wenn die App als App laufen soll.** Caddy stellt das
 Zertifikat mit einer eigenen lokalen CA aus. Ohne installiertes Wurzelzertifikat gibt es
@@ -198,7 +170,7 @@ Dann installieren:
 > erzeugt Caddy eine neue CA und das Wurzelzertifikat muss auf allen Geräten erneut
 > installiert werden. Nicht in ein Backup legen, das du weitergibst.
 
-### 6 — Ersten Account anlegen
+### 5 — Ersten Account anlegen
 
 `https://rezepte.fritz.box` öffnen und registrieren. Der erste Account bekommt automatisch
 eine eigene Gruppe („Meine Rezepte“). Weitere Personen lädst du über
@@ -222,14 +194,26 @@ ssh -N -L 8025:127.0.0.1:8025 <user>@<pi>
 
 ### Update
 
-Läuft automatisch bei jedem Push auf `main`. Von Hand:
+Ein Push auf `main` veröffentlicht das neue Image, rollt es aber **nicht** aus. Auf dem Pi:
 
 ```bash
-cd /opt/toon-recipe && docker compose pull && docker compose up -d
+cd /opt/toon-recipe && docker compose pull && docker compose up -d --remove-orphans
+docker compose ps                     # app soll "healthy" sein
 ```
 
-Der Deploy-Job schreibt den ausgelieferten Image-**Digest** in die `.env`, damit ein
-späteres `docker compose up -d` dieselbe Version startet und nicht auf `latest` zurückfällt.
+Wenn sich `docker-compose.yml` oder `docker/Caddyfile` im Repo geändert haben, vorher neu
+holen — der Pi bekommt sie nicht mehr von selbst:
+
+```bash
+cd /opt/toon-recipe
+curl -fsSLO https://raw.githubusercontent.com/Toonvish/toon-recipe/main/docker-compose.yml
+curl -fsSL  https://raw.githubusercontent.com/Toonvish/toon-recipe/main/docker/Caddyfile \
+     -o docker/Caddyfile
+```
+
+`TOON_IMAGE` in der `.env` entscheidet, *was* gezogen wird. Steht dort `:latest`, holt
+`pull` den neuesten `main`-Build; steht dort ein `@sha256:…`-Digest, bleibt die Version
+festgenagelt, bis du sie änderst. Digests stehen in der Summary jedes Release-Laufs.
 
 ### Caddy und Mailpit aktualisieren
 
@@ -246,8 +230,8 @@ curl -s https://api.github.com/repos/caddyserver/caddy/releases/latest  | grep '
 curl -s https://api.github.com/repos/axllent/mailpit/releases/latest    | grep '"tag_name"'
 ```
 
-Dann die `image:`-Zeilen in `docker-compose.yml` im Repo anpassen, pushen — der
-Deploy-Job kopiert die Datei auf den Pi und startet neu. Vorher lokal gegenprüfen:
+Dann die `image:`-Zeilen in `docker-compose.yml` im Repo anpassen, pushen und die Datei auf
+dem Pi neu holen (siehe [Update](#update)). Vorher lokal gegenprüfen:
 
 ```bash
 docker run --rm -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
@@ -260,18 +244,17 @@ Die Bun-Version steht an einer Stelle: `ARG BUN_VERSION` im `Dockerfile`, plus
 
 ### Rollback
 
-```bash
-# Actions -> Release -> vergangenen Lauf öffnen -> Digest aus der Summary kopieren
-# Actions -> Deploy -> Run workflow -> Digest eintragen
-```
-
-Oder direkt auf dem Pi:
+Den Digest der guten Version holen: Actions → **Release** → vergangenen Lauf öffnen →
+Digest aus der Summary kopieren. Dann auf dem Pi:
 
 ```bash
 cd /opt/toon-recipe
 sed -i "s|^TOON_IMAGE=.*|TOON_IMAGE=ghcr.io/toonvish/toon-recipe@sha256:<digest>|" .env
-docker compose up -d
+docker compose pull && docker compose up -d
 ```
+
+Danach steht in der `.env` ein fester Digest. Für den nächsten normalen Update wieder auf
+`TOON_IMAGE=ghcr.io/toonvish/toon-recipe:latest` zurückstellen.
 
 > Migrationen laufen bei jedem Start und sind **nicht** rückwärts anwendbar. Ein Rollback
 > auf ein Image vor einer Schema-Änderung braucht das Backup von vorher.
@@ -373,15 +356,15 @@ docker compose exec app bun apps/api/scripts/reset-password.ts <email>
 | Symptom | Ursache / Behebung |
 | --- | --- |
 | `exec format error` beim Start | 32-Bit-OS. `uname -m` muss `aarch64` sein. |
-| Browser-Warnung **und** keine Installations-Option | Wurzelzertifikat fehlt oder ist auf iOS nicht *aktiviert* → [Schritt 5](#5--das-wurzelzertifikat-auf-jedes-gerät-bringen) |
+| Browser-Warnung **und** keine Installations-Option | Wurzelzertifikat fehlt oder ist auf iOS nicht *aktiviert* → [Schritt 4](#4--das-wurzelzertifikat-auf-jedes-gerät-bringen) |
 | Einkaufsliste funktioniert offline nicht | Gleiche Ursache: kein Service-Worker ohne vertrauenswürdiges Zertifikat. In den DevTools unter *Application → Service Workers* prüfen. |
 | Warnung, obwohl das Zertifikat installiert ist | Zugriff über IP oder einen anderen Namen als `TOON_HOSTNAME`. Immer denselben Namen benutzen. |
 | App zeigt nach dem Update die alte Version | Meist ein CDN/Proxy davor. `sw.js` und `index.html` liefert die API mit `Cache-Control: no-cache` aus — das darf nichts überschreiben. |
 | `ocr_failed` beim ersten Foto-Import | Sprachdaten fehlen im Volume. `docker compose exec app ls data/tessdata` prüfen, sonst `docker compose exec app bun run ocr:prefetch` (braucht einmal ausgehendes HTTPS). |
 | Import bricht bei großen PDFs ab | Speicher. `TOON_MEM_LIMIT` prüfen; auf einem 2-GB-Pi `1200m`. |
 | Container ständig `unhealthy` | `docker compose logs app`. Meist eine fehlende Variable — die API nennt sie beim Start im Klartext. |
-| Deploy scheitert mit `Host key verification failed` | `PI_SSH_KNOWN_HOSTS` fehlt oder ist veraltet (neu aufgesetzter Pi = neuer Hostkey). `ssh-keyscan` erneut ausführen. |
-| Deploy scheitert mit `denied` beim Pull | GHCR-Package ist privat und `GHCR_PULL_TOKEN` fehlt. |
+| `docker compose pull` scheitert mit `denied` | GHCR-Package ist privat. Entweder auf *public* stellen (siehe [Schritt 1](#1--image-veröffentlichen-lassen)) oder auf dem Pi `docker login ghcr.io -u <user>` mit einem Read-Only-PAT. |
+| `docker compose pull` holt nichts Neues | In der `.env` steht ein fester `@sha256:…`-Digest in `TOON_IMAGE`. Für laufende Updates auf `:latest` zurückstellen. |
 
 ---
 

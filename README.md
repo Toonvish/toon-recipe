@@ -273,8 +273,10 @@ Three things about this setup are worth knowing before you touch it:
   certificate later is one line in `docker/Caddyfile`.
 
 CI (`.github/workflows/`): `ci.yml` runs the four gates on every push; `release.yml` builds
-`linux/arm64` + `linux/amd64` and pushes to GHCR; `deploy.yml` copies the compose files to the Pi over
-SSH and restarts by image **digest**, waiting for the container's own healthcheck. The arm64 build
+`linux/arm64` + `linux/amd64` and pushes to GHCR. **CI builds, it does not deploy** — rolling out is a
+manual `docker compose pull && docker compose up -d` on the Pi, so no SSH key to the box lives in
+GitHub secrets and the Pi's SSH port never has to face the internet. The image digest is printed in
+the release run's summary; put it in `TOON_IMAGE` to pin a version or roll back. The arm64 build
 stays fast because the web bundle and the OCR language data are built on the *build* platform (both
 outputs are architecture-independent) and only the native `node_modules` install runs under QEMU.
 
