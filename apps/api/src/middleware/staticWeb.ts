@@ -16,7 +16,7 @@
  * filenames, so those are immutable forever; `index.html` and `sw.js` are NOT
  * hashed, and if either is cached the app can never update itself again — the
  * browser keeps handing back a service worker that precaches the old bundle. That
- * bug looks like "the Pi is serving a stale app for days", so:
+ * bug looks like "the server keeps serving a stale app for days", so:
  *
  *   /assets/<name>-<hash>.<ext>   immutable, one year
  *   sw.js, index.html, manifest   no-cache (revalidate every single time)

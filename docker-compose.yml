@@ -1,19 +1,23 @@
 # =============================================================================
-# toon-recipe on a Raspberry Pi.
+# toon-recipe — the whole deployment, on any Linux box with Docker.
 #
 #   docker compose pull && docker compose up -d
 #
 # Configuration lives in a `.env` NEXT TO THIS FILE (copy docker/env.example).
-# Nothing in here needs editing for a normal install.
+# For the default setup — a small VPS with a domain — only TOON_HOSTNAME,
+# SESSION_SECRET and the mail relay need a value.
 #
-# THREE SERVICES, AND NO API KEY BETWEEN THEM:
+# THREE SERVICES, AND NO API KEY REQUIRED BETWEEN THEM:
 #   app      the API + the PWA, one origin, one port (see Dockerfile)
 #   caddy    TLS termination, so the PWA gets the secure context it needs
-#   mailpit  the local SMTP relay + a web UI for every mail the app sends
+#   mailpit  a local SMTP sink + a web UI, used until a real relay is configured
 #
-# What used to be a Resend API key is now `app` talking SMTP to `mailpit` over the
-# private compose network. The database was already a local libSQL file, and OCR
-# already ran in-process — so a working install needs no third-party account at all.
+# Mail is the one thing with a choice to make: out of the box `app` talks SMTP to
+# `mailpit` over the private compose network, which COLLECTS mail and delivers
+# nothing — fine for a first look, useless for a password reset to an actual
+# inbox. Point MAIL_HOST/MAIL_USER/… at a real relay in the `.env` when you want
+# delivery; the adapter is the same either way. The database was always a local
+# libSQL file, so there is still no third-party account needed to run this.
 # =============================================================================
 
 name: toon-recipe
@@ -50,19 +54,25 @@ services:
       # rate limit would be bypassable by sending your own header.
       TRUST_PROXY: "1"
 
-      # --- mail: the local relay, no API key -------------------------------
-      MAIL_TRANSPORT: smtp
-      MAIL_HOST: mailpit
-      MAIL_PORT: "1025"
-      # Plaintext is acceptable here and ONLY here: the hop never leaves the
-      # private compose network, and Mailpit needs no credentials — which is why
-      # env.ts refuses to combine `none` with a user/password.
-      MAIL_SECURITY: none
+      # --- mail ------------------------------------------------------------
+      # The defaults are the Mailpit container next door: it needs no credentials
+      # and nothing leaves the machine, so plaintext SMTP is acceptable on that hop
+      # and ONLY there — which is why env.ts refuses to combine MAIL_SECURITY=none
+      # with a user/password. For real delivery set MAIL_HOST/MAIL_PORT/
+      # MAIL_SECURITY/MAIL_USER/MAIL_PASSWORD in the `.env`; see
+      # docs/deployment.md ("Echte Mails nach draußen schicken").
+      MAIL_TRANSPORT: ${MAIL_TRANSPORT:-smtp}
+      MAIL_HOST: ${MAIL_HOST:-mailpit}
+      MAIL_PORT: ${MAIL_PORT:-1025}
+      MAIL_SECURITY: ${MAIL_SECURITY:-none}
+      MAIL_USER: ${MAIL_USER:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-Rezepte <rezepte@localhost>}
 
       # Photo/PDF import. Off by default, matching an image built WITHOUT the
       # `WITH_OCR=1` build arg: the binaries are not installed, so there is nothing
-      # to enable. Set both (build arg AND this) to turn it on — see
+      # to enable. It also wants ~2 GB of RAM, which the cheap end of the VPS market
+      # does not have. Set both (build arg AND this) to turn it on — see
       # docs/deployment.md.
       IMPORT_OCR_ENABLED: ${IMPORT_OCR_ENABLED:-0}
       TESSERACT_LANGS: ${TESSERACT_LANGS:-deu+eng}
@@ -75,8 +85,8 @@ services:
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
     volumes:
-      # The database, the uploads and the OCR language cache. THIS is the volume to
-      # back up — see docs/deployment.md.
+      # The database and the uploads. THIS is the volume to back up — see
+      # docs/deployment.md.
       - toon-data:/app/data
     # No published port: only Caddy may reach the app. Publishing 3001 as well
     # would offer the same site over plain http, where the PWA silently does not
@@ -85,9 +95,12 @@ services:
       - "3001"
     networks:
       - toon
-    # A Pi 4 with 2 GB has no swap headroom to spare, and a tesseract worker on a
-    # 12 MP photo is the one thing here that can grow without bound.
-    mem_limit: ${TOON_MEM_LIMIT:-1500m}
+    # Without photo/PDF import this container is Bun, a libSQL file and the static
+    # PWA — a few hundred MB is plenty, and a limit below the machine's RAM is what
+    # keeps a runaway request from taking the Docker daemon with it. With OCR on,
+    # raise it: a tesseract worker on a 12 MP photo is the one thing here that can
+    # grow without bound. See docker/env.example.
+    mem_limit: ${TOON_MEM_LIMIT:-768m}
     logging: &logging
       driver: json-file
       options:
@@ -103,14 +116,20 @@ services:
     restart: unless-stopped
     environment:
       TOON_HOSTNAME: ${TOON_HOSTNAME:?TOON_HOSTNAME fehlt - siehe docker/env.example}
+      # `acme` (default) = a real Let's Encrypt certificate, needs a public
+      # hostname and ports 80/443. `internal` = Caddy's local CA for a LAN box or
+      # a local test, and then TOON_HSTS_MAX_AGE=0 belongs with it.
+      TOON_TLS_ISSUER: ${TOON_TLS_ISSUER:-acme}
+      TOON_HSTS_MAX_AGE: ${TOON_HSTS_MAX_AGE:-31536000}
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
-      # caddy_data holds the local CA — INCLUDING ITS PRIVATE KEY. Losing this
-      # volume means a new CA, which means re-installing the root certificate on
-      # every phone. Keep it out of any backup you would share.
+      # caddy-data holds the ACME account and certificates — and in `internal`
+      # mode the local CA INCLUDING ITS PRIVATE KEY. Losing it there means a new
+      # CA, which means re-installing the root certificate on every phone. Keep it
+      # out of any backup you would share.
       - caddy-data:/data
       - caddy-config:/config
     networks:
@@ -130,18 +149,18 @@ services:
       MP_SMTP_AUTH_ACCEPT_ANY: "true"
       MP_SMTP_AUTH_ALLOW_INSECURE: "true"
     ports:
-      # ⚠ 127.0.0.1 ON PURPOSE — NOT a LAN port.
+      # ⚠ 127.0.0.1 ON PURPOSE — NOT a public or LAN port.
       #
       # This UI shows every mail the app sends, and those mails contain PASSWORD
       # RESET AND INVITE LINKS. Anyone who can open it can take over any account by
-      # requesting a reset. Bound to the Pi's loopback interface it is reachable
-      # only over SSH:
+      # requesting a reset. Bound to the server's loopback interface it is
+      # reachable only over SSH:
       #
-      #     ssh -N -L 8025:127.0.0.1:8025 <user>@<pi>
+      #     ssh -N -L 8025:127.0.0.1:8025 <user>@<server>
       #     then open http://localhost:8025
       #
-      # If you would rather have it on the LAN, understand that trade-off first and
-      # put a password in front of it (Caddy `basic_auth`).
+      # If you would rather have it reachable directly, understand that trade-off
+      # first and put a password in front of it (Caddy `basic_auth`).
       - "127.0.0.1:8025:8025"
     volumes:
       - mailpit-data:/data

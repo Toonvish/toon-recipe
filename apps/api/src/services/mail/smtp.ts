@@ -2,11 +2,10 @@
  * SMTP adapter — the transport for a self-hosted install.
  *
  * This is the "one more file" the {@link Mailer} seam was designed for (see
- * services/mail/index.ts), and it is what replaces the Resend API key on a
- * Raspberry Pi: the compose stack runs Mailpit next door, so mail is delivered to
- * a container on the private network and read in its web UI. Point the same
- * config at a real relay (`MAIL_SECURITY=starttls`, port 587, user + password)
- * and nothing else changes.
+ * services/mail/index.ts), and it is what replaces the Resend API key: the compose
+ * stack runs Mailpit next door, so mail is delivered to a container on the private
+ * network and read in its web UI. Point the same config at a real relay
+ * (`MAIL_SECURITY=starttls`, port 587, user + password) and nothing else changes.
  *
  * WHY THERE IS NO DEPENDENCY HERE: the same reason `Bun.password` does the argon2
  * hashing and the Resend adapter is a bare `fetch`. What this app sends is one

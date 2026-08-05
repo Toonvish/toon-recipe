@@ -4,39 +4,45 @@
 # WHY THERE IS A PROXY AT ALL: the PWA needs a SECURE CONTEXT. Browsers refuse to
 # register a service worker over plain http (localhost excepted), and without the
 # service worker there is no install prompt and no offline shopping list — the one
-# feature that is meant to work with the wifi off. So the app is served over TLS
-# even on a LAN.
+# feature that is meant to work with the wifi off. So the app is always served
+# over TLS, whatever it runs on.
 #
-# CERTIFICATES: `tls internal` issues one from Caddy's OWN local CA, which needs no
-# domain, no open ports and no Let's Encrypt account.
+# CERTIFICATES: TWO MODES, ONE VARIABLE.
 #
-#   ⚠ A DEVICE THAT DOES NOT TRUST THAT CA GETS A WARNING **AND NO PWA**. Clicking
-#     through the interstitial does NOT make the origin secure: the service worker
-#     still refuses to register. Install the root certificate once per phone (it is
-#     served at http://<host>/toon-root-ca.crt, see below, and the walkthrough is
-#     in docs/deployment.md) and everything works exactly like a public site.
+#   TOON_TLS_ISSUER=acme      (default) a real, publicly trusted certificate.
+#                             Needs a hostname that resolves to this machine from
+#                             the internet and ports 80 + 443 reachable. Nothing
+#                             to install on any device — this is the normal case
+#                             for a VPS with a domain.
+#   TOON_TLS_ISSUER=internal  Caddy's OWN local CA. No domain, no open ports, no
+#                             ACME account — for a LAN box or a local test run.
 #
-# TO SWITCH TO A REAL CERTIFICATE later, replace the `tls internal` line with
-# nothing at all (Caddy then gets a Let's Encrypt cert automatically, given a
-# public domain and reachable ports 80/443) or with `tls { dns <provider> ... }`
-# for a DNS-01 challenge. Nothing else in this file changes.
+#   ⚠ In `internal` mode a device that does not trust that CA gets a warning AND
+#     NO PWA: clicking through the interstitial does NOT make the origin secure,
+#     the service worker still refuses to register. The root certificate is served
+#     at http://<host>/toon-root-ca.crt for exactly that reason and has to be
+#     installed once per device. In `acme` mode none of that applies.
+#
+# For a DNS-01 challenge (a public domain on a machine with NO open ports) the
+# issuer block becomes `acme { dns <provider> … }` and Caddy needs to be rebuilt
+# with that DNS plugin — see docs/deployment.md.
 # =============================================================================
 {
 	# No admin API: it is a full control plane over the proxy, and nothing here
 	# needs it. Off by default is one less thing listening in the container.
 	admin off
-	# Local CA only — never contact an ACME server for `tls internal`.
-	local_certs
 }
 
 # -----------------------------------------------------------------------------
 # The app, over HTTPS.
-# TOON_HOSTNAME comes from the compose .env (e.g. rezepte.fritz.box, or the Pi's
-# hostname). Use the SAME name on every device — a certificate is issued per name,
-# and reaching the Pi by IP when the cert says `rezepte.local` is a fresh warning.
+# TOON_HOSTNAME comes from the compose .env. Use the SAME name on every device: a
+# certificate is issued per name, so reaching the machine by IP is a fresh
+# warning, and WEB_ORIGIN (hence the links in outgoing mails) is built from it.
 # -----------------------------------------------------------------------------
 {$TOON_HOSTNAME} {
-	tls internal
+	tls {
+		issuer {$TOON_TLS_ISSUER:acme}
+	}
 
 	encode zstd gzip
 
@@ -67,9 +73,10 @@
 		header_up X-Forwarded-For {remote_host}
 		header_up X-Real-IP {remote_host}
 
-		# Photo and PDF imports are large multipart uploads that then run OCR on a
-		# Pi's CPU. The API's own cap is 15 MB; these keep the proxy from timing
-		# the request out before the pipeline is done.
+		# Generous, because the slowest request in this app is an import: a URL
+		# import waits on a foreign site, and a photo/PDF import (opt-in, off by
+		# default) uploads up to 15 MB and then runs OCR on a small CPU. These
+		# keep the proxy from timing the request out before the pipeline is done.
 		transport http {
 			read_timeout 300s
 			write_timeout 300s
@@ -88,20 +95,25 @@
 		Referrer-Policy "strict-origin-when-cross-origin"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
-		# HSTS is deliberately NOT set: with a private CA and a .local/.box name,
-		# pinning HTTPS for a hostname you may later reuse is a good way to lock
-		# yourself out of your own LAN. Add it once you have a real certificate.
+		# HSTS belongs with a publicly trusted certificate and is therefore on by
+		# default. Set TOON_HSTS_MAX_AGE=0 for a LAN/internal-CA install: pinning
+		# HTTPS for a name you may later reuse is a good way to lock yourself out,
+		# and `max-age=0` is the documented way to release a pin a browser has
+		# already stored.
+		Strict-Transport-Security "max-age={$TOON_HSTS_MAX_AGE:31536000}"
 		-Server
 	}
 }
 
 # -----------------------------------------------------------------------------
-# Plain HTTP: only the root certificate, everything else redirects.
+# Plain HTTP: the ACME challenge (handled by Caddy itself, ahead of these routes),
+# the local root certificate, and a redirect for everything else.
 #
-# The CA certificate is served over http ON PURPOSE — a phone that does not trust
+# The CA certificate is served over http ON PURPOSE — a device that does not trust
 # the CA yet cannot fetch it over the HTTPS that this same CA signs without hitting
 # the very warning we are trying to remove. What is published here is a PUBLIC
-# certificate; the CA's private key never leaves the caddy_data volume.
+# certificate; the CA's private key never leaves the caddy-data volume. In `acme`
+# mode there is no local CA and this route simply answers 404.
 # -----------------------------------------------------------------------------
 http://{$TOON_HOSTNAME} {
 	handle /toon-root-ca.crt {

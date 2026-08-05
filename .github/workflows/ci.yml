@@ -63,8 +63,8 @@ jobs:
           PUBLIC_API_URL: ""
 
       # The PWA is the reason the deployment needs TLS at all, so a build that
-      # silently stopped emitting a service worker must fail here rather than on
-      # the Pi three weeks later.
+      # silently stopped emitting a service worker must fail here rather than in
+      # production three weeks later.
       - name: Assert the PWA output exists
         run: |
           test -f apps/web/dist/index.html

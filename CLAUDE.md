@@ -165,7 +165,8 @@ add to that panel instead.
 - **THE CONNECTION PRAGMAS IN `db/client.ts` ARE LOAD-BEARING, and `synchronous` has to be re-sent on
   every connection.** libSQL's defaults are `journal_mode=delete` + `synchronous=FULL`, i.e. a full
   fsync per statement: a single-row INSERT measured **15.5 ms** on ext4/NVMe, 5.2 ms with WAL alone and
-  **0.04 ms** with WAL + `synchronous=NORMAL`. On the Pi's SD card the untuned figure is far worse. It
+  **0.04 ms** with WAL + `synchronous=NORMAL`. On the slow storage of a cheap VPS the untuned figure
+  is far worse. It
   is paid by every shopping-list write (so by every replayed offline mutation) and by the
   `sessions.last_used_at` refresh any request older than a minute triggers. `journal_mode` is
   PERSISTENT in the file, but **`synchronous` is per-connection** — which is why this lives in
@@ -542,7 +543,7 @@ add to that panel instead.
   and `MAIL_HOST=192.168.1.20` is a normal self-hosted config — hence `sni()` in `smtp.ts`.
 - **`sw.js` and `index.html` must never be cached**, and `middleware/staticWeb.ts` is the only thing
   enforcing it now that the API serves them. Cache either one and the app can never update itself
-  again; the symptom is "the Pi serves a stale app for days". Hashed `/assets/*` are immutable, and
+  again; the symptom is "the server serves a stale app for days". Hashed `/assets/*` are immutable, and
   `.webmanifest` needs `application/manifest+json` or the install prompt silently never appears.
 - **A missing file WITH an extension must 404, not fall back to the SPA shell.** Answering HTML for a
   missing `.js` produces a MIME console error that says nothing about the real problem.
@@ -551,14 +552,29 @@ add to that panel instead.
   but adding a `trusted_proxies` line (a common copy-paste) makes the forged value the FIRST entry —
   which is the one `clientIp()` uses, so every rate limit becomes a no-op. The overwrite survives
   that.
-- **A self-signed certificate alone does NOT give you the PWA.** An untrusted-CA origin is not a
-  secure context even after the user clicks through, so the service worker never registers and the
-  offline shopping list is dead. Caddy's local CA root must be installed per device
-  (`http://<host>/toon-root-ca.crt`, served over plain http on purpose — a device that does not trust
-  the CA yet cannot fetch it over the HTTPS that CA signed).
-- **Mailpit is bound to `127.0.0.1` in compose, not the LAN.** Its UI shows every password-reset and
-  invite link, so LAN access there is account takeover for anyone on the wifi. Reach it via
-  `ssh -L 8025:127.0.0.1:8025`.
+- **TLS has two modes and ONE variable: `TOON_TLS_ISSUER`, defaulting to `acme`.** The Caddyfile
+  writes it as `tls { issuer {$TOON_TLS_ISSUER:acme} }` — a real Let's Encrypt certificate for a
+  public hostname with ports 80/443 reachable, which is the deployment this repo targets. `internal`
+  is the LAN escape hatch (Caddy's own CA) and needs `TOON_HSTS_MAX_AGE=0` with it, or a pinned HSTS
+  on an internal name locks you out. Two consequences: the global `local_certs` option is GONE (it
+  forced internal for everything), and **the local stack test must set `TOON_TLS_ISSUER=internal`** —
+  `rezepte.test` has no public DNS, so the default would burn ACME attempts and never serve a page.
+  `caddy validate` covers all three states (both values plus the unset default).
+- **A self-signed certificate alone does NOT give you the PWA**, which is why `internal` is not the
+  default. An untrusted-CA origin is not a secure context even after the user clicks through, so the
+  service worker never registers and the offline shopping list is dead. Caddy's local CA root must be
+  installed per device (`http://<host>/toon-root-ca.crt`, served over plain http on purpose — a device
+  that does not trust the CA yet cannot fetch it over the HTTPS that CA signed). With `acme` none of
+  this applies.
+- **Mailpit is bound to `127.0.0.1` in compose, never to a public interface.** Its UI shows every
+  password-reset and invite link, so exposing it is account takeover for anyone who can reach it.
+  Reach it via `ssh -L 8025:127.0.0.1:8025`. Note `ufw` does NOT protect a published container port
+  (Docker's chain runs first) — the loopback bind in the compose file is the actual control.
+- **Every `MAIL_*` value is overridable from the compose `.env`**, with the Mailpit defaults
+  (`mailpit:1025`, `MAIL_SECURITY=none`, empty credentials) as the fallback. `SmtpMailer` skips AUTH
+  entirely for an empty user, so the empty defaults are not a broken auth attempt — and `env.ts`
+  still refuses `MAIL_SECURITY=none` TOGETHER with credentials, which is what keeps a real relay from
+  being configured in plaintext by half-editing the file.
 - **`/app/data` is a VOLUME, so anything written there at build time is invisible at runtime.**
   Nothing in the image relies on that today, and the reason is worth keeping: the OCR language data
   used to be prefetched at build time and had to be baked to `/app/seed/tessdata` and copied in by
@@ -590,4 +606,14 @@ to be built and the stack actually run — a Dockerfile can be wrong in ways no 
 ```bash
 docker build -t toon-recipe:local . > /tmp/build.log 2>&1; echo $?   # NOT through a pipe
 docker compose --env-file .env.local-stack -p toonstack up -d        # see docs/deployment.md
+```
+
+`.env.local-stack` MUST carry `TOON_TLS_ISSUER=internal` + `TOON_HSTS_MAX_AGE=0` (see the TLS
+gotcha) — with the `acme` default, `rezepte.test` never gets a certificate. Also validate the
+Caddyfile in both modes when you touch it:
+
+```bash
+for iss in acme internal; do docker run --rm -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
+  -e TOON_HOSTNAME=rezepte.test -e TOON_TLS_ISSUER=$iss caddy:2.11.4-alpine \
+  caddy validate --config /etc/caddy/Caddyfile; done
 ```

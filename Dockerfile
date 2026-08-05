@@ -7,14 +7,14 @@
 # server, no CORS entry and no API URL baked into the bundle. That is the whole
 # reason this is a single container and not three.
 #
-# BUILT FOR A RASPBERRY PI, WHICH SHAPES THREE DECISIONS:
+# BUILT FOR A SMALL 64-BIT LINUX SERVER, WHICH SHAPES THREE DECISIONS:
 #
-#  1. TARGET IS linux/arm64 (Pi 4 / Pi 5 on a 64-BIT OS). There is no Bun build
-#     for 32-bit ARM, so Raspberry Pi OS *must* be the 64-bit release — `uname -m`
-#     has to say `aarch64`. A 32-bit userland cannot run this image at all.
-#  2. DEBIAN, NOT ALPINE. `sharp` ships a prebuilt glibc binary for linux-arm64;
-#     on musl it would be rebuilt from source on the Pi, which takes the better
-#     part of an hour when it works. Debian also has `tesseract-ocr` and
+#  1. TARGETS ARE linux/amd64 AND linux/arm64, 64-bit only. There is no Bun build
+#     for 32-bit anything, so `uname -m` on the host has to say `x86_64` or
+#     `aarch64`; a 32-bit userland cannot run this image at all.
+#  2. DEBIAN, NOT ALPINE. `sharp` ships prebuilt glibc binaries for both targets;
+#     on musl it would be rebuilt from source on the target, which takes the
+#     better part of an hour when it works. Debian also has `tesseract-ocr` and
 #     `poppler-utils` as ordinary packages, which is what the OCR and PDF
 #     pipelines shell out to — installed only for `--build-arg WITH_OCR=1`.
 #
@@ -25,8 +25,8 @@
 #  3. THE WEB BUNDLE IS BUILT ON THE BUILD PLATFORM ($BUILDPLATFORM), not the
 #     target. Its output is architecture-independent JavaScript, so building it
 #     natively on the amd64 CI runner instead of under QEMU emulation is the
-#     difference between a ~4 minute and a ~40 minute build. Only the native
-#     node_modules are installed for arm64.
+#     difference between a ~4 minute and a ~40 minute cross-build. Only the native
+#     node_modules are installed for the target architecture.
 # =============================================================================
 
 ARG BUN_VERSION=1.3.14
@@ -52,8 +52,8 @@ COPY packages/shared/package.json ./packages/shared/
 #
 # PUBLIC_API_URL is deliberately EMPTY: it makes lib/api.ts emit relative URLs
 # ("/api/…"), which is what lets one image work behind any hostname. Baking an
-# absolute URL in here would hard-code the Pi's address into the bundle and break
-# the moment it is reached by a different name.
+# absolute URL in here would hard-code one deployment's address into the bundle and
+# break the moment it is reached by a different name.
 # -----------------------------------------------------------------------------
 FROM --platform=$BUILDPLATFORM oven/bun:${BUN_VERSION}-debian AS web-build
 WORKDIR /app

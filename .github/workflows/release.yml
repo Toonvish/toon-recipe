@@ -1,20 +1,20 @@
-# Builds the container image for the Raspberry Pi and publishes it to GHCR.
+# Builds the container image and publishes it to GHCR.
 #
-# ARM64 IS THE POINT: a Pi 4/5 on 64-bit Raspberry Pi OS is `linux/arm64`, and
-# there is no Bun build for 32-bit ARM at all. amd64 is built alongside it purely
-# so the same image can be run on a laptop for testing.
+# TWO ARCHITECTURES, BOTH DELIBERATE: amd64 is the ordinary x86 VPS (and a laptop
+# for testing), arm64 covers the cheap ARM instances and an Apple-Silicon dev
+# machine. 32-bit is not buildable at all — there is no Bun for it.
 #
-# HOW THE CROSS-BUILD STAYS FAST: the Dockerfile builds the web bundle and the
-# tesseract language data on the BUILD platform (`--platform=$BUILDPLATFORM`),
-# because both outputs are architecture-independent. Only the native node_modules
-# install runs under QEMU. Without that split, a full arm64 build under emulation
-# takes roughly ten times as long.
+# HOW THE CROSS-BUILD STAYS FAST: the Dockerfile builds the web bundle on the BUILD
+# platform (`--platform=$BUILDPLATFORM`), because its output is
+# architecture-independent. Only the native node_modules install runs under QEMU.
+# Without that split, a full arm64 build under emulation takes roughly ten times as
+# long.
 name: Release
 
 #
-# BUILD ONLY — there is no deploy stage on purpose. Deployment is manual on the Pi
-# (`docker compose pull && docker compose up -d`, see docs/deployment.md), so CI never
-# holds an SSH key to the box and never needs to reach a home network.
+# BUILD ONLY — there is no deploy stage on purpose. Deployment is a manual
+# `docker compose pull && docker compose up -d` on the server (see
+# docs/deployment.md), so CI never holds an SSH key to the box.
 on:
   push:
     branches: [main]
@@ -89,14 +89,15 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           # provenance: false keeps the manifest list a plain multi-arch index.
           # The attestation manifests that buildx adds otherwise confuse older
-          # dockers, and the Pi's is often exactly that old.
+          # dockers, and a distro-packaged docker on a small server is often
+          # exactly that old.
           provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       # The digest is the useful half of this summary: it is what you paste into the
-      # Pi's `.env` as TOON_IMAGE to deploy exactly this build instead of a moving
-      # `:latest`.
+      # server's `.env` as TOON_IMAGE to deploy exactly this build instead of a
+      # moving `:latest`.
       - name: Summary
         run: |
           {
@@ -108,7 +109,7 @@ jobs:
             echo
             echo "Digest: \`${{ steps.build.outputs.digest }}\`"
             echo
-            echo "Deploy auf dem Pi (in \`/opt/toon-recipe\`):"
+            echo "Deploy auf dem Server (in \`/opt/toon-recipe\`):"
             echo
             echo '```bash'
             echo "docker compose pull && docker compose up -d --remove-orphans"

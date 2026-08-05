@@ -31,8 +31,8 @@ function prepareUrl(url: string): string {
  * WITHOUT THESE, EVERY WRITE COSTS A FULL fsync. libSQL's defaults are
  * `journal_mode=delete` + `synchronous=FULL`, which measured (ext4, NVMe) at
  * **15.5 ms for a single-row INSERT**; WAL alone brings that to 5.2 ms and
- * WAL + `synchronous=NORMAL` to **0.04 ms**. On an SD card — the Raspberry-Pi
- * deployment — the untuned figure is far worse. It is paid by every shopping-list
+ * WAL + `synchronous=NORMAL` to **0.04 ms**. On the slow storage a cheap VPS or an
+ * SD-card machine offers, the untuned figure is far worse. It is paid by every shopping-list
  * write (i.e. every replayed offline mutation) and by the `sessions.last_used_at`
  * refresh that any request older than a minute triggers.
  *

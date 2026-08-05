@@ -38,7 +38,7 @@ These are **fixed** — do not redesign them.
 6. **OCR runs server-side** by spawning the NATIVE `tesseract` binary (`deu+eng`, German first),
    preprocessed with `sharp` (grayscale, normalize, ~2000px wide), behind a swappable `OcrEngine`
    interface. PDFs are rasterized by poppler's `pdftoppm`. Both are OS packages, not npm ones —
-   which is what keeps the memory footprint small enough for a cheap VPS or a 2 GB Pi.
+   which is what keeps the memory footprint small enough for a 2 GB VPS.
 7. **Shopping lists ("Einkaufslisten") are group-owned and Bring-like.** Several named lists per
    group; a recipe can be put on a list at any portion count and the amounts are rescaled; identical
    articles are summed (`200 g + 200 g Mehl` = one `400 g` line, `1 kg + 200 g` = `1.2 kg`). Ticking
@@ -281,10 +281,10 @@ bun test           821 pass, 0 fail, 2146 expect() calls across 26 files
 bun run build      ✓ built in ~0.3s + PWA precache 114 entries (1176 KiB)
 ```
 
-## Deployment (Docker on a Raspberry Pi)
+## Deployment (Docker on a small server)
 
-Setting up a **freshly imaged Pi** (OS, Pi-specific kernel/swap prep, Docker, three ways to get the
-image onto it): **[docs/pi-setup.md](docs/pi-setup.md)**. Configuration, operations, backup and
+Setting up a **freshly ordered VPS** (user, SSH, firewall, swap, Docker, DNS):
+**[docs/server-setup.md](docs/server-setup.md)**. Configuration, operations, backup and
 rollback: **[docs/deployment.md](docs/deployment.md)**. The short version:
 
 ```bash
@@ -299,25 +299,26 @@ Three things about this setup are worth knowing before you touch it:
   image and the client uses relative URLs. That is what lets a single build run behind any hostname
   with no CORS entry, and it makes the session cookie first-party by construction.
 - **No API key is required anywhere.** The Resend key was replaced by an SMTP adapter
-  (`services/mail/smtp.ts`, no dependency) pointed at a Mailpit container on the private compose
-  network — every invite/reset/confirmation mail is readable in its web UI and nothing leaves the
-  machine. The database was already a local libSQL file, and OCR is a local `tesseract` process whose
-  language data is an OS package inside the image. Google/GitHub OAuth stays third-party and
-  is deliberately **off**; e-mail + password is the self-hosted path.
-- **TLS is not optional, and a self-signed certificate is not enough on its own.** Caddy issues the
-  certificate from its own local CA. A browser that does not trust that CA treats the origin as
-  insecure *even after you click through the warning*, which means **no service worker** — no install
+  (`services/mail/smtp.ts`, no dependency) — pointed at the Mailpit container on the private compose
+  network by default (mail readable in its web UI, nothing leaves the machine), or at any mail
+  provider's SMTP access for real delivery, set in the `.env`. The database was already a local
+  libSQL file, and OCR is a local `tesseract` process whose language data is an OS package inside the
+  image. Google/GitHub OAuth stays third-party and is deliberately **off**; e-mail + password is the
+  self-hosted path.
+- **TLS is not optional.** With a public hostname Caddy gets a Let's Encrypt certificate by itself
+  and there is nothing to install on any device. `TOON_TLS_ISSUER=internal` switches to Caddy's own
+  local CA for a LAN box — but then a browser that does not trust that CA treats the origin as
+  insecure *even after you click through the warning*, which means **no service worker**: no install
   prompt and no offline shopping list. Install the root certificate once per device
-  (`http://<host>/toon-root-ca.crt`) and it behaves exactly like a public site. Switching to a real
-  certificate later is one line in `docker/Caddyfile`.
+  (`http://<host>/toon-root-ca.crt`) and it behaves like a public site again.
 
 CI (`.github/workflows/`): `ci.yml` runs the four gates on every push; `release.yml` builds
-`linux/arm64` + `linux/amd64` and pushes to GHCR. **CI builds, it does not deploy** — rolling out is a
-manual `docker compose pull && docker compose up -d` on the Pi, so no SSH key to the box lives in
-GitHub secrets and the Pi's SSH port never has to face the internet. The image digest is printed in
-the release run's summary; put it in `TOON_IMAGE` to pin a version or roll back. The arm64 build
-stays fast because the web bundle and the OCR language data are built on the *build* platform (both
-outputs are architecture-independent) and only the native `node_modules` install runs under QEMU.
+`linux/amd64` + `linux/arm64` and pushes to GHCR. **CI builds, it does not deploy** — rolling out is a
+manual `docker compose pull && docker compose up -d` on the server, so no SSH key to the box lives in
+GitHub secrets and its SSH port never has to face the internet. The image digest is printed in
+the release run's summary; put it in `TOON_IMAGE` to pin a version or roll back. The arm64 half stays
+fast because the web bundle is built on the *build* platform (its output is architecture-independent)
+and only the native `node_modules` install runs under QEMU.
 
 ## Install the PWA on a phone
 

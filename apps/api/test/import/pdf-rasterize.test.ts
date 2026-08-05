@@ -91,8 +91,8 @@ describe("PDF rasterization with the real pdftoppm", () => {
   });
 
   test("the temp directory is cleaned up rather than accumulating renders", async () => {
-    // pdftoppm writes real files; a leaked temp dir per import would fill a Pi's
-    // disk silently. Rendering repeatedly must not grow the temp directory count.
+    // pdftoppm writes real files; a leaked temp dir per import would silently fill
+    // a small server's disk. Rendering repeatedly must not grow the temp dir count.
     const { readdir } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
     const countTempDirs = async () =>
