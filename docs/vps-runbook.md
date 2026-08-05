@@ -339,7 +339,9 @@ laufende SQLite-Datei darin ist nicht garantiert konsistent.
 
 ## Betrieb
 
-**Update** — CI baut, rollt aber nicht aus (so liegt kein SSH-Schlüssel in den GitHub-Secrets):
+**Update** — CI baut immer; ob sie auch ausrollt, hängt daran, ob
+[Auto-Deploy](./deployment.md#6--auto-deploy-per-github-actions-optional) eingerichtet ist. Von Hand
+geht es immer:
 
 ```bash
 cd /opt/toon-recipe && docker compose pull && docker compose up -d --remove-orphans
@@ -347,7 +349,8 @@ docker compose ps
 ```
 
 Haben sich `docker-compose.yml` oder `docker/Caddyfile` im Repo geändert, vorher neu holen — der
-Server bekommt sie nicht von selbst (die `curl`-Zeilen aus [Schritt 7](#7--verzeichnis-env-compose-dateien)).
+Server bekommt sie in keinem der beiden Fälle von selbst (die `curl`-Zeilen aus
+[Schritt 7](#7--verzeichnis-env-compose-dateien), oder `toon-deploy sync-config`).
 
 **Logs**
 

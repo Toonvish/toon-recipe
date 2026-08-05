@@ -4,15 +4,22 @@ Ein Container-Stack, ein Origin, keine fremden Dienste. Zielbild ist ein günsti
 eigenen Domain — es läuft aber auf jedem 64-Bit-Linux mit Docker, auch auf einer Kiste im LAN
 (siehe [Ohne eigene Domain](#ohne-eigene-domain-im-lan)).
 
-**GitHub Actions baut nur, es deployt nicht.** Jeder Push auf `main` veröffentlicht ein
-neues Image auf GHCR; ausgerollt wird es von Hand auf dem Server:
+**Jeder Push auf `main` veröffentlicht ein neues Image auf GHCR.** Ausgerollt wird es
+entweder von Hand auf dem Server:
 
 ```bash
 cd /opt/toon-recipe && docker compose pull && docker compose up -d --remove-orphans
 ```
 
-Das ist eine bewusste Entscheidung: so liegt kein SSH-Schlüssel für den Server in den
-GitHub-Secrets, und der SSH-Port muss nicht aus dem Internet erreichbar sein.
+… oder automatisch von GitHub Actions per SSH — das ist optional und muss einmal
+eingerichtet werden, siehe [Schritt 6](#6--auto-deploy-per-github-actions-optional). Solange
+die Variable `DEPLOY_ENABLED` nicht auf `true` steht, wird der Deploy-Job übersprungen und es
+bleibt beim Befehl oben.
+
+Wenn du ihn einrichtest: der Schlüssel, der dafür in den GitHub-Secrets liegt, ist **kein
+Shell-Zugang**. Er ist in der `authorized_keys` an ein festes Kommando gebunden
+(`docker/toon-deploy.sh`), das genau drei Verben kennt und die Image-Herkunft selbst
+festlegt. Ein gestohlener Schlüssel kann damit eine Version ausrollen — mehr nicht.
 
 > **Ganz von vorn — frisch bestellter VPS, kein Docker, keine DNS-Einträge?** Dann ist
 > **[docs/server-setup.md](./server-setup.md)** die Anleitung: Grundeinrichtung, SSH, Firewall,
@@ -237,6 +244,99 @@ Die App ist installierbar (Android: ⋮ → *App installieren*, iOS: *Teilen* �
 und die Einkaufsliste funktioniert danach offline — beides hängt am Service-Worker und der am
 gültigen Zertifikat, das hier von selbst da ist.
 
+### 6 — Auto-Deploy per GitHub Actions (optional)
+
+Danach rollt jeder Push auf `main` sich selbst aus. Wer lieber von Hand deployt, überspringt
+diesen Schritt komplett — solange die Variable `DEPLOY_ENABLED` fehlt, überspringt der
+Release-Workflow den Deploy-Job.
+
+**Was hier NICHT passiert: ein Schlüssel mit Shell-Zugang in fremder Obhut.** Der Schlüssel
+wird an ein festes Kommando gebunden (`command="…"` in der `authorized_keys`), das nur
+`deploy`, `sync-config` und `status` kennt. Die Image-Herkunft steht in dem Skript, nicht in
+dem, was GitHub schickt — sonst könnte ein gestohlener Schlüssel den Server auf ein
+beliebiges Image der Welt zeigen lassen. `restrict` nimmt zusätzlich Port- und
+Agent-Forwarding, X11 und das PTY weg.
+
+**a) Deploy-Skript installieren** (auf dem Server):
+
+```bash
+sudo curl -fsSL https://raw.githubusercontent.com/Toonvish/toon-recipe/main/docker/toon-deploy.sh \
+     -o /usr/local/bin/toon-deploy
+sudo chmod 755 /usr/local/bin/toon-deploy
+toon-deploy status            # muss den laufenden Stack zeigen
+```
+
+Liegt die Installation nicht in `/opt/toon-recipe` oder das Image woanders, stehen `TOON_APP_DIR`
+und `TOON_IMAGE_REPO` oben im Skript.
+
+**b) Schlüsselpaar erzeugen** — eigenes Paar, nur für diesen Job, ohne Passphrase (ein Runner
+kann keine eingeben):
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/gh-deploy -N '' -C github-actions-deploy
+```
+
+**c) Öffentlichen Teil eintragen**, mit dem festen Kommando davor:
+
+```bash
+printf 'restrict,command="/usr/local/bin/toon-deploy" %s\n' "$(cat ~/.ssh/gh-deploy.pub)" \
+  >> ~/.ssh/authorized_keys
+```
+
+Gegenprüfen, dass der Schlüssel wirklich keine Shell öffnet — die Antwort muss die
+Fehlermeldung des Skripts sein und nicht ein Prompt:
+
+```bash
+ssh -i ~/.ssh/gh-deploy -o IdentitiesOnly=yes localhost 'id'
+# → FEHLER: Unbekannter Befehl: id (erlaubt: deploy, sync-config, status)
+```
+
+**d) Host-Key ablesen** (auf dem Server, nicht vom Laptop aus — sonst pinnst du, was dir
+unterwegs geantwortet hat):
+
+```bash
+ssh-keyscan -p 22 <hostname-oder-ip>
+```
+
+**e) In GitHub eintragen**, Repo → *Settings* → *Secrets and variables* → *Actions*:
+
+| Secret | Wert |
+| --- | --- |
+| `DEPLOY_SSH_HOST` | Hostname oder IP des Servers |
+| `DEPLOY_SSH_USER` | der SSH-Benutzer (muss in der `docker`-Gruppe sein) |
+| `DEPLOY_SSH_KEY` | Inhalt von `~/.ssh/gh-deploy` (der **private** Teil) |
+| `DEPLOY_SSH_KNOWN_HOSTS` | die komplette Ausgabe aus (d) |
+| `DEPLOY_SSH_PORT` | optional, Standard 22 |
+
+Dazu unter *Variables* (kein Secret):
+
+| Variable | Wert |
+| --- | --- |
+| `DEPLOY_ENABLED` | `true` — **der Schalter**. Fehlt er, wird der Deploy-Job übersprungen. Erst setzen, wenn die fünf Secrets oben stehen: sonst läuft der Job los und scheitert am leeren Host-Key. |
+| `TOON_HOSTNAME` | nur für den anklickbaren Link am Deployment; der Server liest seinen Hostnamen aus der eigenen `.env` |
+
+Den privaten Schlüssel danach vom Server löschen (`rm ~/.ssh/gh-deploy`); er liegt jetzt in
+GitHub und wird auf dem Server nicht gebraucht.
+
+**f) Environment anlegen**: *Settings* → *Environments* → **production**. Es ist der Ort, an
+dem die fünf Secrets hängen sollten, damit kein anderer Workflow sie lesen kann. Wer nicht
+will, dass jeder Push sofort live geht, trägt hier *Required reviewers* ein — dann wartet
+jeder Deploy auf eine Freigabe.
+
+**Testen**: Actions → **Release** → *Run workflow* → Haken bei *Nach dem Build auf den Server
+deployen*. Der Job zeigt am Ende `app ist healthy` und `docker compose ps`.
+
+> **`docker-compose.yml` und `docker/Caddyfile` kommen dabei nicht mit.** Der Schlüssel kann
+> keine Dateien kopieren, und das ist Absicht: eine Compose- oder Caddy-Änderung ist eine
+> Konfigurationsänderung und soll niemandem beiläufig passieren. Wenn sich die beiden im Repo
+> geändert haben, einmal `toon-deploy sync-config` auf dem Server (oder die `curl`-Befehle aus
+> [Update](#update)) — das nächste Deploy übernimmt sie dann.
+
+**Wieder abschalten**: `DEPLOY_ENABLED` auf `false` setzen hält den Job an. Den *Zugang* nimmt
+aber erst das Löschen der Zeile aus `~/.ssh/authorized_keys` weg — das ist der Schritt, der
+zählt, egal was in GitHub noch gespeichert ist. Secrets und Environment danach in Ruhe
+aufräumen.
+
 ---
 
 ## Betrieb
@@ -257,15 +357,22 @@ das `depends_on` aus der `docker-compose.yml`.
 
 ### Update
 
-Ein Push auf `main` veröffentlicht das neue Image, rollt es aber **nicht** aus. Auf dem Server:
+**Mit eingerichtetem Auto-Deploy** ([Schritt 6](#6--auto-deploy-per-github-actions-optional))
+ist nichts zu tun: der Push auf `main` baut, testet und rollt aus, wartet auf `healthy` und
+schreibt den ausgerollten Digest in die `.env` des Servers. Schlägt der Health-Check fehl,
+bleibt in der `.env` die letzte gesunde Version stehen — `docker compose up -d` auf dem Server
+holt sie zurück, ohne dass etwas editiert werden muss.
+
+**Ohne Auto-Deploy** veröffentlicht der Push nur das Image. Auf dem Server:
 
 ```bash
 cd /opt/toon-recipe && docker compose pull && docker compose up -d --remove-orphans
 docker compose ps                     # app soll "healthy" sein
 ```
 
-Wenn sich `docker-compose.yml` oder `docker/Caddyfile` im Repo geändert haben, vorher neu
-holen — der Server bekommt sie nicht von selbst:
+Wenn sich `docker-compose.yml` oder `docker/Caddyfile` im Repo geändert haben, neu holen — der
+Server bekommt sie in **keinem** der beiden Fälle von selbst, auch nicht per Auto-Deploy
+(`toon-deploy sync-config` macht genau das Folgende):
 
 ```bash
 cd /opt/toon-recipe
@@ -336,7 +443,14 @@ sed -i "s|^TOON_IMAGE=.*|TOON_IMAGE=ghcr.io/toonvish/toon-recipe@sha256:<digest>
 docker compose pull && docker compose up -d
 ```
 
-Danach steht in der `.env` ein fester Digest. Für das nächste normale Update wieder auf
+Mit Auto-Deploy geht dasselbe von GitHub aus: Actions → **Deploy** → *Run workflow*, Digest
+ins Feld. Oder auf dem Server direkt `toon-deploy deploy sha256:<digest>` — beide Wege warten
+auf `healthy` und tragen den Digest in die `.env` ein.
+
+Danach steht in der `.env` ein fester Digest. Er überlebt auch den nächsten Auto-Deploy nicht:
+der schreibt die Zeile auf die neu ausgerollte Version um. Wer eine Version länger festnageln
+will, schaltet den Deploy-Job so lange ab (Zeile aus der `authorized_keys` nehmen oder im
+`production`-Environment einen Reviewer verlangen). Für normale Updates von Hand wieder auf
 `TOON_IMAGE=ghcr.io/toonvish/toon-recipe:latest` zurückstellen.
 
 > Migrationen laufen bei jedem Start und sind **nicht** rückwärts anwendbar. Ein Rollback
@@ -508,6 +622,11 @@ ist es trotzdem nicht — dann lieber neu bauen.
 | Container ständig `unhealthy` | `docker compose logs app`. Meist eine fehlende Variable — die API nennt sie beim Start im Klartext. |
 | `docker compose pull` scheitert mit `denied` | GHCR-Package ist privat. Entweder auf *public* stellen (siehe [Schritt 1](#1--image-veröffentlichen-lassen)) oder auf dem Server `docker login ghcr.io -u <user>` mit einem Read-Only-PAT. |
 | `docker compose pull` holt nichts Neues | In der `.env` steht ein fester `@sha256:…`-Digest in `TOON_IMAGE`. Für laufende Updates auf `:latest` zurückstellen. |
+| Deploy-Job: `Host key verification failed` | `DEPLOY_SSH_KNOWN_HOSTS` passt nicht zum Server (neu aufgesetzt, anderer Port, oder vom Laptop statt auf dem Server abgelesen). Neu: `ssh-keyscan -p <port> <host>` **auf dem Server**. |
+| Deploy-Job: `Permission denied (publickey)` | Der öffentliche Schlüssel steht nicht in der `authorized_keys` des `DEPLOY_SSH_USER`, oder in `DEPLOY_SSH_KEY` liegt der öffentliche statt des privaten Teils. |
+| Deploy-Job: `FEHLER: Unbekannter Befehl` | Das feste Kommando greift, aber das Skript ist älter als der Workflow (oder umgekehrt). `toon-deploy` auf dem Server neu holen ([Schritt 6a](#6--auto-deploy-per-github-actions-optional)). |
+| Deploy-Job: `permission denied` auf dem Docker-Socket | `DEPLOY_SSH_USER` ist nicht in der `docker`-Gruppe: `sudo usermod -aG docker <user>`. Wirkt erst für neue Sitzungen. |
+| Deploy läuft gar nicht | Meistens steht die Variable `DEPLOY_ENABLED` nicht auf `true` — der Job wird dann übersprungen (im Run als *skipped* zu sehen). Sonst: das `production`-Environment wartet auf eine Freigabe, oder der Push ging nicht auf `main`/einen `v*`-Tag. |
 
 ---
 

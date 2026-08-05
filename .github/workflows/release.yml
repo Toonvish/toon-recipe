@@ -12,14 +12,21 @@
 name: Release
 
 #
-# BUILD ONLY — there is no deploy stage on purpose. Deployment is a manual
-# `docker compose pull && docker compose up -d` on the server (see
-# docs/deployment.md), so CI never holds an SSH key to the box.
+# BUILDS, THEN DEPLOYS. The deploy job is optional in practice: without the
+# DEPLOY_SSH_* secrets and the `production` environment it simply never runs, and
+# rolling out stays the manual `docker compose pull && docker compose up -d` from
+# docs/deployment.md. The SSH key it uses is pinned to a forced command on the
+# server (docker/toon-deploy.sh), so it cannot open a shell there — see deploy.yml.
 on:
   push:
     branches: [main]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Nach dem Build auf den Server deployen"
+        type: boolean
+        default: false
 
 concurrency:
   # Never let two publishes race for the `latest` tag.
@@ -40,8 +47,11 @@ jobs:
     permissions:
       contents: read
       packages: write
-    # No job `outputs`: the deploy job that consumed the digest is gone. It is
-    # published in the step summary instead, which is where a human reads it.
+    outputs:
+      # Consumed by the deploy job below, and printed in the step summary for the
+      # human who wants to pin or roll back by hand.
+      digest: ${{ steps.build.outputs.digest }}
+      version: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v5
 
@@ -117,9 +127,38 @@ jobs:
             echo
             echo "Digest: \`${{ steps.build.outputs.digest }}\`"
             echo
-            echo "Deploy auf dem Server (in \`/opt/toon-recipe\`):"
+            echo "Ausrollen übernimmt der Deploy-Job. Von Hand auf dem Server geht es auch:"
             echo
             echo '```bash'
-            echo "docker compose pull && docker compose up -d --remove-orphans"
+            echo "cd /opt/toon-recipe && docker compose pull && docker compose up -d --remove-orphans"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # Deploys over SSH. Split into its own job so a failed deploy never un-publishes
+  # a good image, and gated on the `production` environment so GitHub can require a
+  # manual approval before anything touches the server.
+  deploy:
+    needs: build
+    # DEPLOY_ENABLED IS THE MASTER SWITCH, and it has to be a repository VARIABLE:
+    # the `secrets` context is not available in a job-level `if`, so "are the
+    # DEPLOY_SSH_* secrets configured?" is a question this condition cannot ask.
+    # Without it, a repository that never set up a server still runs this job on
+    # every push to main and fails it on the empty known_hosts — a permanent red X
+    # that says nothing. Set it to `true` (Settings -> Variables) as the last step
+    # of docs/deployment.md's step 6, once the secrets exist.
+    #
+    # Beyond that: a push to main or a version tag deploys automatically, while a
+    # manual run only deploys when the checkbox was ticked — without the event check
+    # below, the `refs/heads/main` clause would deploy anyway and the input would be
+    # a lie.
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' &&
+      ((github.event_name == 'push' &&
+        (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))) ||
+       (github.event_name == 'workflow_dispatch' && inputs.deploy))
+    uses: ./.github/workflows/deploy.yml
+    with:
+      # By digest, so the server runs the exact image this run built and tested
+      # rather than whatever `latest` points at by the time it pulls.
+      image_digest: ${{ needs.build.outputs.digest }}
+    secrets: inherit

@@ -315,12 +315,16 @@ Three things about this setup are worth knowing before you touch it:
   (`http://<host>/toon-root-ca.crt`) and it behaves like a public site again.
 
 CI (`.github/workflows/`): `ci.yml` runs the four gates on every push; `release.yml` builds
-`linux/amd64` + `linux/arm64` and pushes to GHCR. **CI builds, it does not deploy** — rolling out is a
-manual `docker compose pull && docker compose up -d` on the server, so no SSH key to the box lives in
-GitHub secrets and its SSH port never has to face the internet. The image digest is printed in
-the release run's summary; put it in `TOON_IMAGE` to pin a version or roll back. The arm64 half stays
-fast because the web bundle is built on the *build* platform (its output is architecture-independent)
-and only the native `node_modules` install runs under QEMU.
+`linux/amd64` + `linux/arm64` and pushes to GHCR, then hands the digest to `deploy.yml`, which rolls
+it out over SSH and waits for the container's own healthcheck. **Deploying is opt-in**, behind the
+`DEPLOY_ENABLED` repository variable: until it is `true` that job is skipped and rolling out stays a
+manual `docker compose pull && docker compose up -d` on the server. When it is set up, the key in GitHub's secret store is **not a
+shell** — it is pinned to a forced command (`docker/toon-deploy.sh`) that knows three verbs and
+hardcodes the image repository, so a stolen key can roll out a version and nothing else. Setup is
+[step 6 in docs/deployment.md](docs/deployment.md#6--auto-deploy-per-github-actions-optional). The
+image digest is also printed in the release run's summary; put it in `TOON_IMAGE` to pin a version or
+roll back. The arm64 half stays fast because the web bundle is built on the *build* platform (its
+output is architecture-independent) and only the native `node_modules` install runs under QEMU.
 
 ## Install the PWA on a phone
 

@@ -185,6 +185,9 @@ Ab hier ist [deployment.md](./deployment.md#erstinstallation) die Anleitung, in 
 3. [Mailversand](./deployment.md#4--mailversand-einrichten) — ohne Angaben landet alles in Mailpit,
    das nichts zustellt.
 4. [Starten und ersten Account anlegen](./deployment.md#5--starten-und-ersten-account-anlegen).
+5. Optional: [Auto-Deploy per GitHub Actions](./deployment.md#6--auto-deploy-per-github-actions-optional)
+   — dann rollt jeder Push auf `main` sich selbst aus. Ohne das bleibt es beim manuellen
+   `docker compose pull && docker compose up -d`.
 
 ---
 
