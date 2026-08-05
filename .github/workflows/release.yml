@@ -51,6 +51,14 @@ jobs:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
+
+      # `pdf-rasterize.test.ts` drives the REAL pdftoppm and fails rather than skips
+      # when the binary is missing, so this step is as load-bearing here as it is in
+      # ci.yml — a release that skipped it published an image whose rasterize+OCR
+      # fallback nobody had exercised. tesseract is NOT needed: no test runs real OCR.
+      - name: Install poppler
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y poppler-utils
+
       - run: bun test
 
       # QEMU is what lets an amd64 runner produce arm64 layers.
