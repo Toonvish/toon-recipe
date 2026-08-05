@@ -24,7 +24,7 @@ import {
   useToast,
 } from "@/components/ui";
 import { errorMessage } from "@/lib/api";
-import { plural } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { useActiveGroup, useSession } from "@/lib/session";
 import { apiFieldErrors, validate, type FieldErrors } from "@/lib/validation";
 import { AppLink } from "@/features/recipes/lib/nav";
@@ -36,6 +36,7 @@ import {
 } from "./lib/queries";
 
 export default function ShoppingListsPage() {
+  const t = useT();
   const { groupId } = useActiveGroup();
   const { isOnline } = useSession();
   const lists = useShoppingLists(groupId);
@@ -50,18 +51,18 @@ export default function ShoppingListsPage() {
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-semibold text-fg">Einkaufen</h1>
-          <p className="text-sm text-fg-muted">
-            Gemeinsame Einkaufslisten für die ganze Gruppe.
-          </p>
+          <h1 className="font-display text-2xl font-semibold text-fg">
+            {t("shopping.lists.heading")}
+          </h1>
+          <p className="text-sm text-fg-muted">{t("shopping.lists.subtitle")}</p>
         </div>
         <Button
           onClick={() => setCreateOpen(true)}
           leftIcon={<ListPlus className="size-4" />}
           disabled={!isOnline}
-          title={isOnline ? undefined : "Dafür brauchst du eine Verbindung"}
+          title={isOnline ? undefined : t("shopping.lists.offlineHint")}
         >
-          Liste anlegen
+          {t("shopping.lists.create")}
         </Button>
       </header>
 
@@ -81,11 +82,11 @@ export default function ShoppingListsPage() {
       ) : items.length === 0 ? (
         <EmptyState
           icon={<ShoppingBasket />}
-          title="Noch keine Einkaufsliste"
-          description="Lege eine Liste an, füge Artikel hinzu oder schicke ein ganzes Rezept darauf — die Mengen werden für die gewünschte Portionszahl umgerechnet."
+          title={t("shopping.lists.empty.title")}
+          description={t("shopping.lists.empty.description")}
           action={
             <Button onClick={() => setCreateOpen(true)} fullWidth disabled={!isOnline}>
-              Erste Liste anlegen
+              {t("shopping.lists.empty.action")}
             </Button>
           }
         />
@@ -105,21 +106,21 @@ export default function ShoppingListsPage() {
                   <span className="font-display truncate text-lg font-semibold">{list.name}</span>
                   <span className="text-sm text-fg-muted">
                     {list.itemCount === 0
-                      ? "leer"
-                      : plural(list.itemCount ?? 0, "Position", "Positionen")}
+                      ? t("shopping.list.empty")
+                      : t("shopping.list.itemCount", { count: list.itemCount ?? 0 })}
                   </span>
                 </span>
               </AppLink>
               <span className="absolute inset-y-0 right-2 flex items-center gap-1">
                 <IconButton
-                  label="Umbenennen"
+                  label={t("shopping.lists.rename")}
                   variant="ghost"
                   icon={<Pencil />}
                   disabled={!isOnline}
                   onClick={() => setRenaming(list)}
                 />
                 <IconButton
-                  label="Liste löschen"
+                  label={t("shopping.lists.delete")}
                   variant="ghost"
                   icon={<Trash2 />}
                   disabled={!isOnline}
@@ -151,6 +152,7 @@ function CreateListDialog({
   onClose: () => void;
   groupId: string | null;
 }) {
+  const t = useT();
   const toast = useToast();
   const create = useCreateShoppingList(groupId);
   const [name, setName] = useState("");
@@ -170,7 +172,7 @@ function CreateListDialog({
     }
     create.mutate(result.data, {
       onSuccess: (list) => {
-        toast.success(`„${list.name}“ angelegt`);
+        toast.success(t("shopping.create.success", { name: list.name }));
         close();
       },
       onError: (error) => setErrors(apiFieldErrors(error)),
@@ -181,15 +183,15 @@ function CreateListDialog({
     <Dialog
       open={open}
       onClose={close}
-      title="Einkaufsliste anlegen"
+      title={t("shopping.create.title")}
       size="sm"
       footer={
         <>
           <Button variant="ghost" onClick={close}>
-            Abbrechen
+            {t("shopping.action.cancel")}
           </Button>
           <Button onClick={submit} loading={create.isPending}>
-            Anlegen
+            {t("shopping.action.create")}
           </Button>
         </>
       }
@@ -201,10 +203,10 @@ function CreateListDialog({
         }}
       >
         <Input
-          label="Name"
+          label={t("shopping.list.name.label")}
           value={name}
           onChange={(event) => setName(event.target.value)}
-          placeholder="z. B. Rewe"
+          placeholder={t("shopping.list.name.placeholder")}
           error={errors.name}
           autoFocus
         />
@@ -222,6 +224,7 @@ function RenameListDialog({
   onClose: () => void;
   groupId: string | null;
 }) {
+  const t = useT();
   const rename = useRenameShoppingList(groupId);
   const [name, setName] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -253,15 +256,15 @@ function RenameListDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Liste umbenennen"
+      title={t("shopping.rename.title")}
       size="sm"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Abbrechen
+            {t("shopping.action.cancel")}
           </Button>
           <Button onClick={submit} loading={rename.isPending}>
-            Speichern
+            {t("shopping.action.save")}
           </Button>
         </>
       }
@@ -273,7 +276,7 @@ function RenameListDialog({
         }}
       >
         <Input
-          label="Name"
+          label={t("shopping.list.name.label")}
           value={name}
           onChange={(event) => setName(event.target.value)}
           error={errors.name}
@@ -293,6 +296,7 @@ function DeleteListDialog({
   onClose: () => void;
   groupId: string | null;
 }) {
+  const t = useT();
   const toast = useToast();
   const remove = useDeleteShoppingList(groupId);
 
@@ -300,21 +304,24 @@ function DeleteListDialog({
     <ConfirmDialog
       open={list !== null}
       onClose={onClose}
-      title="Einkaufsliste löschen?"
+      title={t("shopping.delete.title")}
       description={
         list
-          ? `„${list.name}“ und alle ${plural(list.itemCount ?? 0, "Position", "Positionen")} werden gelöscht. Das lässt sich nicht rückgängig machen.`
+          ? t("shopping.delete.confirmDescription", {
+              name: list.name,
+              itemCount: t("shopping.list.itemCount", { count: list.itemCount ?? 0 }),
+            })
           : ""
       }
-      confirmLabel="Löschen"
+      confirmLabel={t("shopping.action.delete")}
       destructive
       onConfirm={async () => {
         if (!list) return;
         try {
           await remove.mutateAsync(list.id);
-          toast.success(`„${list.name}“ gelöscht`);
+          toast.success(t("shopping.delete.success", { name: list.name }));
         } catch (error) {
-          toast.error("Löschen fehlgeschlagen", errorMessage(error));
+          toast.error(t("shopping.delete.error"), errorMessage(error));
           // Rethrow so ConfirmDialog keeps itself open on failure.
           throw error;
         }

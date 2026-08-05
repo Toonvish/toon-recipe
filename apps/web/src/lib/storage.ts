@@ -8,6 +8,8 @@ const PREFIX = "toon.";
 export const storageKeys = {
   activeGroupId: `${PREFIX}activeGroupId`,
   theme: `${PREFIX}theme`,
+  /** The device's chosen INTERFACE locale — see lib/i18n/locale.ts. */
+  locale: `${PREFIX}locale`,
   installPromptDismissedAt: `${PREFIX}installPromptDismissedAt`,
   lastRecipeSort: `${PREFIX}recipeSort`,
   /**

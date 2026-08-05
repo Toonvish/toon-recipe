@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import clsx from "clsx";
 import { ArrowLeft, Check, CircleAlert, FileText, LoaderCircle, PenLine, Save, Trash2, TriangleAlert, Users } from "lucide-react";
 import type { ParsedRecipe } from "@toon/shared";
+import { useT } from "@/lib/i18n";
 import {
   Button,
   ConfirmDialog,
@@ -28,7 +29,7 @@ import { useCommitDraft, useDeleteDraft, useDraft, useGroupTags } from "./lib/qu
 import { useDraftAutosave } from "./lib/useAutosave";
 import { appendIngredientFromLine, appendStepFromLine, normalizeParsedRecipe, validateForCommit } from "./lib/draftEdit";
 import { CONFIDENCE_WARN, countRowsNeedingCheck, formatConfidence } from "./lib/confidence";
-import { describeError } from "./lib/importApi";
+import { resolveDescribedError, resolveImportErrorText } from "./lib/importErrorText";
 import SourceViewer from "./components/SourceViewer";
 import ParsedRecipeEditor from "./components/ParsedRecipeEditor";
 import ImportErrorPanel from "./components/ImportErrorPanel";
@@ -42,6 +43,7 @@ export interface ImportReviewPageProps {
 type MobileTab = "source" | "form";
 
 export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewPageProps = {}) {
+  const t = useT();
   const draftId = useDraftIdFromRoute(draftIdProp);
   const navigation = useImportNavigation();
   const toast = useShellToast();
@@ -102,7 +104,7 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
     const normalized = normalizeParsedRecipe(parsed);
     const check = validateForCommit(normalized);
     if (!check.ok) {
-      toast({ title: check.problems[0] ?? "Bitte prüfe die Eingaben", variant: "error" });
+      toast({ title: check.problems[0] ?? t("import.review.toast.saveFallback"), variant: "error" });
       setMobileTab("form");
       return;
     }
@@ -114,12 +116,12 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
         parsed: normalized,
         tags: normalized.tags,
       });
-      toast({ title: "Rezept gespeichert", description: response.recipe.title, variant: "success" });
+      toast({ title: t("import.review.toast.saved.title"), description: response.recipe.title, variant: "success" });
       navigation.toRecipe(response.recipe.id, { replace: true });
     } catch (error) {
       setCommitError(error);
     }
-  }, [autosave, commit, draft, draftGroupId, navigation, parsed, toast]);
+  }, [autosave, commit, draft, draftGroupId, navigation, parsed, t, toast]);
 
   const handleDiscard = useCallback(() => {
     if (draft === undefined || draftGroupId === undefined) return;
@@ -128,16 +130,16 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
       { groupId: draftGroupId, draftId: draft.id },
       {
         onSuccess: () => {
-          toast({ title: "Entwurf verworfen", variant: "info" });
+          toast({ title: t("import.review.toast.discarded.title"), variant: "info" });
           navigation.toImport({ replace: true });
         },
         onError: (error) => {
-          const described = describeError(error);
+          const described = resolveDescribedError(t, error);
           toast({ title: described.title, description: described.hint, variant: "error" });
         },
       },
     );
-  }, [draft, draftGroupId, navigation, remove, toast]);
+  }, [draft, draftGroupId, navigation, remove, t, toast]);
 
   const addLineAsIngredient = useCallback((line: string) => {
     setParsed((current) => (current === undefined ? current : appendIngredientFromLine(current, line)));
@@ -153,10 +155,10 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
     return (
       <PageShell onBack={() => navigation.toImport()}>
         <ImportErrorPanel
-          error={new Error("Kein Entwurf ausgewählt")}
+          error={new Error(t("import.review.noDraft"))}
           actions={
             <Button type="button" variant="secondary" onClick={() => navigation.toImport()}>
-              Zum Import
+              {t("import.review.toImport")}
             </Button>
           }
         />
@@ -180,11 +182,11 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
     return (
       <PageShell onBack={() => navigation.toImport()}>
         <ImportErrorPanel
-          error={draftQuery.error ?? new Error("Entwurf konnte nicht geladen werden")}
+          error={draftQuery.error ?? new Error(t("import.review.loadError"))}
           onRetry={() => void draftQuery.refetch()}
           actions={
             <Button type="button" variant="secondary" onClick={() => navigation.toImport()}>
-              Zur Import-Übersicht
+              {t("import.review.toOverview")}
             </Button>
           }
         />
@@ -207,9 +209,7 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
           <SourceIcon aria-hidden className="h-4 w-4 text-fg-subtle" />
           <span className="text-xs text-fg-muted">{source.label}</span>
           <span className="text-xs text-fg-subtle">·</span>
-          <span className="text-xs text-fg-muted">
-            Erkennungsqualität {formatConfidence(overall)}
-          </span>
+          <span className="text-xs text-fg-muted">{t("import.review.quality", { value: formatConfidence(overall) })}</span>
           <span className="ml-auto flex items-center gap-1.5 text-xs">
             {autosave.state === "saving" ? (
               <LoaderCircle aria-hidden className="h-3.5 w-3.5 animate-spin text-fg-subtle" />
@@ -231,25 +231,23 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
         </div>
 
         <h1 className="text-lg font-semibold text-fg">
-          {(parsed.title ?? "").trim().length > 0 ? parsed.title : "Import prüfen"}
+          {(parsed.title ?? "").trim().length > 0 ? parsed.title : t("import.review.title.fallback")}
         </h1>
       </div>
 
       {autosave.state === "error" ? (
         <div className="rounded-xl border border-danger/40 bg-danger-soft p-3 text-xs">
-          <p className="font-medium text-danger-soft-fg">Automatisches Speichern fehlgeschlagen</p>
+          <p className="font-medium text-danger-soft-fg">{t("import.review.autosaveError.title")}</p>
           <p className="mt-1 text-danger-soft-fg">{autosave.errorHint}</p>
           <Button type="button" variant="secondary" size="sm" className="mt-2" onClick={() => void autosave.saveNow()}>
-            Jetzt speichern
+            {t("import.review.autosaveError.retry")}
           </Button>
         </div>
       ) : null}
 
       {committed ? (
         <div className="rounded-xl border border-success/40 bg-brand-soft p-3 text-xs">
-          <p className="font-medium text-success-soft-fg">
-            Dieser Entwurf wurde bereits als Rezept gespeichert.
-          </p>
+          <p className="font-medium text-success-soft-fg">{t("import.review.committed.title")}</p>
           <Button
             type="button"
             variant="secondary"
@@ -257,7 +255,7 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
             className="mt-2"
             onClick={() => navigation.toRecipe(String(draft.recipeId))}
           >
-            Rezept öffnen
+            {t("import.review.committed.open")}
           </Button>
         </div>
       ) : null}
@@ -266,11 +264,12 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/40 bg-warning-soft p-3 text-xs">
           <Users aria-hidden className="h-4 w-4 text-warning" />
           <span className="text-warning-soft-fg">
-            Dieser Entwurf gehört zur Gruppe <span className="font-medium">{groupOfDraft?.name ?? "einer anderen Gruppe"}</span>
-            . Gespeichert wird das Rezept dort.
+            {t("import.review.groupMismatch.text", {
+              groupName: groupOfDraft?.name ?? t("import.review.groupMismatch.fallbackName"),
+            })}
           </span>
           <Button type="button" variant="secondary" size="sm" onClick={() => switchGroup(draftGroupId)}>
-            Gruppe wechseln
+            {t("import.review.groupMismatch.switch")}
           </Button>
         </div>
       ) : null}
@@ -278,7 +277,7 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
       {groups.length > 1 && !groupMismatch ? (
         <div className="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
           <Label htmlFor="review-group" className="text-xs">
-            Ziel-Gruppe
+            {t("import.common.targetGroup")}
           </Label>
           <Select
             id="review-group"
@@ -292,9 +291,8 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
               switchGroup(next);
               if (next !== draftGroupId) {
                 toast({
-                  title: "Entwurf bleibt in seiner Gruppe",
-                  description:
-                    "Ein bestehender Entwurf kann nicht verschoben werden. Starte den Import in der anderen Gruppe neu, wenn das Rezept dort landen soll.",
+                  title: t("import.review.groupStays.title"),
+                  description: t("import.review.groupStays.description"),
                   variant: "info",
                 });
               }
@@ -307,11 +305,14 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
         <div className="flex gap-2 rounded-xl border border-warning/40 bg-warning-soft p-3">
           <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
           <div className="text-xs leading-5 text-warning-soft-fg">
-            <p className="font-medium">Die Erkennung war unsicher – bitte gründlich prüfen.</p>
+            <p className="font-medium">{t("import.review.lowConfidence.title")}</p>
             <p>
-              Vergleiche die Felder mit der Quelle. Zeilen mit „bitte prüfen“ sind die wahrscheinlichsten Fehler.
+              {t("import.review.lowConfidence.hint")}
               {rowChecks.ingredients + rowChecks.steps > 0
-                ? ` Aktuell markiert: ${rowChecks.ingredients} Zutaten, ${rowChecks.steps} Schritte.`
+                ? ` ${t("import.review.lowConfidence.countHint", {
+                    ingredients: rowChecks.ingredients,
+                    steps: rowChecks.steps,
+                  })}`
                 : ""}
             </p>
           </div>
@@ -319,14 +320,14 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
       ) : null}
 
       {/* ------------------------- mobile tab switch ----------------------- */}
-      <div className="flex gap-1 rounded-lg bg-surface-2 p-1 lg:hidden" role="tablist" aria-label="Ansicht">
+      <div className="flex gap-1 rounded-lg bg-surface-2 p-1 lg:hidden" role="tablist" aria-label={t("import.review.tabs.ariaLabel")}>
         <TabButton active={mobileTab === "source"} onClick={() => setMobileTab("source")}>
           <FileText aria-hidden className="h-3.5 w-3.5" />
-          Quelle
+          {t("import.review.tabs.source")}
         </TabButton>
         <TabButton active={mobileTab === "form"} onClick={() => setMobileTab("form")}>
           <PenLine aria-hidden className="h-3.5 w-3.5" />
-          Rezept
+          {t("import.review.tabs.form")}
           {rowChecks.ingredients + rowChecks.steps > 0 ? (
             <span className="ml-1 rounded-full bg-warning-soft px-1.5 text-[10px] font-semibold text-warning-soft-fg">
               {rowChecks.ingredients + rowChecks.steps}
@@ -349,7 +350,7 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
       </div>
 
       {commitError !== undefined ? (
-        <ImportErrorPanel error={commitError} onRetry={() => void handleSave()} retryLabel="Nochmal speichern" />
+        <ImportErrorPanel error={commitError} onRetry={() => void handleSave()} retryLabel={t("import.review.retrySave")} />
       ) : null}
 
       {validation.warnings.length > 0 ? (
@@ -374,7 +375,7 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
             disabled={remove.isPending || commit.isPending}
           >
             <Trash2 aria-hidden className="mr-1.5 h-4 w-4" />
-            Verwerfen
+            {t("import.review.discard")}
           </Button>
           <span className="hidden flex-1 text-xs text-fg-muted sm:block">
             {offline.enabled
@@ -398,18 +399,18 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
             ) : (
               <Save aria-hidden className="mr-2 h-4 w-4" />
             )}
-            {commit.isPending ? "Speichert…" : "Speichern"}
+            {commit.isPending ? t("import.review.saving") : t("import.review.save")}
           </Button>
         </div>
       </div>
 
       <ConfirmDialog
         open={confirmOpen}
-        title="Entwurf verwerfen?"
-        description="Der Import-Entwurf wird gelöscht. Das Foto bzw. der erkannte Text ist dann weg – das Rezept wurde noch nicht gespeichert."
-        message="Der Import-Entwurf wird gelöscht. Das Rezept wurde noch nicht gespeichert."
-        confirmLabel="Verwerfen"
-        cancelLabel="Weiter bearbeiten"
+        title={t("import.review.discardDialog.title")}
+        description={t("import.review.discardDialog.description")}
+        message={t("import.review.discardDialog.message")}
+        confirmLabel={t("import.review.discardDialog.confirm")}
+        cancelLabel={t("import.review.discardDialog.cancel")}
         destructive
         variant="danger"
         onConfirm={handleDiscard}
@@ -429,6 +430,7 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
  * the Grunddaten card did not fit — and doubled the bottom padding.
  */
 function PageShell({ children, onBack }: { children: ReactNode; onBack: () => void }) {
+  const t = useT();
   return (
     <div className="space-y-4">
       <button
@@ -437,7 +439,7 @@ function PageShell({ children, onBack }: { children: ReactNode; onBack: () => vo
         className="inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-fg"
       >
         <ArrowLeft aria-hidden className="h-4 w-4" />
-        Import
+        {t("import.review.back")}
       </button>
       {children}
     </div>

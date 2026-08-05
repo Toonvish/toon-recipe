@@ -1,4 +1,5 @@
 import { Share2, Smartphone, X } from "lucide-react";
+import { useT } from "@/lib/i18n";
 import { useInstallPrompt } from "@/lib/pwa";
 import { Button } from "@/components/ui/Button";
 import { IconButton } from "@/components/ui/IconButton";
@@ -21,6 +22,7 @@ import { IconButton } from "@/components/ui/IconButton";
  */
 export function InstallPrompt() {
   const install = useInstallPrompt();
+  const t = useT();
 
   if (!install.shouldShow) return null;
 
@@ -30,15 +32,10 @@ export function InstallPrompt() {
         <Smartphone className="size-5" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold">Rezepte auf dem Startbildschirm</p>
+        <p className="text-sm font-semibold">{t("ui.installPrompt.heading")}</p>
         {install.canPrompt ? (
           <>
-            <p className="mt-0.5 text-sm opacity-90">
-              Installiere die App, um sie wie eine normale App zu öffnen – mit eigenem Symbol
-              und ohne Browserleiste. Bereits geöffnete Rezepte kannst du auch ohne Verbindung
-              nachkochen, und die Einkaufsliste lässt sich offline abhaken; Rezepte bearbeiten
-              und Importieren brauchen Internet.
-            </p>
+            <p className="mt-0.5 text-sm opacity-90">{t("ui.installPrompt.description")}</p>
             <Button
               size="sm"
               className="mt-2"
@@ -46,19 +43,19 @@ export function InstallPrompt() {
                 void install.promptInstall();
               }}
             >
-              Zur Startseite hinzufügen
+              {t("ui.installPrompt.cta")}
             </Button>
           </>
         ) : (
           <p className="mt-0.5 flex flex-wrap items-center gap-1 text-sm opacity-90">
-            Tippe auf
-            <Share2 className="inline size-4" aria-label="Teilen" />
-            und dann auf „Zum Home-Bildschirm“.
+            {t("ui.installPrompt.iosHint.before")}
+            <Share2 className="inline size-4" aria-label={t("ui.installPrompt.shareIconLabel")} />
+            {t("ui.installPrompt.iosHint.after")}
           </p>
         )}
       </div>
       <IconButton
-        label="Hinweis ausblenden"
+        label={t("ui.installPrompt.dismiss")}
         icon={<X />}
         size="sm"
         onClick={install.dismiss}

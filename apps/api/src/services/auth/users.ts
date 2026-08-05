@@ -80,6 +80,9 @@ export async function createUser(database: Database, input: CreateUserInput): Pr
     emailVerifiedAt: emailVerified ? now : null,
     passwordHash: input.passwordHash ?? null,
     activeGroupId: null,
+    // NULL = "never chosen" (docs/i18n.md §6) — env.defaultLocale wins for a
+    // brand-new account until it picks one.
+    locale: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -87,7 +90,7 @@ export async function createUser(database: Database, input: CreateUserInput): Pr
     await database.insert(users).values(row);
   } catch (error) {
     if (isUniqueViolation(error)) {
-      throw ApiError.conflict("email_taken", "Diese E-Mail-Adresse ist bereits registriert");
+      throw ApiError.conflict("email_taken", "server.auth.emailTaken");
     }
     throw error;
   }
@@ -151,7 +154,7 @@ export async function updateUser(
     .set({ ...patch, updatedAt: Date.now() })
     .where(eq(users.id, userId));
   const row = await findUserById(database, userId);
-  if (!row) throw ApiError.notFound("Benutzer nicht gefunden");
+  if (!row) throw ApiError.notFound("server.auth.userNotFound");
   return row;
 }
 

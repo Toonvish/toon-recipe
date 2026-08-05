@@ -13,7 +13,8 @@ import { FilterX, Search, SlidersHorizontal } from "lucide-react";
 import type { Collection, Difficulty, RecipeSort, Tag } from "@toon/shared";
 import { cn } from "@/lib/cn";
 import { Badge, Button, Input, Select, Skeleton } from "@/components/ui";
-import { difficultyLabels } from "@/lib/format";
+import { DIFFICULTY_LABEL_KEYS } from "../lib/difficultyLabels";
+import { useT } from "@/lib/i18n";
 import { TagFilterButton } from "@/features/tags/components/TagChip";
 import { SORT_LABELS } from "../lib/format";
 import type { RecipeListFilters } from "../lib/queries";
@@ -31,27 +32,6 @@ export interface RecipeFiltersProps {
   total?: number;
   isFetching?: boolean;
 }
-
-const SORT_OPTIONS = (Object.keys(SORT_LABELS) as RecipeSort[]).map((value) => ({
-  value,
-  label: SORT_LABELS[value],
-}));
-
-const TIME_OPTIONS = [
-  { value: "", label: "Beliebige Dauer" },
-  { value: "15", label: "bis 15 Min." },
-  { value: "30", label: "bis 30 Min." },
-  { value: "45", label: "bis 45 Min." },
-  { value: "60", label: "bis 1 Std." },
-  { value: "120", label: "bis 2 Std." },
-];
-
-const DIFFICULTY_OPTIONS = [
-  { value: "", label: "Jede Schwierigkeit" },
-  { value: "einfach", label: difficultyLabels.einfach },
-  { value: "mittel", label: difficultyLabels.mittel },
-  { value: "schwer", label: difficultyLabels.schwer },
-];
 
 export function countActiveFilters(filters: RecipeListFilters): number {
   let count = 0;
@@ -73,8 +53,30 @@ export function RecipeFilters({
   total,
   isFetching = false,
 }: RecipeFiltersProps) {
+  const t = useT();
   const activeCount = countActiveFilters(filters);
   const [advancedOpen, setAdvancedOpen] = useState(activeCount > 0);
+
+  const sortOptions = (Object.keys(SORT_LABELS) as RecipeSort[]).map((value) => ({
+    value,
+    label: t(SORT_LABELS[value]),
+  }));
+
+  const timeOptions = [
+    { value: "", label: t("recipes.filters.maxDuration.any") },
+    { value: "15", label: t("recipes.filters.maxDuration.upTo15") },
+    { value: "30", label: t("recipes.filters.maxDuration.upTo30") },
+    { value: "45", label: t("recipes.filters.maxDuration.upTo45") },
+    { value: "60", label: t("recipes.filters.maxDuration.upTo60") },
+    { value: "120", label: t("recipes.filters.maxDuration.upTo120") },
+  ];
+
+  const difficultyOptions = [
+    { value: "", label: t("recipes.filters.difficulty.any") },
+    { value: "einfach", label: t(DIFFICULTY_LABEL_KEYS.einfach) },
+    { value: "mittel", label: t(DIFFICULTY_LABEL_KEYS.mittel) },
+    { value: "schwer", label: t(DIFFICULTY_LABEL_KEYS.schwer) },
+  ];
 
   // Reveal the advanced panel when a filter is set from the outside (e.g. deep link).
   useEffect(() => {
@@ -102,8 +104,8 @@ export function RecipeFilters({
           type="search"
           value={searchText}
           onChange={(event) => onSearchTextChange(event.target.value)}
-          placeholder="Titel, Beschreibung oder Zutat …"
-          aria-label="Rezepte durchsuchen"
+          placeholder={t("recipes.filters.searchPlaceholder")}
+          aria-label={t("recipes.filters.searchAriaLabel")}
           leftIcon={<Search />}
           containerClassName="flex-1"
           autoComplete="off"
@@ -114,11 +116,11 @@ export function RecipeFilters({
           onClick={() => setAdvancedOpen((value) => !value)}
           aria-expanded={advancedOpen}
           aria-controls="recipe-filter-panel"
-          aria-label="Erweiterte Suche"
+          aria-label={t("recipes.filters.advancedToggle")}
           leftIcon={<SlidersHorizontal className="size-4" />}
           className="shrink-0"
         >
-          <span className="hidden sm:inline">Erweiterte Suche</span>
+          <span className="hidden sm:inline">{t("recipes.filters.advancedToggle")}</span>
           {activeCount > 0 ? (
             <Badge size="sm" variant={advancedOpen ? "neutral" : "brand"}>
               {activeCount}
@@ -134,17 +136,17 @@ export function RecipeFilters({
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Select
-            label="Sortierung"
-            options={SORT_OPTIONS}
+            label={t("recipes.filters.sort.label")}
+            options={sortOptions}
             value={filters.sort ?? "newest"}
             onChange={(event) =>
               onFiltersChange({ ...filters, sort: event.target.value as RecipeSort })
             }
           />
           <Select
-            label="Sammlung"
+            label={t("recipes.filters.collection.label")}
             options={[
-              { value: "", label: "Alle Sammlungen" },
+              { value: "", label: t("recipes.filters.collection.all") },
               ...collections.map((collection) => ({
                 value: collection.id,
                 label: collection.name,
@@ -159,8 +161,8 @@ export function RecipeFilters({
             }
           />
           <Select
-            label="Maximale Dauer"
-            options={TIME_OPTIONS}
+            label={t("recipes.filters.maxDuration.label")}
+            options={timeOptions}
             value={filters.maxMinutes === undefined ? "" : String(filters.maxMinutes)}
             onChange={(event) =>
               onFiltersChange({
@@ -171,8 +173,8 @@ export function RecipeFilters({
             }
           />
           <Select
-            label="Schwierigkeit"
-            options={DIFFICULTY_OPTIONS}
+            label={t("recipes.filters.difficulty.label")}
+            options={difficultyOptions}
             value={filters.difficulty ?? ""}
             onChange={(event) =>
               onFiltersChange({
@@ -191,7 +193,7 @@ export function RecipeFilters({
           WHOLE PAGE scrolls sideways — the `scroll-x` on the row never gets a chance.
         */}
         <fieldset className="flex min-w-0 flex-col gap-2">
-          <legend className="text-sm font-medium text-fg">Tags</legend>
+          <legend className="text-sm font-medium text-fg">{t("recipes.filters.tagsLegend")}</legend>
           {tagsLoading ? (
             <div className="flex gap-2">
               <Skeleton className="h-7 w-20" rounded="full" />
@@ -199,9 +201,7 @@ export function RecipeFilters({
               <Skeleton className="h-7 w-16" rounded="full" />
             </div>
           ) : tags.length === 0 ? (
-            <p className="text-sm text-fg-muted">
-              Noch keine Tags in dieser Gruppe. Tags entstehen beim Anlegen eines Rezepts.
-            </p>
+            <p className="text-sm text-fg-muted">{t("recipes.filters.tagsEmpty")}</p>
           ) : (
             <div className="scroll-x no-scrollbar -mx-1 flex min-w-0 gap-1.5 px-1 pb-1">
               {tags.map((tag) => (
@@ -215,17 +215,13 @@ export function RecipeFilters({
             </div>
           )}
           {selectedTagIds.length > 1 ? (
-            <p className="text-xs text-fg-subtle">
-              Ein Rezept muss ALLE gewählten Tags haben.
-            </p>
+            <p className="text-xs text-fg-subtle">{t("recipes.filters.tagsAllRequired")}</p>
           ) : null}
         </fieldset>
 
         <div className="flex items-center justify-between gap-2">
           <p aria-live="polite" className={cn("text-sm", isFetching ? "text-fg-subtle" : "text-fg-muted")}>
-            {typeof total === "number"
-              ? `${total} ${total === 1 ? "Rezept" : "Rezepte"} gefunden`
-              : ""}
+            {typeof total === "number" ? t("recipes.filters.resultsCount", { count: total }) : ""}
           </p>
           {activeCount > 0 || searchText.length > 0 ? (
             <Button
@@ -235,7 +231,7 @@ export function RecipeFilters({
               onClick={reset}
               leftIcon={<FilterX className="size-4" />}
             >
-              Filter zurücksetzen
+              {t("recipes.filters.reset")}
             </Button>
           ) : null}
         </div>

@@ -15,13 +15,14 @@ import {
   Textarea,
 } from "@/components/ui";
 import { useToast } from "@/components/ui";
-import { plural } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { apiFieldErrors, validate, type FieldErrors } from "@/lib/validation";
 import { useActiveGroup } from "@/lib/session";
 import { AppLink } from "@/features/recipes/lib/nav";
 import { useCollections, useCreateCollection } from "./lib/queries";
 
 export default function CollectionsPage() {
+  const t = useT();
   const { groupId } = useActiveGroup();
   const collections = useCollections(groupId);
   const [createOpen, setCreateOpen] = useState(false);
@@ -30,13 +31,13 @@ export default function CollectionsPage() {
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-semibold text-fg">Sammlungen</h1>
-          <p className="text-sm text-fg-muted">
-            Bündle Rezepte thematisch, z. B. „Weihnachten“ oder „Meal Prep“.
-          </p>
+          <h1 className="font-display text-2xl font-semibold text-fg">
+            {t("groups.collections.title")}
+          </h1>
+          <p className="text-sm text-fg-muted">{t("groups.collections.subtitle")}</p>
         </div>
         <Button onClick={() => setCreateOpen(true)} leftIcon={<Plus className="size-4" />}>
-          Sammlung anlegen
+          {t("groups.collections.create")}
         </Button>
       </header>
 
@@ -56,15 +57,15 @@ export default function CollectionsPage() {
       ) : (collections.data ?? []).length === 0 ? (
         <EmptyState
           icon={<Library />}
-          title="Noch keine Sammlungen"
-          description="Eine Sammlung ist eine geordnete Liste von Rezepten — perfekt für Menüs oder Wochenpläne."
+          title={t("groups.collections.emptyTitle")}
+          description={t("groups.collections.emptyDescription")}
           action={
             <Button
               onClick={() => setCreateOpen(true)}
               fullWidth
               leftIcon={<FolderPlus className="size-4" />}
             >
-              Erste Sammlung anlegen
+              {t("groups.collections.createFirst")}
             </Button>
           }
         />
@@ -84,7 +85,7 @@ export default function CollectionsPage() {
                   </span>
                 ) : null}
                 <span className="mt-auto pt-2 text-sm text-fg-subtle">
-                  {plural(collection.recipeCount ?? 0, "Rezept", "Rezepte")}
+                  {t("groups.count.recipes", { count: collection.recipeCount ?? 0 })}
                 </span>
               </AppLink>
             </li>
@@ -98,6 +99,7 @@ export default function CollectionsPage() {
 }
 
 function CreateCollectionDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT();
   const { groupId } = useActiveGroup();
   const createCollection = useCreateCollection(groupId);
   const toast = useToast();
@@ -125,7 +127,7 @@ function CreateCollectionDialog({ open, onClose }: { open: boolean; onClose: () 
     }
     try {
       const collection = await createCollection.mutateAsync(result.data);
-      toast.success("Sammlung angelegt", collection.name);
+      toast.success(t("groups.collections.createdToast"), collection.name);
       close();
     } catch (error) {
       setErrors(apiFieldErrors(error));
@@ -133,7 +135,7 @@ function CreateCollectionDialog({ open, onClose }: { open: boolean; onClose: () 
   }
 
   return (
-    <Dialog open={open} onClose={close} title="Neue Sammlung" size="sm">
+    <Dialog open={open} onClose={close} title={t("groups.collections.createTitle")} size="sm">
       <form onSubmit={submit} noValidate className="flex flex-col gap-3">
         {errors._form ? (
           <p role="alert" className="text-sm font-medium text-danger">
@@ -141,17 +143,17 @@ function CreateCollectionDialog({ open, onClose }: { open: boolean; onClose: () 
           </p>
         ) : null}
         <Input
-          label="Name"
+          label={t("groups.common.name")}
           required
           value={name}
           onChange={(event) => setName(event.target.value)}
-          placeholder="Weihnachtsbäckerei"
+          placeholder={t("groups.collections.namePlaceholder")}
           error={errors.name}
           disabled={createCollection.isPending}
           autoFocus
         />
         <Textarea
-          label="Beschreibung"
+          label={t("groups.common.description")}
           optional
           rows={3}
           value={description}
@@ -167,10 +169,10 @@ function CreateCollectionDialog({ open, onClose }: { open: boolean; onClose: () 
             fullWidth
             disabled={createCollection.isPending}
           >
-            Abbrechen
+            {t("groups.common.cancel")}
           </Button>
           <Button type="submit" loading={createCollection.isPending} fullWidth>
-            Anlegen
+            {t("groups.common.create")}
           </Button>
         </div>
       </form>

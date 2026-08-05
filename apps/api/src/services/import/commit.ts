@@ -10,6 +10,7 @@
  * "draft committed" and "recipe exists" can never disagree.
  */
 import {
+  DEFAULT_LOCALE,
   type Difficulty,
   type ParsedRecipe,
   type PublicUser,
@@ -18,6 +19,7 @@ import {
   type RecipeStepRecord,
   type Tag,
   foldText,
+  serverText,
 } from "@toon/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "../../db/client.ts";
@@ -65,12 +67,29 @@ export async function commitDraft(db: Database, input: CommitDraftInput): Promis
 
   const title = (parsed.title ?? "").trim();
   if (title.length === 0) {
-    throw ApiError.validationFailed([{ path: "parsed.title", message: "Titel fehlt" }], "Bitte einen Titel eingeben.");
+    throw ApiError.validationFailed(
+      [
+        {
+          path: "parsed.title",
+          code: "custom",
+          message: serverText(DEFAULT_LOCALE, "server.import.titleMissing"),
+          i18n: { key: "server.import.titleMissing" },
+        },
+      ],
+      "server.import.titleRequired",
+    );
   }
   if (parsed.ingredients.length === 0 && parsed.steps.length === 0) {
     throw ApiError.validationFailed(
-      [{ path: "parsed", message: "Weder Zutaten noch Zubereitung vorhanden" }],
-      "Das Rezept braucht mindestens eine Zutat oder einen Zubereitungsschritt.",
+      [
+        {
+          path: "parsed",
+          code: "custom",
+          message: serverText(DEFAULT_LOCALE, "server.import.noIngredientsOrSteps"),
+          i18n: { key: "server.import.noIngredientsOrSteps" },
+        },
+      ],
+      "server.import.recipeNeedsIngredientOrStep",
     );
   }
 
@@ -149,9 +168,7 @@ export async function commitDraft(db: Database, input: CommitDraftInput): Promis
       const unknown = collectionIds.filter((id) => !ownedIds.has(id));
       if (unknown.length > 0) {
         throw ApiError.notFound(
-          unknown.length === 1
-            ? "Die gewählte Sammlung existiert nicht in dieser Gruppe."
-            : "Mindestens eine der gewählten Sammlungen existiert nicht in dieser Gruppe.",
+          unknown.length === 1 ? "server.import.collectionNotInGroup" : "server.import.collectionsNotInGroup",
         );
       }
       await tx.insert(collectionRecipes).values(

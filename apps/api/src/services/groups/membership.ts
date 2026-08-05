@@ -21,11 +21,7 @@ export function toGroupRole(value: string): GroupRole {
 /** Throws 403 unless `membership.role` satisfies `required`. */
 export function assertRole(membership: Membership, required: GroupRole): void {
   if (!roleAtLeast(membership.role, required)) {
-    throw ApiError.forbidden(
-      required === "owner"
-        ? "Nur die Besitzerin oder der Besitzer der Gruppe darf das"
-        : "Dafür brauchst du Administratorrechte in dieser Gruppe",
-    );
+    throw ApiError.forbidden(required === "owner" ? "server.group.ownerOnly" : "server.group.adminOnly");
   }
 }
 

@@ -112,8 +112,10 @@ export function useDraft(
           kind: "not_found",
           code: "not_found",
           status: 404,
-          message: "Entwurf nicht gefunden",
-          hint: "Dieser Import-Entwurf existiert in keiner deiner Gruppen.",
+          // Keys, not `translate()` output: this error is thrown from a query
+          // function and can be rendered much later, in a different locale.
+          title: { key: "import.queries.draftNotFound.message" },
+          hint: { key: "import.queries.draftNotFound.hint" },
           retryable: false,
         })
       );

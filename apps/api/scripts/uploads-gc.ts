@@ -90,7 +90,7 @@ let entries: string[];
 try {
   entries = await readdir(env.uploadDir);
 } catch {
-  console.log(`[uploads:gc] ${env.uploadDir} existiert nicht — nichts zu tun.`);
+  console.log(`[uploads:gc] ${env.uploadDir} does not exist — nothing to do.`);
   process.exit(0);
 }
 
@@ -120,12 +120,12 @@ for (const entry of entries) {
   }
 
   if (dryRun) {
-    console.log(`[uploads:gc] würde löschen: ${entry} (${(info.size / 1024).toFixed(0)} KB)`);
+    console.log(`[uploads:gc] would delete: ${entry} (${(info.size / 1024).toFixed(0)} KB)`);
   } else {
     try {
       await unlink(absolute);
     } catch (error) {
-      console.warn(`[uploads:gc] ${entry} konnte nicht gelöscht werden:`, error);
+      console.warn(`[uploads:gc] ${entry} could not be deleted:`, error);
       continue;
     }
   }
@@ -135,10 +135,10 @@ for (const entry of entries) {
 
 console.log(
   [
-    `[uploads:gc] ${entries.length} Dateien geprüft,`,
-    `${referenced.size} referenziert,`,
-    `${keptYoung} zu jung (< ${minAgeHours} h),`,
-    `${deleted} ${dryRun ? "löschbar" : "gelöscht"} (${(freedBytes / (1024 * 1024)).toFixed(1)} MB).`,
+    `[uploads:gc] ${entries.length} files checked,`,
+    `${referenced.size} referenced,`,
+    `${keptYoung} too young (< ${minAgeHours} h),`,
+    `${deleted} ${dryRun ? "deletable" : "deleted"} (${(freedBytes / (1024 * 1024)).toFixed(1)} MB).`,
   ].join(" "),
 );
 process.exit(0);

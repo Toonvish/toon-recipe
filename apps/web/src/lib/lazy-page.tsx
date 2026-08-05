@@ -13,6 +13,7 @@
  */
 import { Suspense, lazy, type ComponentType, type ReactElement } from "react";
 import { Hammer } from "lucide-react";
+import { useT, type MessageKey } from "@/lib/i18n";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingBlock } from "@/components/ui/Spinner";
 
@@ -42,9 +43,9 @@ export interface PageSpec {
   candidates: readonly string[];
   /** Named exports to accept when a module has no default export. */
   exportNames?: readonly string[];
-  /** Placeholder heading while the page does not exist yet. */
-  title: string;
-  description?: string;
+  /** Placeholder heading while the page does not exist yet — a catalog key, not a string. */
+  title: MessageKey;
+  description?: MessageKey;
 }
 
 function isComponent(value: unknown): value is ComponentType<Record<string, never>> {
@@ -64,14 +65,15 @@ function pickComponent(
 }
 
 function MissingPage({ spec }: { spec: PageSpec }) {
+  const t = useT();
   return (
     <div className="mx-auto w-full max-w-lg p-4">
       <EmptyState
         icon={<Hammer />}
-        title={spec.title}
+        title={t(spec.title)}
         description={
           <>
-            {spec.description ?? "Dieser Bereich wird gerade gebaut."}
+            {t(spec.description ?? "ui.lazyPage.defaultDescription")}
             <br />
             <code className="mt-2 inline-block rounded bg-surface-2 px-1.5 py-0.5 text-xs break-all">
               {spec.candidates[0]}
@@ -97,8 +99,8 @@ export function lazyPage(spec: PageSpec): () => ReactElement {
       const component = pickComponent(module, spec.exportNames);
       if (component) return { default: component };
       console.warn(
-        `[router] ${path} exportiert keine Seiten-Komponente (default${
-          spec.exportNames?.length ? ` oder ${spec.exportNames.join("/")}` : ""
+        `[router] ${path} does not export a page component (default${
+          spec.exportNames?.length ? ` or ${spec.exportNames.join("/")}` : ""
         }).`,
       );
     }

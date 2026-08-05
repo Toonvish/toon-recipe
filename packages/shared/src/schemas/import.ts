@@ -109,7 +109,7 @@ export type ImportDraft = z.infer<typeof ImportDraftSchema>;
 /* ------------------------------- requests -------------------------------- */
 
 export const ImportUrlRequestSchema = z.object({
-  url: z.url("Bitte eine gültige URL angeben").max(2000),
+  url: z.url().max(2000),
 });
 export type ImportUrlRequest = z.infer<typeof ImportUrlRequestSchema>;
 

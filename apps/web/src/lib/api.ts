@@ -78,6 +78,7 @@ import {
   type UserResponse,
   type VerifyEmailRequest,
 } from "@toon/shared";
+import { getLocale, translate } from "@/lib/i18n/store.ts";
 
 /* -------------------------------------------------------------------------- */
 /* base url                                                                   */
@@ -173,11 +174,11 @@ export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
 }
 
-/** German, user-facing message for any thrown value. Safe to render directly. */
+/** User-facing message for any thrown value, in the active locale. Safe to render directly. */
 export function errorMessage(error: unknown): string {
   if (isApiError(error)) return error.message;
   if (error instanceof Error && error.message) return error.message;
-  return "Unbekannter Fehler. Bitte versuche es noch einmal.";
+  return translate("ui.error.unknown");
 }
 
 /* -------------------------------------------------------------------------- */
@@ -247,7 +248,9 @@ interface RequestInput extends RequestOptions {
 async function request<T>(path: string, input: RequestInput = {}): Promise<T> {
   const { method = "GET", body, form, signal, allowUnauthorized } = input;
 
-  const headers: Record<string, string> = { Accept: "application/json" };
+  // Accept-Language is CORS-safelisted, so this adds no preflight and no CORS
+  // change — the server negotiates `message`'s locale from it (docs/i18n.md §4).
+  const headers: Record<string, string> = { Accept: "application/json", "Accept-Language": getLocale() };
   let payload: BodyInit | undefined;
   if (form) {
     payload = form; // fetch sets the multipart boundary itself
@@ -270,7 +273,7 @@ async function request<T>(path: string, input: RequestInput = {}): Promise<T> {
     throw new ApiError({
       code: "network_error",
       status: 0,
-      message: "Keine Verbindung zum Server. Bist du offline?",
+      message: translate("ui.error.network"),
       details: cause,
     });
   }
@@ -323,23 +326,21 @@ function fallbackCode(status: number): string {
 function fallbackMessage(status: number, raw: string): string {
   switch (status) {
     case 401:
-      return "Bitte melde dich an.";
+      return translate("ui.error.unauthorized");
     case 403:
-      return "Dazu hast du keine Berechtigung.";
+      return translate("ui.error.forbidden");
     case 404:
-      return "Nicht gefunden.";
+      return translate("ui.error.notFound");
     case 409:
-      return "Das steht im Konflikt mit vorhandenen Daten.";
+      return translate("ui.error.conflict");
     case 413:
-      return "Die Datei ist zu groß (max. 15 MB).";
+      return translate("ui.error.payloadTooLarge");
     case 415:
-      return "Dieser Dateityp wird nicht unterstützt.";
+      return translate("ui.error.unsupportedMediaType");
     case 422:
-      return "Die Eingaben sind unvollständig oder ungültig.";
+      return translate("ui.error.validationFailed");
     default:
-      return status >= 500
-        ? "Serverfehler. Bitte versuche es später noch einmal."
-        : raw.slice(0, 200) || "Anfrage fehlgeschlagen.";
+      return status >= 500 ? translate("ui.error.serverError") : raw.slice(0, 200) || translate("ui.error.requestFailed");
   }
 }
 
@@ -349,7 +350,10 @@ function assertUploadSize(file: File): void {
     throw new ApiError({
       code: "payload_too_large",
       status: 413,
-      message: `"${file.name}" ist ${(file.size / (1024 * 1024)).toFixed(1)} MB groß. Maximal 15 MB sind erlaubt.`,
+      message: translate("ui.upload.tooLarge", {
+        filename: file.name,
+        size: (file.size / (1024 * 1024)).toFixed(1),
+      }),
     });
   }
 }

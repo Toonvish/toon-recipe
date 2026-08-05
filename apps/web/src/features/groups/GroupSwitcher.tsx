@@ -2,11 +2,12 @@ import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Check, ChevronDown, Plus, Users } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { plural, roleLabels } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { useActiveGroup } from "@/lib/session";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
+import { ROLE_LABEL_KEYS } from "./lib/roleLabels";
 
 export interface GroupSwitcherProps {
   /** `bar` = compact trigger for the top bar, `block` = full-width for the sidebar. */
@@ -19,11 +20,12 @@ export interface GroupSwitcherProps {
  * imports) follows this selection, which is persisted per device.
  */
 export function GroupSwitcher({ variant = "bar", className }: GroupSwitcherProps) {
+  const t = useT();
   const { group, groups, groupId, setActiveGroup } = useActiveGroup();
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
 
-  const label = group?.name ?? "Keine Gruppe";
+  const label = group?.name ?? t("groups.switcher.noGroup");
 
   return (
     <>
@@ -48,8 +50,8 @@ export function GroupSwitcher({ variant = "bar", className }: GroupSwitcherProps
           <span className="block truncate text-sm font-semibold text-fg">{label}</span>
           {variant === "block" && group ? (
             <span className="block truncate text-xs text-fg-muted">
-              {plural(group.memberCount, "Mitglied", "Mitglieder")} ·{" "}
-              {plural(group.recipeCount, "Rezept", "Rezepte")}
+              {t("groups.count.members", { count: group.memberCount })} ·{" "}
+              {t("groups.count.recipes", { count: group.recipeCount })}
             </span>
           ) : null}
         </span>
@@ -59,8 +61,8 @@ export function GroupSwitcher({ variant = "bar", className }: GroupSwitcherProps
       <Dialog
         open={open}
         onClose={() => setOpen(false)}
-        title="Gruppe wechseln"
-        description="Rezepte, Sammlungen und Tags gehören immer zu einer Gruppe."
+        title={t("groups.switcher.title")}
+        description={t("groups.switcher.description")}
         size="sm"
       >
         <ul className="flex flex-col gap-1 pb-2">
@@ -83,12 +85,12 @@ export function GroupSwitcher({ variant = "bar", className }: GroupSwitcherProps
                     <span className="flex items-center gap-2">
                       <span className="truncate font-medium text-fg">{entry.name}</span>
                       <Badge size="sm" variant={active ? "brand" : "neutral"}>
-                        {roleLabels[entry.role]}
+                        {t(ROLE_LABEL_KEYS[entry.role])}
                       </Badge>
                     </span>
                     <span className="mt-0.5 block truncate text-xs text-fg-muted">
-                      {plural(entry.memberCount, "Mitglied", "Mitglieder")} ·{" "}
-                      {plural(entry.recipeCount, "Rezept", "Rezepte")}
+                      {t("groups.count.members", { count: entry.memberCount })} ·{" "}
+                      {t("groups.count.recipes", { count: entry.recipeCount })}
                     </span>
                   </span>
                   {active ? (
@@ -100,7 +102,7 @@ export function GroupSwitcher({ variant = "bar", className }: GroupSwitcherProps
           })}
           {groups.length === 0 ? (
             <li className="px-3 py-6 text-center text-sm text-fg-muted">
-              Du bist noch in keiner Gruppe.
+              {t("groups.switcher.empty")}
             </li>
           ) : null}
         </ul>
@@ -114,7 +116,7 @@ export function GroupSwitcher({ variant = "bar", className }: GroupSwitcherProps
             void navigate({ to: "/groups" });
           }}
         >
-          Gruppen verwalten
+          {t("groups.switcher.manageButton")}
         </Button>
       </Dialog>
     </>

@@ -9,6 +9,7 @@
 import type { RecipeIngredient, RecipeStep } from "@toon/shared";
 import { formatQuantity } from "@toon/shared";
 import { formatMinutes, formatServingsLabel } from "@/lib/format";
+import { translate, type MessageKey } from "@/lib/i18n";
 
 /** "1½" / "2–3" / "" — the amount column of an ingredient row. */
 export function formatAmount(
@@ -55,13 +56,18 @@ export function optionalServings(
   return formatServingsLabel(amount, unit ?? null);
 }
 
+/**
+ * `RecipeSort` -> catalog key (rule 8: the enum value is locked, only the
+ * label moves). Resolved at render time with `useT()`, never module-level —
+ * see docs/i18n.md §10 rule 8.
+ */
 export const SORT_LABELS = {
-  newest: "Neueste zuerst",
-  oldest: "Älteste zuerst",
-  title: "Titel (A–Z)",
-  rating: "Beste Bewertung",
-  time: "Kürzeste Zeit",
-} as const;
+  newest: "recipes.sort.newest",
+  oldest: "recipes.sort.oldest",
+  title: "recipes.sort.title",
+  rating: "recipes.sort.rating",
+  time: "recipes.sort.time",
+} as const satisfies Record<string, MessageKey>;
 
 export interface Sectioned<T> {
   section: string | null;
@@ -96,7 +102,12 @@ export function sectionNames(rows: readonly { section?: string | null }[]): stri
   return [...seen];
 }
 
-/** Plain-text rendering of a whole recipe — used by share and the clipboard fallback. */
+/**
+ * Plain-text rendering of a whole recipe — used by share and the clipboard fallback.
+ * Called from event handlers, not rendered continuously, so the ambient `translate()`
+ * is the right tool here (see docs/i18n.md §7/§10 rule 6): a component body must use
+ * `useT()` instead.
+ */
 export function recipeToPlainText(input: {
   title: string;
   description?: string | null;
@@ -114,16 +125,16 @@ export function recipeToPlainText(input: {
   const servings = optionalServings(input.servingsAmount, input.servingsUnit);
   const total = optionalMinutes(input.totalMinutes);
   if (servings) lines.push(servings);
-  if (total) lines.push(`Gesamtzeit: ${total}`);
+  if (total) lines.push(translate("recipes.plainText.totalTime", { time: total }));
   if (servings || total) lines.push("");
 
-  lines.push("Zutaten:");
+  lines.push(translate("recipes.plainText.ingredientsHeading"));
   for (const group of groupBySection(input.ingredients)) {
     if (group.section) lines.push(`  ${group.section}:`);
     for (const ingredient of group.items) lines.push(`  - ${formatIngredientLine(ingredient)}`);
   }
 
-  lines.push("", "Zubereitung:");
+  lines.push("", translate("recipes.plainText.stepsHeading"));
   let index = 1;
   for (const group of groupBySection(input.steps)) {
     if (group.section) lines.push(`  ${group.section}:`);
@@ -133,7 +144,9 @@ export function recipeToPlainText(input: {
     }
   }
 
-  if (input.notes) lines.push("", "Notizen:", input.notes);
-  if (input.sourceUrl) lines.push("", `Quelle: ${input.sourceUrl}`);
+  if (input.notes) lines.push("", translate("recipes.plainText.notesHeading"), input.notes);
+  if (input.sourceUrl) {
+    lines.push("", translate("recipes.plainText.sourceLine", { url: input.sourceUrl }));
+  }
   return lines.join("\n");
 }

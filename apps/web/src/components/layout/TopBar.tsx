@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { Plus, Search } from "lucide-react";
+import { useT } from "@/lib/i18n";
 import { GroupSwitcher } from "@/features/groups/GroupSwitcher";
 
 /**
@@ -11,6 +12,9 @@ import { GroupSwitcher } from "@/features/groups/GroupSwitcher";
  * back to the top, where the search field is.
  */
 export function TopBar() {
+  const t = useT();
+  const searchRecipesLabel = t("ui.topbar.searchRecipes");
+  const newRecipeLabel = t("ui.topbar.newRecipe");
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-bg/90 pt-safe backdrop-blur-md lg:hidden">
       {/* `px-gutter`, never `px-2 px-safe` — see the utility: the inset would win and
@@ -19,16 +23,16 @@ export function TopBar() {
         <GroupSwitcher className="min-w-0 flex-1" />
         <Link
           to="/"
-          aria-label="Rezepte suchen"
-          title="Rezepte suchen"
+          aria-label={searchRecipesLabel}
+          title={searchRecipesLabel}
           className="inline-flex size-11 shrink-0 items-center justify-center rounded-xl text-fg transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           <Search className="size-5" aria-hidden="true" />
         </Link>
         <Link
           to="/recipes/new"
-          aria-label="Rezept anlegen"
-          title="Rezept anlegen"
+          aria-label={newRecipeLabel}
+          title={newRecipeLabel}
           className="inline-flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand text-brand-fg shadow-soft transition-colors duration-150 hover:bg-brand-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           <Plus className="size-5" aria-hidden="true" />

@@ -6,6 +6,7 @@
 import { useId, useState } from "react";
 import { ArrowDown, ArrowUp, ClipboardPaste, Plus, Trash2 } from "lucide-react";
 import { Button, Dialog, IconButton, Input, Textarea } from "@/components/ui";
+import { useT } from "@/lib/i18n";
 import type { FieldErrors } from "@/lib/validation";
 import { moveItem } from "../lib/hooks";
 import { sectionNames } from "../lib/format";
@@ -20,6 +21,7 @@ export interface StepsEditorProps {
 }
 
 export function StepsEditor({ rows, onChange, errors = {}, disabled = false }: StepsEditorProps) {
+  const t = useT();
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [status, setStatus] = useState("");
@@ -34,26 +36,26 @@ export function StepsEditor({ rows, onChange, errors = {}, disabled = false }: S
     const target = index + delta;
     if (target < 0 || target >= rows.length) return;
     onChange(moveItem(rows, index, target));
-    setStatus(`Schritt an Position ${target + 1} verschoben.`);
+    setStatus(t("recipes.stepsEditor.status.moved", { position: target + 1 }));
   }
 
   function remove(index: number) {
     const next = rows.filter((_row, position) => position !== index);
     onChange(next.length > 0 ? next : [emptyStepRow()]);
-    setStatus("Schritt entfernt.");
+    setStatus(t("recipes.stepsEditor.status.removed"));
   }
 
   function applyPaste() {
     const parsed = rowsFromPastedSteps(pasteText);
     if (parsed.length === 0) {
-      setStatus("Keine Schritte erkannt.");
+      setStatus(t("recipes.stepsEditor.status.pasteEmpty"));
       return;
     }
     const keep = rows.filter((row) => row.text.trim().length > 0);
     onChange([...keep, ...parsed]);
     setPasteText("");
     setPasteOpen(false);
-    setStatus(`${parsed.length} ${parsed.length === 1 ? "Schritt" : "Schritte"} übernommen.`);
+    setStatus(t("recipes.stepsEditor.status.pasted", { count: parsed.length }));
   }
 
   return (
@@ -65,7 +67,7 @@ export function StepsEditor({ rows, onChange, errors = {}, disabled = false }: S
       </datalist>
 
       <div className="flex items-center justify-between gap-2">
-        <h2 className="font-display text-lg font-semibold">Zubereitung</h2>
+        <h2 className="font-display text-lg font-semibold">{t("recipes.steps.heading")}</h2>
         <Button
           type="button"
           variant="secondary"
@@ -74,7 +76,7 @@ export function StepsEditor({ rows, onChange, errors = {}, disabled = false }: S
           disabled={disabled}
           leftIcon={<ClipboardPaste className="size-4" />}
         >
-          Text einfügen
+          {t("recipes.stepsEditor.insertAction")}
         </Button>
       </div>
 
@@ -93,50 +95,50 @@ export function StepsEditor({ rows, onChange, errors = {}, disabled = false }: S
             >
               {isFirstOfSection || row.section.length > 0 ? (
                 <Input
-                  label="Abschnitt"
+                  label={t("recipes.ingredientsEditor.section.label")}
                   optional
                   list={sectionListId}
                   value={row.section}
                   onChange={(event) => patch(index, { section: event.target.value })}
-                  placeholder="z. B. Teig zubereiten"
+                  placeholder={t("recipes.stepsEditor.section.placeholder")}
                   disabled={disabled}
                   error={errors[`${prefix}.section`]}
                 />
               ) : null}
 
               <Textarea
-                label={`Schritt ${index + 1}`}
+                label={t("recipes.stepsEditor.text.label", { index: index + 1 })}
                 required
                 autoGrow
                 rows={3}
                 value={row.text}
                 onChange={(event) => patch(index, { text: event.target.value })}
-                placeholder="Mehl, Backpulver und Salz in einer Schüssel vermischen."
+                placeholder={t("recipes.stepsEditor.text.placeholder")}
                 disabled={disabled}
                 error={errors[`${prefix}.text`]}
               />
 
               <div className="flex items-center justify-between gap-1">
                 <span className="text-xs text-fg-subtle tabular-nums">
-                  Position {index + 1} von {rows.length}
+                  {t("recipes.editor.positionOf", { index: index + 1, total: rows.length })}
                 </span>
                 <div className="flex items-center gap-1">
                   <IconButton
-                    label={`Schritt ${index + 1} nach oben`}
+                    label={t("recipes.stepsEditor.moveUpAction", { index: index + 1 })}
                     icon={<ArrowUp />}
                     size="sm"
                     onClick={() => move(index, -1)}
                     disabled={disabled || index === 0}
                   />
                   <IconButton
-                    label={`Schritt ${index + 1} nach unten`}
+                    label={t("recipes.stepsEditor.moveDownAction", { index: index + 1 })}
                     icon={<ArrowDown />}
                     size="sm"
                     onClick={() => move(index, 1)}
                     disabled={disabled || index === rows.length - 1}
                   />
                   <IconButton
-                    label={`Schritt ${index + 1} entfernen`}
+                    label={t("recipes.stepsEditor.removeAction", { index: index + 1 })}
                     icon={<Trash2 />}
                     size="sm"
                     variant="danger"
@@ -156,51 +158,49 @@ export function StepsEditor({ rows, onChange, errors = {}, disabled = false }: S
           variant="outline"
           onClick={() => {
             onChange([...rows, emptyStepRow()]);
-            setStatus("Schritt hinzugefügt.");
+            setStatus(t("recipes.stepsEditor.status.added"));
           }}
           disabled={disabled}
           leftIcon={<Plus className="size-4" />}
         >
-          Schritt hinzufügen
+          {t("recipes.stepsEditor.addAction")}
         </Button>
         <Button
           type="button"
           variant="ghost"
           onClick={() => {
             onChange([...rows, emptyStepRow(rows[rows.length - 1]?.section ?? "")]);
-            setStatus("Schritt hinzugefügt.");
+            setStatus(t("recipes.stepsEditor.status.added"));
           }}
           disabled={disabled}
         >
-          Weiterer im gleichen Abschnitt
+          {t("recipes.stepsEditor.addSameSectionAction")}
         </Button>
       </div>
 
       <Dialog
         open={pasteOpen}
         onClose={() => setPasteOpen(false)}
-        title="Zubereitung einfügen"
-        description="Nummerierte Schritte („1.“, „Schritt 2)“) oder Absätze werden automatisch getrennt."
+        title={t("recipes.stepsEditor.dialog.title")}
+        description={t("recipes.stepsEditor.dialog.description")}
         size="lg"
         footer={
           <>
             <Button variant="secondary" onClick={() => setPasteOpen(false)} fullWidth>
-              Abbrechen
+              {t("recipes.editor.cancel")}
             </Button>
             <Button onClick={applyPaste} disabled={pasteText.trim().length === 0} fullWidth>
-              Übernehmen
+              {t("recipes.editor.apply")}
             </Button>
           </>
         }
       >
         <Textarea
-          label="Zubereitungstext"
+          label={t("recipes.stepsEditor.dialog.textareaLabel")}
           rows={12}
           value={pasteText}
           onChange={(event) => setPasteText(event.target.value)}
-          placeholder={
-            "1. Backofen auf 180 °C vorheizen.\n2. Mehl und Backpulver vermischen.\n3. Eier unterrühren."
-          }
+          placeholder={t("recipes.stepsEditor.dialog.placeholder")}
         />
       </Dialog>
     </div>

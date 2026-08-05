@@ -6,6 +6,7 @@ import { Clock, Star, UtensilsCrossed, Users } from "lucide-react";
 import type { RecipeListItem } from "@toon/shared";
 import { cn } from "@/lib/cn";
 import { thumbnailUrl } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import { TagChip } from "@/features/tags/components/TagChip";
 import { AppLink } from "../lib/nav";
 import { optionalMinutes, optionalServings } from "../lib/format";
@@ -18,6 +19,7 @@ export interface RecipeCardProps {
 const MAX_TAGS = 3;
 
 export function RecipeCard({ recipe, className }: RecipeCardProps) {
+  const t = useT();
   // The 480px derivative, not the original: a grid of full-size phone photos is
   // megabytes per screen. The card is ~360px at its widest breakpoint.
   const image = thumbnailUrl(recipe);
@@ -56,7 +58,7 @@ export function RecipeCard({ recipe, className }: RecipeCardProps) {
           <span className="absolute top-2 right-2 inline-flex items-center gap-1 rounded-full bg-overlay px-2 py-0.5 text-sm font-medium text-white backdrop-blur-sm">
             <Star aria-hidden="true" className="size-3.5 fill-current" />
             <span className="tabular-nums">{recipe.rating}</span>
-            <span className="sr-only">von 5 Sternen</span>
+            <span className="sr-only">{t("recipes.rating.outOfFive")}</span>
           </span>
         ) : null}
       </div>

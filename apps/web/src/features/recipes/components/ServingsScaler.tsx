@@ -6,6 +6,7 @@ import { useId } from "react";
 import { Minus, Plus, RotateCcw } from "lucide-react";
 import { formatQuantity } from "@toon/shared";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 
 export interface ServingsScalerProps {
   /** Current servings shown. */
@@ -33,16 +34,17 @@ export function ServingsScaler({
   onChange,
   className,
 }: ServingsScalerProps) {
+  const t = useT();
   // A generated id, not a constant: two scalers can be on screen at once (the recipe
   // page plus the "zur Einkaufsliste" dialog), and a duplicate id breaks both labels.
   const labelId = useId();
-  const noun = typeof unit === "string" && unit.trim().length > 0 ? unit.trim() : "Portionen";
+  const noun = typeof unit === "string" && unit.trim().length > 0 ? unit.trim() : t("ui.servings.defaultUnit");
   const changed = Math.abs(value - baseValue) > 0.001;
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
       <span id={labelId} className="sr-only">
-        Anzahl {noun}
+        {t("recipes.scaler.srLabel", { noun })}
       </span>
       <div className="inline-flex items-center rounded-full border border-line bg-surface shadow-soft">
         <button
@@ -50,7 +52,7 @@ export function ServingsScaler({
           className="tap flex items-center justify-center rounded-l-full px-3 text-fg-muted hover:text-fg disabled:opacity-40"
           onClick={() => onChange(clamp(value - step(value)))}
           disabled={value <= 0.5}
-          aria-label={`Weniger ${noun}`}
+          aria-label={t("recipes.scaler.decreaseAction", { noun })}
         >
           <Minus aria-hidden="true" className="size-5" />
         </button>
@@ -66,7 +68,7 @@ export function ServingsScaler({
           className="tap flex items-center justify-center rounded-r-full px-3 text-fg-muted hover:text-fg disabled:opacity-40"
           onClick={() => onChange(clamp(value + step(value)))}
           disabled={value >= 1000}
-          aria-label={`Mehr ${noun}`}
+          aria-label={t("recipes.scaler.increaseAction", { noun })}
         >
           <Plus aria-hidden="true" className="size-5" />
         </button>
@@ -78,7 +80,7 @@ export function ServingsScaler({
           className="tap inline-flex items-center gap-1 rounded-full px-2 text-sm text-brand hover:text-brand-hover"
         >
           <RotateCcw aria-hidden="true" className="size-4" />
-          Original
+          {t("recipes.scaler.resetAction")}
         </button>
       ) : null}
     </div>

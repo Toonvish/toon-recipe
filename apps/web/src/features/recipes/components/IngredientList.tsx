@@ -4,6 +4,7 @@
  */
 import type { RecipeIngredient } from "@toon/shared";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import { formatAmountWithUnit, groupBySection } from "../lib/format";
 
 export interface IngredientListProps {
@@ -14,8 +15,9 @@ export interface IngredientListProps {
 }
 
 export function IngredientList({ ingredients, scaled = false, className }: IngredientListProps) {
+  const t = useT();
   if (ingredients.length === 0) {
-    return <p className="text-sm text-fg-muted">Für dieses Rezept sind keine Zutaten erfasst.</p>;
+    return <p className="text-sm text-fg-muted">{t("recipes.ingredients.empty")}</p>;
   }
 
   const groups = groupBySection(ingredients);

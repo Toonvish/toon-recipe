@@ -5,15 +5,16 @@
  *  - admins may change roles, but only an OWNER may grant `owner` (= ownership transfer,
  *    the previous owner becomes admin)
  *  - the last owner can neither be demoted nor removed (409 `last_owner`)
- *  - every member may remove themselves ("Gruppe verlassen")
+ *  - every member may remove themselves (the "leave group" action)
  */
 import { useState } from "react";
 import { LogOut, UserMinus } from "lucide-react";
 import type { GroupMember, GroupRole } from "@toon/shared";
 import { Avatar, Badge, Button, ConfirmDialog, Select } from "@/components/ui";
 import { useToast } from "@/components/ui";
-import { roleLabels } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { hasAtLeast } from "@/features/recipes/lib/permissions";
+import { ROLE_LABEL_KEYS } from "../lib/roleLabels";
 import { useChangeMemberRole, useRemoveMember } from "../lib/queries";
 
 export interface MemberListProps {
@@ -26,13 +27,8 @@ export interface MemberListProps {
   onLeft: () => void;
 }
 
-const ROLE_OPTIONS: ReadonlyArray<{ value: GroupRole; label: string }> = [
-  { value: "member", label: roleLabels.member },
-  { value: "admin", label: roleLabels.admin },
-  { value: "owner", label: roleLabels.owner },
-];
-
 export function MemberList({ groupId, members, myRole, myUserId, onLeft }: MemberListProps) {
+  const t = useT();
   const changeRole = useChangeMemberRole();
   const removeMember = useRemoveMember();
   const toast = useToast();
@@ -43,16 +39,24 @@ export function MemberList({ groupId, members, myRole, myUserId, onLeft }: Membe
   const isOwner = myRole === "owner";
   const ownerCount = members.filter((member) => member.role === "owner").length;
 
+  const roleOptions: ReadonlyArray<{ value: GroupRole; label: string }> = [
+    { value: "member", label: t(ROLE_LABEL_KEYS.member) },
+    { value: "admin", label: t(ROLE_LABEL_KEYS.admin) },
+    { value: "owner", label: t(ROLE_LABEL_KEYS.owner) },
+  ];
+
   async function setRole(member: GroupMember, role: GroupRole) {
     if (role === member.role) return;
     try {
       await changeRole.mutateAsync({ groupId, userId: member.userId, role });
       toast.success(
-        role === "owner" ? "Besitz übertragen" : "Rolle geändert",
-        `${member.user.name}: ${roleLabels[role]}`,
+        role === "owner"
+          ? t("groups.members.ownershipTransferredToast")
+          : t("groups.members.roleChangedToast"),
+        `${member.user.name}: ${t(ROLE_LABEL_KEYS[role])}`,
       );
     } catch (error) {
-      toast.fromError(error, "Rolle konnte nicht geändert werden");
+      toast.fromError(error, t("groups.members.roleChangeFailedToast"));
     }
   }
 
@@ -72,16 +76,18 @@ export function MemberList({ groupId, members, myRole, myUserId, onLeft }: Membe
               <div className="min-w-0 flex-1">
                 <p className="flex flex-wrap items-center gap-2 font-medium text-fg">
                   <span className="truncate">{member.user.name}</span>
-                  {isMe ? <Badge variant="brand">Du</Badge> : null}
-                  {isLastOwner ? <Badge variant="neutral">Einzige:r Besitzer:in</Badge> : null}
+                  {isMe ? <Badge variant="brand">{t("groups.members.you")}</Badge> : null}
+                  {isLastOwner ? (
+                    <Badge variant="neutral">{t("groups.members.soleOwner")}</Badge>
+                  ) : null}
                 </p>
                 <p className="truncate text-sm text-fg-muted">{member.user.email}</p>
               </div>
 
               {canChangeRole ? (
                 <Select
-                  aria-label={`Rolle von ${member.user.name}`}
-                  options={ROLE_OPTIONS.filter(
+                  aria-label={t("groups.members.roleAriaLabel", { name: member.user.name })}
+                  options={roleOptions.filter(
                     (option) => option.value !== "owner" || isOwner,
                   )}
                   value={member.role}
@@ -91,7 +97,7 @@ export function MemberList({ groupId, members, myRole, myUserId, onLeft }: Membe
                 />
               ) : (
                 <Badge variant={member.role === "owner" ? "brand" : "neutral"}>
-                  {roleLabels[member.role]}
+                  {t(ROLE_LABEL_KEYS[member.role])}
                 </Badge>
               )}
 
@@ -103,7 +109,7 @@ export function MemberList({ groupId, members, myRole, myUserId, onLeft }: Membe
                   leftIcon={isMe ? <LogOut className="size-4" /> : <UserMinus className="size-4" />}
                   className="text-danger"
                 >
-                  {isMe ? "Verlassen" : "Entfernen"}
+                  {isMe ? t("groups.members.leave") : t("groups.members.remove")}
                 </Button>
               ) : null}
             </li>
@@ -115,20 +121,20 @@ export function MemberList({ groupId, members, myRole, myUserId, onLeft }: Membe
         open={pendingRemoval !== null}
         onClose={() => setPendingRemoval(null)}
         destructive
-        title="Mitglied entfernen?"
+        title={t("groups.members.removeConfirmTitle")}
         description={
           pendingRemoval
-            ? `${pendingRemoval.user.name} verliert den Zugriff auf alle Rezepte dieser Gruppe. Von ${pendingRemoval.user.name} angelegte Rezepte bleiben erhalten.`
+            ? t("groups.members.removeConfirmDescription", { name: pendingRemoval.user.name })
             : undefined
         }
-        confirmLabel="Entfernen"
+        confirmLabel={t("groups.members.remove")}
         onConfirm={async () => {
           if (!pendingRemoval) return;
           try {
             await removeMember.mutateAsync({ groupId, userId: pendingRemoval.userId });
-            toast.success("Mitglied entfernt", pendingRemoval.user.name);
+            toast.success(t("groups.members.removedToast"), pendingRemoval.user.name);
           } catch (error) {
-            toast.fromError(error, "Entfernen fehlgeschlagen");
+            toast.fromError(error, t("groups.members.removeFailedToast"));
             throw error;
           }
         }}
@@ -138,16 +144,16 @@ export function MemberList({ groupId, members, myRole, myUserId, onLeft }: Membe
         open={leaveOpen}
         onClose={() => setLeaveOpen(false)}
         destructive
-        title="Gruppe verlassen?"
-        description="Du verlierst den Zugriff auf alle Rezepte, Tags und Sammlungen dieser Gruppe. Eine erneute Einladung ist jederzeit möglich."
-        confirmLabel="Verlassen"
+        title={t("groups.members.leaveConfirmTitle")}
+        description={t("groups.members.leaveConfirmDescription")}
+        confirmLabel={t("groups.members.leave")}
         onConfirm={async () => {
           try {
             await removeMember.mutateAsync({ groupId, userId: myUserId });
-            toast.success("Gruppe verlassen");
+            toast.success(t("groups.members.leftToast"));
             onLeft();
           } catch (error) {
-            toast.fromError(error, "Verlassen fehlgeschlagen");
+            toast.fromError(error, t("groups.members.leaveFailedToast"));
             throw error;
           }
         }}

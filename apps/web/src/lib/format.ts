@@ -1,50 +1,74 @@
 /**
- * German display formatting. Pure functions — safe to use anywhere.
+ * Locale-aware display formatting. Pure functions — safe to use anywhere.
  * Domain formatting (durations, quantities, servings) is delegated to @toon/shared
  * so the API and the UI always agree.
+ *
+ * Formatters are PER-LOCALE SINGLETONS in a `Map`, resolved through the
+ * ambient locale (`getLocale()`) rather than constructed per render —
+ * constructing an `Intl` formatter costs tens of µs, and a recipe list
+ * formats 24 dates. This file is called from OUTSIDE React just as often as
+ * from inside it, so it reads the ambient locale directly rather than using
+ * `useT()`/`useLocale()` (see docs/i18n.md §7 for the two-entry-point rule).
  */
-import { formatDuration, formatServings, type Servings } from "@toon/shared";
+import { formatDuration, formatServings, INTL_LOCALE, type Locale, type Servings } from "@toon/shared";
+import { getLocale, translate } from "@/lib/i18n/store.ts";
 
-const dateFormatter = new Intl.DateTimeFormat("de-DE", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-});
+interface Formatters {
+  date: Intl.DateTimeFormat;
+  dateTime: Intl.DateTimeFormat;
+  relative: Intl.RelativeTimeFormat;
+}
 
-const dateTimeFormatter = new Intl.DateTimeFormat("de-DE", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
+const cache = new Map<Locale, Formatters>();
 
-const relativeFormatter = new Intl.RelativeTimeFormat("de-DE", { numeric: "auto" });
+function build(intlLocale: string): Formatters {
+  return {
+    date: new Intl.DateTimeFormat(intlLocale, { day: "2-digit", month: "2-digit", year: "numeric" }),
+    dateTime: new Intl.DateTimeFormat(intlLocale, {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+    relative: new Intl.RelativeTimeFormat(intlLocale, { numeric: "auto" }),
+  };
+}
 
-/** "03.08.2026" */
+function formatters(): Formatters {
+  const locale = getLocale();
+  let entry = cache.get(locale);
+  if (!entry) {
+    entry = build(INTL_LOCALE[locale]);
+    cache.set(locale, entry);
+  }
+  return entry;
+}
+
+/** "03.08.2026" ("de") / "03/08/2026" ("en", en-GB order) */
 export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "–";
+  if (!iso) return translate("ui.common.dash");
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "–";
-  return dateFormatter.format(date);
+  if (Number.isNaN(date.getTime())) return translate("ui.common.dash");
+  return formatters().date.format(date);
 }
 
 /** "03.08.2026, 15:48" */
 export function formatDateTime(iso: string | null | undefined): string {
-  if (!iso) return "–";
+  if (!iso) return translate("ui.common.dash");
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "–";
-  return dateTimeFormatter.format(date);
+  if (Number.isNaN(date.getTime())) return translate("ui.common.dash");
+  return formatters().dateTime.format(date);
 }
 
-/** "vor 3 Tagen", "gerade eben" */
+/** "vor 3 Tagen" / "gerade eben" ("de"); "3 days ago" / "just now" ("en") */
 export function formatRelative(iso: string | null | undefined): string {
-  if (!iso) return "–";
+  if (!iso) return translate("ui.common.dash");
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "–";
+  if (Number.isNaN(date.getTime())) return translate("ui.common.dash");
   const diffSeconds = (date.getTime() - Date.now()) / 1000;
   const absolute = Math.abs(diffSeconds);
-  if (absolute < 45) return "gerade eben";
+  if (absolute < 45) return translate("ui.time.justNow");
   const steps: Array<[Intl.RelativeTimeFormatUnit, number]> = [
     ["minute", 60],
     ["hour", 3600],
@@ -61,13 +85,13 @@ export function formatRelative(iso: string | null | undefined): string {
       divisor = candidateDivisor;
     }
   }
-  return relativeFormatter.format(Math.round(diffSeconds / divisor), unit);
+  return formatters().relative.format(Math.round(diffSeconds / divisor), unit);
 }
 
-/** "1 Std. 15 Min." — thin wrapper so components don't import @toon/shared directly. */
+/** "1 Std. 15 Min." ("de") / "1 hr 15 min" ("en") — thin wrapper so components don't import @toon/shared directly. */
 export function formatMinutes(minutes: number | null | undefined): string {
-  if (minutes === null || minutes === undefined) return "–";
-  return formatDuration(minutes);
+  if (minutes === null || minutes === undefined) return translate("ui.common.dash");
+  return formatDuration(minutes, getLocale());
 }
 
 /** "4 Portionen" */
@@ -75,16 +99,19 @@ export function formatServingsLabel(
   amount: number | null | undefined,
   unit: string | null | undefined,
 ): string {
-  if (amount === null || amount === undefined) return "–";
-  const servings: Servings = { amount, unit: unit && unit.length > 0 ? unit : "Portionen" };
+  if (amount === null || amount === undefined) return translate("ui.common.dash");
+  const servings: Servings = {
+    amount,
+    unit: unit && unit.length > 0 ? unit : translate("ui.servings.defaultUnit"),
+  };
   return formatServings(servings);
 }
 
-/** "1,5 MB" */
+/** "1,5 MB" ("de") / "1.5 MB" ("en") */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toLocaleString("de-DE", { maximumFractionDigits: 1 })} MB`;
+  return `${(bytes / (1024 * 1024)).toLocaleString(INTL_LOCALE[getLocale()], { maximumFractionDigits: 1 })} MB`;
 }
 
 /** "Erika Mustermann" -> "EM" (max 2 letters, always uppercase). */
@@ -136,18 +163,12 @@ export function truncate(text: string, max: number): string {
   return `${(lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
 }
 
-/** German role labels. */
-export const roleLabels = {
-  owner: "Eigentümer:in",
-  admin: "Administrator:in",
-  member: "Mitglied",
-} as const;
-
-export const difficultyLabels = {
-  einfach: "Einfach",
-  mittel: "Mittel",
-  schwer: "Schwer",
-} as const;
+// `roleLabels` and `difficultyLabels` are GONE (docs/i18n.md §10 rule 8). A map of
+// literals frozen at import time cannot follow a locale switch, and both were still
+// German after the port. Their wire KEYS are unchanged — the labels now live in the
+// catalogs behind `features/groups/lib/roleLabels.ts` (`groups.role.*`) and
+// `features/recipes/lib/difficultyLabels.ts` (`recipes.difficulty.*`), resolved with
+// `t()` at render time. Do not re-add a label map here.
 
 /**
  * Readable text colour for a user-chosen tag colour (#rrggbb).
@@ -164,7 +185,6 @@ export function readableTextColor(hex: string | null | undefined): string {
   return luminance > 0.62 ? "#241d18" : "#ffffff";
 }
 
-/** German pluralisation helper: `plural(2, "Rezept", "Rezepte")` -> "2 Rezepte". */
-export function plural(count: number, singular: string, pluralForm: string): string {
-  return `${count} ${count === 1 ? singular : pluralForm}`;
-}
+// `plural()` is GONE (docs/i18n.md §3/§10 rule 4): its ~15+ call sites become
+// plural catalog entries (`t("…", { count })`), each ported by the namespace
+// that owns the screen. Do not re-add a two-form helper here.

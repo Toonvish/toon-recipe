@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { EllipsisVertical } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import { Dialog } from "./Dialog";
 import { IconButton, type IconButtonSize, type IconButtonVariant } from "./IconButton";
 
@@ -40,7 +41,7 @@ export interface ActionMenuProps {
  * row steals width from the heading next to it and reflows as buttons appear.
  */
 export function ActionMenu({
-  label = "Weitere Aktionen",
+  label,
   title,
   items,
   icon,
@@ -48,7 +49,9 @@ export function ActionMenu({
   triggerSize = "md",
   className,
 }: ActionMenuProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
+  const triggerLabel = label ?? t("ui.actionMenu.triggerLabel");
   const actions = items.filter((item): item is ActionMenuItem => Boolean(item));
 
   /**
@@ -67,7 +70,7 @@ export function ActionMenu({
   return (
     <>
       <IconButton
-        label={label}
+        label={triggerLabel}
         icon={icon ?? <EllipsisVertical />}
         variant={triggerVariant}
         size={triggerSize}

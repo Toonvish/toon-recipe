@@ -65,12 +65,10 @@ async function resolveRequireSession(): Promise<Middleware> {
     const candidate = module.requireSession ?? module.sessionMiddleware ?? module.requireAuth;
     if (typeof candidate === "function") return candidate as Middleware;
   }
-  throw new ApiError(
-    500,
-    "internal_error",
-    "Die Authentifizierung ist nicht verfügbar (Session-Middleware fehlt).",
-    { expected: SESSION_MODULES, expectedExport: "requireSession" },
-  );
+  throw new ApiError(500, "internal_error", "server.import.sessionMiddlewareUnavailable", {
+    expected: SESSION_MODULES,
+    expectedExport: "requireSession",
+  });
 }
 
 let groupFactoryPromise: Promise<RequireGroupRole> | null = null;
@@ -81,12 +79,10 @@ async function resolveRequireGroupRole(): Promise<RequireGroupRole> {
     const candidate = module.requireGroupRole ?? module.requireGroupMember ?? module.groupMiddleware;
     if (typeof candidate === "function") return candidate as RequireGroupRole;
   }
-  throw new ApiError(
-    500,
-    "internal_error",
-    "Die Gruppenprüfung ist nicht verfügbar (Group-Middleware fehlt).",
-    { expected: GROUP_MODULES, expectedExport: "requireGroupRole" },
-  );
+  throw new ApiError(500, "internal_error", "server.import.groupMiddlewareUnavailable", {
+    expected: GROUP_MODULES,
+    expectedExport: "requireGroupRole",
+  });
 }
 
 /**

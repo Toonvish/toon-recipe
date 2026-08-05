@@ -216,7 +216,6 @@ describe("POST /api/auth/login", () => {
     expect(response.status).toBe(401);
     const body = (await response.json()) as { error: { code: string; message: string } };
     expect(body.error.code).toBe("invalid_credentials");
-    expect(body.error.message).toContain("kein Passwort");
   });
 });
 
@@ -676,7 +675,9 @@ describe("OAuth", () => {
       name: null,
       avatarUrl: null,
     });
-    await expect(attempt).rejects.toThrow(/bereits registriert/);
+    const error = await attempt.catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).code).toBe("email_taken");
   });
 });
 
@@ -769,7 +770,9 @@ describe("group invites", () => {
     await acceptInvite(db, token, first.id);
 
     const second = await createUser(db, { email: uniqueEmail("second"), name: "Zweite" });
-    await expect(acceptInvite(db, token, second.id)).rejects.toThrow(/bereits verwendet/);
+    const error = await acceptInvite(db, token, second.id).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).code).toBe("invite_invalid");
   });
 });
 

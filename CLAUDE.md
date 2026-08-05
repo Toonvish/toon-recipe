@@ -10,8 +10,13 @@ sends no cookies, which is why the fix is a signature) and before re-enabling OA
 old always-true `emailVerified` was an account-takeover; `email_verified_at` is now the only evidence
 that counts, and auto-linking is still deliberately off).
 
-**What it is:** a German-first recipe manager for families/flatshares. Multi-user, group-shared
-recipes, import from URL / photo / PDF, mobile-first installable PWA. Bun workspaces monorepo.
+**What it is:** a recipe manager for families/flatshares, **German-first in its CONTENT and
+bilingual (de/en) in its INTERFACE**. Multi-user, group-shared recipes, import from URL / photo /
+PDF, mobile-first installable PWA. Bun workspaces monorepo.
+
+**Those two languages are different axes and confusing them is the fastest way to wreck this
+codebase** — see the interface-vs-content gotcha below and `docs/i18n.md`. The recipe *parsers* are
+still German-only on purpose; only the *chrome* speaks two languages.
 
 ## Locked decisions — do NOT redesign
 
@@ -59,13 +64,23 @@ recipes, import from URL / photo / PDF, mobile-first installable PWA. Bun worksp
    the whole recipe, which is what keeps an older client and a queued offline replay working. Unknown
    ids are ignored, never rejected, for the same reason. `AddRecipeToListDialog` ticks every
    ingredient by default and tracks the EXCLUDED set, so a recipe that gains a line stays all-on.
-8. **German-first content**: German units (`g kg ml l EL TL Prise Bund Pck. Stück Dose …`), unicode
-   fractions, ranges (`2-3 Eier`), ISO-8601 durations. All UI copy in German.
+8. **German-first CONTENT**: German units (`g kg ml l EL TL Prise Bund Pck. Stück Dose …`), unicode
+   fractions, ranges (`2-3 Eier`), ISO-8601 durations. This is the language recipes are *written in*
+   and it does NOT vary with the viewer.
+10. **INTERFACE language is de + en**, through a small hand-rolled typed catalog layer
+   (`packages/shared/src/i18n` + `apps/web/src/lib/i18n`, no i18n dependency). Flat dotted
+   namespace-prefixed keys, `de` is the source catalog and `en` is typed as
+   `LocaleCatalog<typeof de>` so a missing or mis-shaped key is a **compile** error, not a runtime
+   warning. `de` remains the default (`DEFAULT_LOCALE`) and every German string is byte-identical to
+   what shipped before the port. The server negotiates per request from `Accept-Language`
+   (`lib/locale.ts`), mail renders in the *recipient's* `users.locale`, and `ApiError` carries a
+   typed `ServerKey` rather than a sentence. See `docs/i18n.md`.
 
 ## Architecture
 
 ```
-packages/shared   Zod schemas + inferred types + PURE parsers. Single source of truth for every
+packages/shared   Zod schemas + inferred types + PURE parsers + the i18n runtime and the SERVER
+                  catalogs (errors/validation/mail). Single source of truth for every
                   request/response shape. Imported by api AND web as "@toon/shared".
 apps/api          Bun.serve + Hono. src/index.ts owns CORS/logger/health/uploads and mounts:
                     /api/auth                            -> routes/auth.ts
@@ -92,6 +107,7 @@ apps/api/src/
   env.ts                   zod-validated env; loads the ROOT .env itself; forces file::memory: in tests
   db/{schema,client,migrate}.ts
   lib/{errors,http,types,cookies,oauth,uploadUrls}.ts
+  lib/locale.ts            localeMiddleware + requestLocale(c) — negotiates Accept-Language
   middleware/session.ts    requireSession / optionalSession / loadSession  (sets user, sessionId)
   middleware/group.ts      requireGroupRole(role) — resolves the group from :groupId or from
                            recipeId|collectionId|tagId|draftId|inviteId; sets membership
@@ -108,6 +124,8 @@ apps/web/src/
   router.tsx               the route tree; screens resolved lazily by lib/lazy-page.tsx
   lib/{api,queries,query-client,session,validation,format,navigation,theme,storage,pwa,persist,
        viewport,cn}.ts
+  lib/i18n/                store.ts (ambient locale + translate()) · I18nProvider.tsx (useT/useLocale)
+                           locale.ts (device resolution, <html lang>) · catalogs/<ns>.{de,en}.ts
   components/ui/           the ONLY UI primitives — never re-implement one
   components/layout/       AppShell, TopBar, BottomTabBar, SideNav, InstallPrompt, ErrorBoundary
   features/{auth,recipes,groups,collections,tags,import,shopping}/
@@ -116,7 +134,9 @@ apps/web/src/
 ## Navigation (four tabs, and what is deliberately NOT one)
 
 `components/layout/nav-items.ts` is the single source: `NAV_ITEMS` is the phone tab bar
-**and** the top of the sidebar; `SECONDARY_NAV_ITEMS` is sidebar-only.
+**and** the top of the sidebar; `SECONDARY_NAV_ITEMS` is sidebar-only. The items carry catalog
+**keys**, not labels — resolving at import time would freeze the tab bar at whatever locale loaded
+first. The German labels below are what a `de` user sees.
 
 | | |
 | --- | --- |
@@ -139,7 +159,10 @@ add to that panel instead.
 ## Conventions
 
 - **Errors**: always `{ error: { code, message, details? } }` with the right status. `code` from
-  `ERROR_CODES`. Never leak a stack trace. German messages.
+  `ERROR_CODES` — a code is a **wire contract, never renamed**. Never leak a stack trace. `message`
+  is rendered in the locale the request negotiated; the call site passes an `ErrorText`
+  (a `ServerKey`, or `{ key, values }`), never a sentence — `tsc` rejects a literal. `Error.message`
+  itself stays English so ops output is one language.
 - **Auth checks**: only via `requireSession()` + `requireGroupRole(...)`. Never inline a membership
   query in a handler.
 - **IDs** `crypto.randomUUID()`. **Timestamps** integer unix ms in SQLite, ISO strings on the wire
@@ -162,6 +185,72 @@ add to that panel instead.
 
 ## Gotchas that will bite you
 
+- **INTERFACE LANGUAGE AND CONTENT LANGUAGE ARE TWO DIFFERENT AXES, and mistaking one for the other
+  is the most damaging edit you can make here.** *Interface* = UI copy, error messages, validation
+  messages, mail, date/number formatting. It is bilingual and goes through the catalogs. *Content* =
+  the German recipe vocabulary the parsers read and the app stores: `units.ts`, `ingredients.ts`,
+  `numbers.ts`, `duration.ts`'s `parseDuration`, `text.ts`'s `FOLD_PAIRS`/`foldText`, `foldSql()`,
+  the `recipes.*_fold` columns, `ocr/segment.ts`, `ocr/quantity-fix.ts`, `url/schema-map.ts`, the
+  importer's outbound `Accept-Language: de-DE…`, `TESSERACT_LANGS=deu+eng`, `scripts/seed.ts`, and
+  `recipes.language` / `draft.language` (which default to `"de"` and describe the RECIPE TEXT).
+  **None of that may be routed through `t()` or made to depend on the viewer's locale**, and no
+  German vocabulary may be deleted from it — an English-UI user importing a German page must still
+  parse `250 g Mehl`. `duration.ts` is the file that shows the split cleanly: `parseDuration` is
+  content and German-only, `formatDuration(minutes, locale)` is interface and takes a locale.
+  Conversely `users.locale` is interface-only and must never be wired to `recipes.language`.
+- **The i18n layer is hand-rolled and its typing is the enforcement, not a lint.** `de` catalogs are
+  `as const satisfies NamespaceCatalog<"prefix">`; each `en` catalog is annotated
+  `LocaleCatalog<typeof thatDeCatalog>`, a mapped type over the `de` keys — so a key missing from
+  `en`, an extra key, or a plural-vs-string mismatch is a **compile** error. `t()` keys are
+  `keyof C & string`, so a typo cannot compile either. The runtime missing-key path (returns the key,
+  warns once in dev) exists only for a key that arrived **off the wire** from a server of a different
+  version; that is what `resolveWireKey` is for, and its callers must fall back to the wire's own
+  `message`, never to the raw dotted key. Namespace prefixes keep the merge order-independent.
+  A label map frozen at import time cannot follow a locale switch — which is why
+  `lib/format.ts`'s `roleLabels`/`difficultyLabels` are gone in favour of
+  `ROLE_LABEL_KEYS`/`DIFFICULTY_LABEL_KEYS` (wire values unchanged, only the label moved). Do not
+  re-add a label map. Components use `useT()` so they re-render on a switch; `translate()` from
+  `lib/i18n/store.ts` is the escape hatch for code OUTSIDE React only (it typechecks inside a
+  component and renders stale copy there, which is what makes it dangerous).
+- **German copy is a REFACTOR, not a rewrite: every `de` value must be byte-identical to what the app
+  rendered before the i18n port.** Umlauts, `„low-high“` quotes, en-dashes, trailing colons and
+  ellipses are all part of the string. `scripts/i18n-check.ts` check 1 greps the base commit to prove
+  it. If a sentence was assembled from a ternary or a `{" "}` across two JSX lines, it becomes ONE key
+  per whole sentence — never a key per fragment, or a language with different word order cannot be
+  translated. Ops output is the exception: `console.*`, `env.ts`'s boot validation, `smtp.ts`'s thrown
+  connection errors, `ConsoleMailer`'s ASCII box and the CLI scripts are **English literals, never
+  keyed** — one language in a log is a feature.
+- **THE IMPORT FEATURE'S ERRORS CARRY KEYS, NOT SENTENCES, and that is not decoration.**
+  `ImportApiError`'s `title`/`hint` are `ImportErrorText` — `{ key, values? }` or `{ text }` — and
+  `describeError()` returns the same. `importApi.ts` is not a component, so it has no `useT()`; using
+  the ambient `translate()` there would freeze the copy at THROW time, and `useAutosave` holds a save
+  error in React state for as long as the review screen is open, so a language switch would strand a
+  stale sentence on screen. Rendering therefore belongs to `lib/importErrorText.ts`:
+  `useImportError(error)` in a component, `resolveDescribedError(t, error)` where a hook cannot go
+  (inside an `if` branch that returns early, or in a `useCallback` firing a toast). `Error.message`
+  deliberately holds the KEY — a translated log line is unsearchable and depends on who was looking
+  at the screen. The `{ text }` variant exists because the server's `message` arrives ALREADY
+  localised (it negotiated `Accept-Language`) and a library's `Error.message` has no key; note this
+  is the opposite of the server-side `ErrorText`, where a pass-through variant was deliberately
+  rejected as the loophole that would keep German in handlers. **An empty pass-through string must
+  fall back to a key** (`passThroughOr()`) — `describeError()` hands `toImportApiError()`
+  `message: ""` for a shell `ApiError` that carries none, and `readJson()` synthesises the same for
+  an unparseable body, so passing it through renders a blank headline.
+  `test/…/importErrors.test.ts` walks every status/code branch and asserts the key exists in BOTH
+  catalogs; `tsc` cannot cover that, since `{ text }` is untyped by design.
+- **The language picker's third state is `"system"`, and it is NOT a synonym for `de`.**
+  `LocalePreference = Locale | "system"`, encoded exactly like `ThemePreference`: **absent from
+  `localStorage` means system**, so `setLocalePreference("system")` REMOVES the key rather than
+  storing a resolved locale, and the device keeps following `navigator.languages` afterwards.
+  Collapsing the two states is what would show "Deutsch" to somebody who has never chosen anything
+  and is only seeing German because their phone is. `useLocalePreference()` (`I18nProvider.tsx`) owns
+  the picker state and registers a `languagechange` listener that only acts while the preference is
+  `"system"` — re-resolving under an explicit choice would silently overrule the user. The PATCH to
+  `users.locale` sends the RESOLVED locale, never `null`: that column exists only so mail can pick a
+  language, and the server cannot see `navigator.languages`. It must stay fire-and-forget (a TanStack
+  mutation would pause offline for no benefit and `shouldPersistMutation` would not persist it
+  anyway). The two language names are **autonyms and identical in every catalog** — a user who
+  switched to a language they cannot read needs a way back.
 - **THE CONNECTION PRAGMAS IN `db/client.ts` ARE LOAD-BEARING, and `synchronous` has to be re-sent on
   every connection.** libSQL's defaults are `journal_mode=delete` + `synchronous=FULL`, i.e. a full
   fsync per statement: a single-row INSERT measured **15.5 ms** on ext4/NVMe, 5.2 ms with WAL alone and
@@ -605,8 +694,28 @@ All four must be clean before calling anything done:
 ```bash
 bun install
 bun run typecheck    # tsc for packages/shared, apps/api, apps/web
-bun test             # 887 tests
+bun test             # 934 tests
 bun run build        # vite build + PWA
+bun run i18n:check   # German catalog parity + no German left in a ported tree
+```
+
+`i18n:check` is grep-shaped and **exits non-zero even when the tree is correct** — read its output,
+never just the exit code. Three known false-positive classes, all of them expected:
+
+1. *Parity* — a string the base tree wrapped across source lines, so the fragment never matches; and
+   **any genuinely NEW German copy**, which by definition has no base-tree counterpart (the language
+   card's two hints are the current examples). The check cannot tell new copy from changed copy.
+2. *Leftover German* — English comments that QUOTE a German UI label ("bitte prüfen", "Häufig
+   gekauft", "Für den Teig"), which rule 12 requires them to keep.
+3. *Leftover German* — CONTENT vocabulary that must never move: `UNIT_SUGGESTIONS`, the ingredient
+   paste placeholders, `STEP_HEADING_RE`, `html/entities.ts`'s umlaut table.
+
+The useful way to read it is `grep -vE ':[0-9]+: *(\*|//|/\*)'` to drop the comment hits, then check
+that everything left is on list 3. That is how the German literal in `services/groups/validation.ts`
+was found: it sat in `validationFailed`'s `details` SLOT, not the message slot, so it went out on the
+wire untranslated and no type error could catch it.
+
+```bash
 ```
 
 Plus, for anything touching persistence or auth: `bun run db:migrate` and `bun run seed` against a

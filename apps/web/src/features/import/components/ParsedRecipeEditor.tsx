@@ -21,13 +21,14 @@ import {
   X,
 } from "lucide-react";
 import {
-  formatDuration,
   formatQuantity,
   parseDuration,
   parseNumberToken,
   type Difficulty,
   type ParsedRecipe,
 } from "@toon/shared";
+import { formatMinutes } from "@/lib/format";
+import { useT, type MessageKey } from "@/lib/i18n";
 import { Button, Input, Label, Select, Textarea, readChangeValue } from "../lib/shell";
 import { ConfidenceBadge, ConfidenceReasons } from "./ConfidenceBadge";
 import { fieldNeedsCheck, ingredientCheck, stepCheck } from "../lib/confidence";
@@ -66,11 +67,17 @@ export interface ParsedRecipeEditorProps {
   className?: string;
 }
 
-const DIFFICULTY_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "", label: "– keine Angabe –" },
-  { value: "einfach", label: "einfach" },
-  { value: "mittel", label: "mittel" },
-  { value: "schwer", label: "schwer" },
+/**
+ * The `value`s are DOMAIN values stored on the recipe and are locked; only the
+ * label moves into the catalog (docs/i18n.md §10 rule 8). Resolved at render
+ * time, never frozen into a module constant — that would pin the locale to
+ * whenever this module happened to be imported.
+ */
+const DIFFICULTY_OPTIONS: ReadonlyArray<{ value: string; labelKey: MessageKey }> = [
+  { value: "", labelKey: "import.editor.difficulty.none" },
+  { value: "einfach", labelKey: "import.editor.difficulty.einfach" },
+  { value: "mittel", labelKey: "import.editor.difficulty.mittel" },
+  { value: "schwer", labelKey: "import.editor.difficulty.schwer" },
 ];
 
 /** A short list of the most useful German units for the unit datalist. */
@@ -210,6 +217,7 @@ function MinutesField({
   onCommit: (next: number | undefined) => void;
   label: string;
 }) {
+  const t = useT();
   const [text, setText] = useState(() => (value === null || value === undefined ? "" : String(value)));
 
   useEffect(() => {
@@ -227,7 +235,7 @@ function MinutesField({
         id={id}
         value={text}
         inputMode="text"
-        placeholder="z. B. 30 oder 1 Std 15 Min"
+        placeholder={t("import.editor.minutes.placeholder")}
         onChange={(event) => {
           const next = readChangeValue(event);
           setText(next);
@@ -236,7 +244,7 @@ function MinutesField({
         }}
       />
       {typeof value === "number" && value > 0 ? (
-        <p className="text-[11px] text-fg-muted">{formatDuration(value)}</p>
+        <p className="text-[11px] text-fg-muted">{formatMinutes(value)}</p>
       ) : null}
     </div>
   );
@@ -255,6 +263,7 @@ function BasicsSection({
   onChange: (next: ParsedRecipe) => void;
   tagSuggestions: readonly string[];
 }) {
+  const t = useT();
   const [tagDraft, setTagDraft] = useState("");
   const titleNeedsCheck = fieldNeedsCheck(value, "title");
   const servingsNeedsCheck = fieldNeedsCheck(value, "servings");
@@ -267,19 +276,19 @@ function BasicsSection({
   };
 
   return (
-    <SectionCard title="Grunddaten">
+    <SectionCard title={t("import.editor.basics.title")}>
       <div className="space-y-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <Label htmlFor="import-title" className="text-xs font-medium text-fg-muted">
-              Titel *
+              {t("import.editor.title.label")}
             </Label>
             {titleNeedsCheck ? <ConfidenceBadge value={value.confidence.title} /> : null}
           </div>
           <Input
             id="import-title"
             value={value.title ?? ""}
-            placeholder="Wie heißt das Rezept?"
+            placeholder={t("import.editor.title.placeholder")}
             aria-invalid={(value.title ?? "").trim().length === 0}
             onChange={(event) => onChange({ ...value, title: readChangeValue(event) })}
           />
@@ -287,13 +296,13 @@ function BasicsSection({
 
         <div className="space-y-1">
           <Label htmlFor="import-description" className="text-xs font-medium text-fg-muted">
-            Kurzbeschreibung
+            {t("import.editor.description.label")}
           </Label>
           <Textarea
             id="import-description"
             rows={2}
             value={value.description ?? ""}
-            placeholder="Optional – ein Satz zum Rezept"
+            placeholder={t("import.editor.description.placeholder")}
             onChange={(event) => onChange({ ...value, description: readChangeValue(event) })}
           />
         </div>
@@ -302,12 +311,12 @@ function BasicsSection({
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <Label htmlFor="import-servings" className="text-xs font-medium text-fg-muted">
-                Portionen
+                {t("import.editor.servings.label")}
               </Label>
               {servingsNeedsCheck ? <ConfidenceBadge value={value.confidence.servings} /> : null}
             </div>
             <QuantityField
-              ariaLabel="Anzahl Portionen"
+              ariaLabel={t("import.editor.servings.ariaLabel")}
               placeholder="4"
               value={value.servings?.amount}
               onCommit={(amount) =>
@@ -316,19 +325,21 @@ function BasicsSection({
                   servings:
                     amount === undefined || amount <= 0
                       ? undefined
-                      : { amount, unit: value.servings?.unit ?? "Portionen" },
+                      // Same key `formState.ts` and `draftEdit.ts` already write into
+                      // data for a missing servings unit — one decision, one place.
+                      : { amount, unit: value.servings?.unit ?? t("ui.servings.defaultUnit") },
                 })
               }
             />
           </div>
           <div className="space-y-1">
             <Label htmlFor="import-servings-unit" className="text-xs font-medium text-fg-muted">
-              Einheit
+              {t("import.editor.servingsUnit.label")}
             </Label>
             <Input
               id="import-servings-unit"
               value={value.servings?.unit ?? ""}
-              placeholder="Portionen"
+              placeholder={t("ui.servings.defaultUnit")}
               onChange={(event) => {
                 const unit = readChangeValue(event);
                 onChange({
@@ -347,25 +358,25 @@ function BasicsSection({
 
         <div>
           <div className="mb-1 flex items-center gap-2">
-            <span className="text-xs font-medium text-fg-muted">Zeiten (Minuten)</span>
+            <span className="text-xs font-medium text-fg-muted">{t("import.editor.times.label")}</span>
             {timesNeedCheck ? <ConfidenceBadge value={value.confidence.times} /> : null}
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <MinutesField
               id="import-prep"
-              label="Vorbereitung"
+              label={t("import.editor.times.prep")}
               value={value.prepMinutes}
               onCommit={(next) => onChange({ ...value, prepMinutes: next })}
             />
             <MinutesField
               id="import-cook"
-              label="Kochen / Backen"
+              label={t("import.editor.times.cook")}
               value={value.cookMinutes}
               onCommit={(next) => onChange({ ...value, cookMinutes: next })}
             />
             <MinutesField
               id="import-total"
-              label="Gesamt"
+              label={t("import.editor.times.total")}
               value={value.totalMinutes}
               onCommit={(next) => onChange({ ...value, totalMinutes: next })}
             />
@@ -375,12 +386,12 @@ function BasicsSection({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
             <Label htmlFor="import-difficulty" className="text-xs font-medium text-fg-muted">
-              Schwierigkeit
+              {t("import.editor.difficulty.label")}
             </Label>
             <Select
               id="import-difficulty"
               value={value.difficulty ?? ""}
-              options={DIFFICULTY_OPTIONS}
+              options={DIFFICULTY_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))}
               onChange={(event) => {
                 const next = readChangeValue(event);
                 onChange({ ...value, difficulty: next.length === 0 ? undefined : (next as Difficulty) });
@@ -389,12 +400,12 @@ function BasicsSection({
           </div>
           <div className="space-y-1">
             <Label htmlFor="import-source" className="text-xs font-medium text-fg-muted">
-              Quelle
+              {t("import.editor.source.label")}
             </Label>
             <Input
               id="import-source"
               value={value.sourceName ?? ""}
-              placeholder="z. B. chefkoch.de oder Omas Kochbuch"
+              placeholder={t("import.editor.source.placeholder")}
               onChange={(event) => onChange({ ...value, sourceName: readChangeValue(event) })}
             />
           </div>
@@ -402,7 +413,7 @@ function BasicsSection({
 
         <div className="space-y-2">
           <Label htmlFor="import-tags" className="text-xs font-medium text-fg-muted">
-            Tags
+            {t("import.editor.tags.label")}
           </Label>
           {value.tags.length > 0 ? (
             <ul className="flex flex-wrap gap-1.5">
@@ -413,7 +424,7 @@ function BasicsSection({
                     <button
                       type="button"
                       onClick={() => onChange(removeTag(value, tag))}
-                      aria-label={`Tag ${tag} entfernen`}
+                      aria-label={t("import.editor.tags.remove", { tag })}
                       className="rounded-full p-0.5 hover:bg-surface-2"
                     >
                       <X aria-hidden className="h-3 w-3" />
@@ -429,7 +440,7 @@ function BasicsSection({
               containerClassName="flex-1"
               value={tagDraft}
               list="import-tag-suggestions"
-              placeholder="Tag hinzufügen (Enter)"
+              placeholder={t("import.editor.tags.placeholder")}
               onChange={(event) => setTagDraft(readChangeValue(event))}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === ",") {
@@ -466,6 +477,7 @@ function IngredientsSection({
   onChange: (next: ParsedRecipe) => void;
   listConfidence?: number;
 }) {
+  const t = useT();
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
@@ -486,21 +498,23 @@ function IngredientsSection({
 
   return (
     <SectionCard
-      title={`Zutaten (${value.ingredients.length})`}
-      badge={flagged > 0 ? <ConfidenceBadge level="low" label={`${flagged} prüfen`} /> : null}
+      title={t("import.editor.ingredients.title", { count: value.ingredients.length })}
+      badge={
+        flagged > 0 ? <ConfidenceBadge level="low" label={t("import.editor.flagged", { count: flagged })} /> : null
+      }
       actions={
         <>
           <Button type="button" variant="ghost" size="sm" onClick={() => onChange(reparseAllIngredients(value))}>
             <RefreshCw aria-hidden className="mr-1 h-3.5 w-3.5" />
-            Alle neu parsen
+            {t("import.editor.ingredients.reparseAll")}
           </Button>
           <Button type="button" variant="ghost" size="sm" onClick={() => setPasteOpen((open) => !open)}>
             <ClipboardPaste aria-hidden className="mr-1 h-3.5 w-3.5" />
-            Text einfügen
+            {t("import.editor.pasteText")}
           </Button>
           <Button type="button" variant="secondary" size="sm" onClick={() => onChange(addIngredient(value))}>
             <Plus aria-hidden className="mr-1 h-3.5 w-3.5" />
-            Zeile
+            {t("import.editor.ingredients.addRow")}
           </Button>
         </>
       }
@@ -510,7 +524,7 @@ function IngredientsSection({
           <Textarea
             rows={5}
             value={pasteText}
-            placeholder={"Eine Zutat pro Zeile einfügen.\nAbschnitte als „Für den Teig:“"}
+            placeholder={t("import.editor.ingredients.paste.placeholder")}
             onChange={(event) => setPasteText(readChangeValue(event))}
           />
           <div className="flex gap-2">
@@ -523,10 +537,10 @@ function IngredientsSection({
               }}
               disabled={pasteText.trim().length === 0}
             >
-              Zeilen übernehmen
+              {t("import.editor.ingredients.paste.submit")}
             </Button>
             <Button type="button" variant="ghost" onClick={() => setPasteOpen(false)}>
-              Abbrechen
+              {t("import.editor.cancel")}
             </Button>
           </div>
         </div>
@@ -534,7 +548,7 @@ function IngredientsSection({
 
       {value.ingredients.length === 0 ? (
         <p className="rounded-lg border border-dashed border-line-strong p-4 text-center text-sm text-fg-muted">
-          Noch keine Zutaten. Füge eine Zeile hinzu oder übernimm Zeilen aus dem Rohtext links.
+          {t("import.editor.ingredients.empty")}
         </p>
       ) : (
         <ul className="space-y-3">
@@ -548,7 +562,7 @@ function IngredientsSection({
                 {showHeading && (ingredient.section ?? "").length > 0 ? (
                   <Input
                     value={ingredient.section ?? ""}
-                    aria-label="Abschnitt"
+                    aria-label={t("import.editor.section.ariaLabel")}
                     className="mb-2 font-semibold"
                     onChange={(event) => onChange(renameIngredientSection(value, index, readChangeValue(event)))}
                   />
@@ -566,22 +580,22 @@ function IngredientsSection({
                       past the viewport on a phone. */}
                   <div className="grid grid-cols-[4rem_4.5rem_minmax(0,1fr)] gap-2">
                     <QuantityField
-                      ariaLabel={`Menge Zeile ${index + 1}`}
-                      placeholder="Menge"
+                      ariaLabel={t("import.editor.ingredients.quantity.ariaLabel", { index: index + 1 })}
+                      placeholder={t("import.editor.ingredients.quantity.placeholder")}
                       value={ingredient.quantity}
                       onCommit={(quantity) => onChange(updateIngredient(value, index, { quantity }))}
                     />
                     <Input
                       value={ingredient.unit ?? ""}
                       list="import-unit-suggestions"
-                      aria-label={`Einheit Zeile ${index + 1}`}
-                      placeholder="Einheit"
+                      aria-label={t("import.editor.ingredients.unit.ariaLabel", { index: index + 1 })}
+                      placeholder={t("import.editor.ingredients.unit.placeholder")}
                       onChange={(event) => onChange(updateIngredient(value, index, { unit: readChangeValue(event) }))}
                     />
                     <Input
                       value={ingredient.name}
-                      aria-label={`Zutat Zeile ${index + 1}`}
-                      placeholder="Zutat"
+                      aria-label={t("import.editor.ingredients.name.ariaLabel", { index: index + 1 })}
+                      placeholder={t("import.editor.ingredients.name.placeholder")}
                       onChange={(event) => onChange(updateIngredient(value, index, { name: readChangeValue(event) }))}
                     />
                   </div>
@@ -590,33 +604,33 @@ function IngredientsSection({
                     <div className="mt-2 space-y-2">
                       <div className="grid grid-cols-2 gap-2">
                         <QuantityField
-                          ariaLabel={`Menge bis Zeile ${index + 1}`}
-                          placeholder="bis (z. B. 3)"
+                          ariaLabel={t("import.editor.ingredients.quantityMax.ariaLabel", { index: index + 1 })}
+                          placeholder={t("import.editor.ingredients.quantityMax.placeholder")}
                           value={ingredient.quantityMax}
                           onCommit={(quantityMax) => onChange(updateIngredient(value, index, { quantityMax }))}
                         />
                         <Input
                           value={ingredient.note ?? ""}
-                          aria-label={`Notiz Zeile ${index + 1}`}
-                          placeholder="Notiz (z. B. fein gehackt)"
+                          aria-label={t("import.editor.ingredients.note.ariaLabel", { index: index + 1 })}
+                          placeholder={t("import.editor.ingredients.note.placeholder")}
                           onChange={(event) => onChange(updateIngredient(value, index, { note: readChangeValue(event) }))}
                         />
                       </div>
                       <Input
                         value={ingredient.section ?? ""}
-                        aria-label={`Abschnitt Zeile ${index + 1}`}
-                        placeholder="Abschnitt (z. B. Für den Teig)"
+                        aria-label={t("import.editor.ingredients.section.ariaLabel", { index: index + 1 })}
+                        placeholder={t("import.editor.ingredients.section.placeholder")}
                         onChange={(event) => onChange(updateIngredient(value, index, { section: readChangeValue(event) }))}
                       />
                       <div className="space-y-1">
                         <Label className="text-[11px] font-medium text-fg-muted">
-                          Rohzeile (aus der Quelle)
+                          {t("import.editor.ingredients.raw.label")}
                         </Label>
                         <div className="flex gap-2">
                           <Input
                             value={ingredient.raw ?? ""}
                             containerClassName="flex-1"
-                            aria-label={`Rohzeile ${index + 1}`}
+                            aria-label={t("import.editor.ingredients.raw.ariaLabel", { index: index + 1 })}
                             className="font-mono text-[13px]"
                             onChange={(event) => onChange(updateIngredient(value, index, { raw: readChangeValue(event) }))}
                           />
@@ -625,7 +639,7 @@ function IngredientsSection({
                             variant="secondary"
                             size="sm"
                             onClick={() => onChange(reparseIngredient(value, index))}
-                            title="Rohzeile neu parsen"
+                            title={t("import.editor.ingredients.raw.reparse")}
                           >
                             <RefreshCw aria-hidden className="h-4 w-4" />
                           </Button>
@@ -635,33 +649,47 @@ function IngredientsSection({
                   ) : null}
 
                   <div className="mt-1.5 flex items-center gap-0.5">
-                    <RowAction label="Nach oben" onClick={() => onChange(moveIngredient(value, index, index - 1))} disabled={index === 0}>
+                    <RowAction
+                      label={t("import.editor.row.up")}
+                      onClick={() => onChange(moveIngredient(value, index, index - 1))}
+                      disabled={index === 0}
+                    >
                       <ChevronUp aria-hidden className="h-4 w-4" />
                     </RowAction>
                     <RowAction
-                      label="Nach unten"
+                      label={t("import.editor.row.down")}
                       onClick={() => onChange(moveIngredient(value, index, index + 1))}
                       disabled={index === value.ingredients.length - 1}
                     >
                       <ChevronDown aria-hidden className="h-4 w-4" />
                     </RowAction>
-                    <RowAction label="Zeile neu parsen" onClick={() => onChange(reparseIngredient(value, index))}>
+                    <RowAction
+                      label={t("import.editor.ingredients.row.reparse")}
+                      onClick={() => onChange(reparseIngredient(value, index))}
+                    >
                       <RefreshCw aria-hidden className="h-4 w-4" />
                     </RowAction>
                     <RowAction
-                      label="Zusammengefasste Zeile teilen"
+                      label={t("import.editor.ingredients.row.split")}
                       onClick={() => onChange(splitIngredient(value, index))}
                       disabled={!canSplitIngredient(ingredient)}
                     >
                       <Split aria-hidden className="h-4 w-4" />
                     </RowAction>
-                    <RowAction label="Zutat zu Schritt verschieben" onClick={() => onChange(ingredientToStep(value, index))}>
+                    <RowAction
+                      label={t("import.editor.ingredients.row.toStep")}
+                      onClick={() => onChange(ingredientToStep(value, index))}
+                    >
                       <ArrowRightLeft aria-hidden className="h-4 w-4" />
                     </RowAction>
-                    <RowAction label="Details bearbeiten" onClick={() => toggleExpanded(index)}>
+                    <RowAction label={t("import.editor.row.editDetails")} onClick={() => toggleExpanded(index)}>
                       <Pencil aria-hidden className="h-4 w-4" />
                     </RowAction>
-                    <RowAction label="Zeile löschen" danger onClick={() => onChange(removeIngredient(value, index))}>
+                    <RowAction
+                      label={t("import.editor.row.delete")}
+                      danger
+                      onClick={() => onChange(removeIngredient(value, index))}
+                    >
                       <Trash2 aria-hidden className="h-4 w-4" />
                     </RowAction>
                     {!isExpanded && (ingredient.note ?? "").length > 0 ? (
@@ -701,6 +729,7 @@ function StepsSection({
   onChange: (next: ParsedRecipe) => void;
   listConfidence?: number;
 }) {
+  const t = useT();
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [sectionOpen, setSectionOpen] = useState<Set<number>>(() => new Set());
@@ -712,21 +741,23 @@ function StepsSection({
 
   return (
     <SectionCard
-      title={`Zubereitung (${value.steps.length})`}
-      badge={flagged > 0 ? <ConfidenceBadge level="low" label={`${flagged} prüfen`} /> : null}
+      title={t("import.editor.steps.title", { count: value.steps.length })}
+      badge={
+        flagged > 0 ? <ConfidenceBadge level="low" label={t("import.editor.flagged", { count: flagged })} /> : null
+      }
       actions={
         <>
           <Button type="button" variant="ghost" size="sm" onClick={() => onChange(reparseAllSteps(value))}>
             <RefreshCw aria-hidden className="mr-1 h-3.5 w-3.5" />
-            Neu aufteilen
+            {t("import.editor.steps.resplit")}
           </Button>
           <Button type="button" variant="ghost" size="sm" onClick={() => setPasteOpen((open) => !open)}>
             <ClipboardPaste aria-hidden className="mr-1 h-3.5 w-3.5" />
-            Text einfügen
+            {t("import.editor.pasteText")}
           </Button>
           <Button type="button" variant="secondary" size="sm" onClick={() => onChange(addStep(value))}>
             <Plus aria-hidden className="mr-1 h-3.5 w-3.5" />
-            Schritt
+            {t("import.editor.steps.addStep")}
           </Button>
         </>
       }
@@ -736,7 +767,7 @@ function StepsSection({
           <Textarea
             rows={6}
             value={pasteText}
-            placeholder={"Zubereitungstext einfügen – „1.“, „2.“ oder Leerzeilen trennen die Schritte."}
+            placeholder={t("import.editor.steps.paste.placeholder")}
             onChange={(event) => setPasteText(readChangeValue(event))}
           />
           <div className="flex gap-2">
@@ -749,10 +780,10 @@ function StepsSection({
               }}
               disabled={pasteText.trim().length === 0}
             >
-              Schritte übernehmen
+              {t("import.editor.steps.paste.submit")}
             </Button>
             <Button type="button" variant="ghost" onClick={() => setPasteOpen(false)}>
-              Abbrechen
+              {t("import.editor.cancel")}
             </Button>
           </div>
         </div>
@@ -760,7 +791,7 @@ function StepsSection({
 
       {value.steps.length === 0 ? (
         <p className="rounded-lg border border-dashed border-line-strong p-4 text-center text-sm text-fg-muted">
-          Noch keine Schritte. Füge einen Schritt hinzu oder übernimm Zeilen aus dem Rohtext links.
+          {t("import.editor.steps.empty")}
         </p>
       ) : (
         <ol className="space-y-3">
@@ -774,7 +805,7 @@ function StepsSection({
                 {showHeading ? (
                   <Input
                     value={step.section ?? ""}
-                    aria-label="Abschnitt"
+                    aria-label={t("import.editor.section.ariaLabel")}
                     className="mb-2 font-semibold"
                     onChange={(event) => onChange(renameStepSection(value, index, readChangeValue(event)))}
                   />
@@ -795,38 +826,49 @@ function StepsSection({
                       <Textarea
                         rows={Math.min(8, Math.max(2, Math.ceil(step.text.length / 60)))}
                         value={step.text}
-                        aria-label={`Schritt ${index + 1}`}
-                        placeholder="Was ist zu tun?"
+                        aria-label={t("import.editor.steps.text.ariaLabel", { index: index + 1 })}
+                        placeholder={t("import.editor.steps.text.placeholder")}
                         onChange={(event) => onChange(updateStep(value, index, { text: readChangeValue(event) }))}
                       />
                       {isSectionOpen ? (
                         <Input
                           value={step.section ?? ""}
-                          aria-label={`Abschnitt Schritt ${index + 1}`}
-                          placeholder="Abschnitt (z. B. Teig zubereiten)"
+                          aria-label={t("import.editor.steps.section.ariaLabel", { index: index + 1 })}
+                          placeholder={t("import.editor.steps.section.placeholder")}
                           className="mt-2"
                           onChange={(event) => onChange(updateStep(value, index, { section: readChangeValue(event) }))}
                         />
                       ) : null}
                       <div className="mt-1.5 flex items-center gap-0.5">
-                        <RowAction label="Nach oben" onClick={() => onChange(moveStep(value, index, index - 1))} disabled={index === 0}>
+                        <RowAction
+                          label={t("import.editor.row.up")}
+                          onClick={() => onChange(moveStep(value, index, index - 1))}
+                          disabled={index === 0}
+                        >
                           <ChevronUp aria-hidden className="h-4 w-4" />
                         </RowAction>
                         <RowAction
-                          label="Nach unten"
+                          label={t("import.editor.row.down")}
                           onClick={() => onChange(moveStep(value, index, index + 1))}
                           disabled={index === value.steps.length - 1}
                         >
                           <ChevronDown aria-hidden className="h-4 w-4" />
                         </RowAction>
-                        <RowAction label="Schritt teilen" onClick={() => onChange(splitStep(value, index))} disabled={!canSplitStep(step)}>
+                        <RowAction
+                          label={t("import.editor.steps.row.split")}
+                          onClick={() => onChange(splitStep(value, index))}
+                          disabled={!canSplitStep(step)}
+                        >
                           <Split aria-hidden className="h-4 w-4" />
                         </RowAction>
-                        <RowAction label="Schritt zu Zutat verschieben" onClick={() => onChange(stepToIngredient(value, index))}>
+                        <RowAction
+                          label={t("import.editor.steps.row.toIngredient")}
+                          onClick={() => onChange(stepToIngredient(value, index))}
+                        >
                           <ListPlus aria-hidden className="h-4 w-4" />
                         </RowAction>
                         <RowAction
-                          label="Abschnitt bearbeiten"
+                          label={t("import.editor.steps.row.editSection")}
                           onClick={() =>
                             setSectionOpen((current) => {
                               const next = new Set(current);
@@ -838,7 +880,11 @@ function StepsSection({
                         >
                           <Pencil aria-hidden className="h-4 w-4" />
                         </RowAction>
-                        <RowAction label="Schritt löschen" danger onClick={() => onChange(removeStep(value, index))}>
+                        <RowAction
+                          label={t("import.editor.steps.row.delete")}
+                          danger
+                          onClick={() => onChange(removeStep(value, index))}
+                        >
                           <Trash2 aria-hidden className="h-4 w-4" />
                         </RowAction>
                       </div>
@@ -860,13 +906,14 @@ function StepsSection({
 /* -------------------------------------------------------------------------- */
 
 function NotesSection({ value, onChange }: { value: ParsedRecipe; onChange: (next: ParsedRecipe) => void }) {
+  const t = useT();
   return (
-    <SectionCard title="Notizen" hint="Alles, was nicht in die Schritte gehört – z. B. Tipps oder Varianten.">
+    <SectionCard title={t("import.editor.notes.title")} hint={t("import.editor.notes.hint")}>
       <Textarea
         rows={3}
         value={value.notes ?? ""}
-        aria-label="Notizen"
-        placeholder="Optional"
+        aria-label={t("import.editor.notes.ariaLabel")}
+        placeholder={t("import.editor.notes.placeholder")}
         onChange={(event) => onChange({ ...value, notes: readChangeValue(event) })}
       />
     </SectionCard>

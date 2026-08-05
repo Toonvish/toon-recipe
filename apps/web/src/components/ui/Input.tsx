@@ -1,6 +1,7 @@
 import { forwardRef, useId, useState, type InputHTMLAttributes, type ReactNode } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import { Label } from "./Label";
 
 /**
@@ -108,10 +109,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
 
 export type PasswordInputProps = Omit<InputProps, "type" | "rightSlot">;
 
-/** Password field with a "Passwort anzeigen" toggle (44px target). */
+/** Password field with a show/hide toggle (44px target). */
 export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
   function PasswordInput(props, ref) {
+    const t = useT();
     const [visible, setVisible] = useState(false);
+    const toggleLabel = visible ? t("ui.passwordInput.hide") : t("ui.passwordInput.show");
     return (
       <Input
         ref={ref}
@@ -120,8 +123,8 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
           <button
             type="button"
             onClick={() => setVisible((value) => !value)}
-            aria-label={visible ? "Passwort verbergen" : "Passwort anzeigen"}
-            title={visible ? "Passwort verbergen" : "Passwort anzeigen"}
+            aria-label={toggleLabel}
+            title={toggleLabel}
             className="flex size-9 items-center justify-center rounded-lg text-fg-muted hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-ring"
           >
             {visible ? (

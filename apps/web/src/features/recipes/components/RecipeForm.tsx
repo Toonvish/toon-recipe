@@ -17,7 +17,8 @@ import {
 } from "@toon/shared";
 import type { Collection } from "@toon/shared";
 import { Button, Card, ConfirmDialog, ErrorState, Input, Select, Textarea } from "@/components/ui";
-import { difficultyLabels } from "@/lib/format";
+import { DIFFICULTY_LABEL_KEYS } from "../lib/difficultyLabels";
+import { useT } from "@/lib/i18n";
 import { useCanMutate } from "@/lib/session";
 import { apiFieldErrors, clearField, validate, type FieldErrors } from "@/lib/validation";
 import { TagCombobox } from "@/features/tags/components/TagCombobox";
@@ -51,22 +52,6 @@ export interface RecipeFormProps {
   imageHint?: string;
 }
 
-const DIFFICULTY_OPTIONS = [
-  { value: "", label: "Keine Angabe" },
-  { value: "einfach", label: difficultyLabels.einfach },
-  { value: "mittel", label: difficultyLabels.mittel },
-  { value: "schwer", label: difficultyLabels.schwer },
-] as const;
-
-const RATING_OPTIONS = [
-  { value: "", label: "Keine Bewertung" },
-  { value: "1", label: "1 Stern" },
-  { value: "2", label: "2 Sterne" },
-  { value: "3", label: "3 Sterne" },
-  { value: "4", label: "4 Sterne" },
-  { value: "5", label: "5 Sterne" },
-] as const;
-
 export function RecipeForm({
   initialValues,
   availableTags,
@@ -78,9 +63,26 @@ export function RecipeForm({
   error,
   imageHint,
 }: RecipeFormProps) {
+  const t = useT();
   const [values, setValues] = useState<RecipeFormValues>(initialValues);
   const [file, setFile] = useState<File | null>(null);
   const [errors, setErrors] = useState<FieldErrors>({});
+
+  const difficultyOptions = [
+    { value: "", label: t("recipes.form.difficulty.none") },
+    { value: "einfach", label: t(DIFFICULTY_LABEL_KEYS.einfach) },
+    { value: "mittel", label: t(DIFFICULTY_LABEL_KEYS.mittel) },
+    { value: "schwer", label: t(DIFFICULTY_LABEL_KEYS.schwer) },
+  ] as const;
+
+  const ratingOptions = [
+    { value: "", label: t("recipes.form.rating.none") },
+    { value: "1", label: t("recipes.form.rating.stars", { count: 1 }) },
+    { value: "2", label: t("recipes.form.rating.stars", { count: 2 }) },
+    { value: "3", label: t("recipes.form.rating.stars", { count: 3 }) },
+    { value: "4", label: t("recipes.form.rating.stars", { count: 4 }) },
+    { value: "5", label: t("recipes.form.rating.stars", { count: 5 }) },
+  ] as const;
 
   // Re-seed when the underlying recipe finished loading.
   useEffect(() => {
@@ -139,7 +141,7 @@ export function RecipeForm({
   const totalHint = (() => {
     const derived = derivedTotalMinutes(values);
     if (derived === undefined || values.totalMinutes.trim().length > 0) return undefined;
-    return `Vorschlag aus Arbeits- + Backzeit: ${derived} Min.`;
+    return t("recipes.form.totalMinutes.hint", { minutes: derived });
   })();
 
   return (
@@ -148,24 +150,24 @@ export function RecipeForm({
 
       <Card padding="md" className="flex flex-col gap-4">
         <Input
-          label="Titel"
+          label={t("recipes.form.title.label")}
           required
           value={values.title}
           onChange={(event) => set("title", event.target.value)}
-          placeholder="Apfelkuchen vom Blech"
+          placeholder={t("recipes.form.title.placeholder")}
           error={allErrors.title}
           disabled={pending}
           autoComplete="off"
         />
 
         <Textarea
-          label="Kurzbeschreibung"
+          label={t("recipes.form.description.label")}
           optional
           autoGrow
           rows={3}
           value={values.description}
           onChange={(event) => set("description", event.target.value)}
-          placeholder="Saftig, schnell gebacken und perfekt für Besuch."
+          placeholder={t("recipes.form.description.placeholder")}
           error={allErrors.description}
           disabled={pending}
         />
@@ -181,23 +183,23 @@ export function RecipeForm({
       </Card>
 
       <Card padding="md" className="flex flex-col gap-4">
-        <h2 className="font-display text-lg font-semibold">Angaben</h2>
+        <h2 className="font-display text-lg font-semibold">{t("recipes.form.detailsHeading")}</h2>
 
         <div className="grid grid-cols-2 gap-3">
           <Input
-            label="Portionen"
+            label={t("recipes.form.servingsAmount.label")}
             inputMode="decimal"
             value={values.servingsAmount}
             onChange={(event) => set("servingsAmount", event.target.value)}
-            placeholder="4"
+            placeholder={t("recipes.form.servingsAmount.placeholder")}
             error={allErrors.servingsAmount}
             disabled={pending}
           />
           <Input
-            label="Einheit"
+            label={t("recipes.form.servingsUnit.label")}
             value={values.servingsUnit}
             onChange={(event) => set("servingsUnit", event.target.value)}
-            placeholder="Portionen"
+            placeholder={t("ui.servings.defaultUnit")}
             error={allErrors.servingsUnit}
             disabled={pending}
           />
@@ -205,29 +207,29 @@ export function RecipeForm({
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Input
-            label="Arbeitszeit (Min.)"
+            label={t("recipes.form.prepMinutes.label")}
             inputMode="numeric"
             value={values.prepMinutes}
             onChange={(event) => set("prepMinutes", event.target.value)}
-            placeholder="20"
+            placeholder={t("recipes.form.prepMinutes.placeholder")}
             error={allErrors.prepMinutes}
             disabled={pending}
           />
           <Input
-            label="Backzeit (Min.)"
+            label={t("recipes.form.cookMinutes.label")}
             inputMode="numeric"
             value={values.cookMinutes}
             onChange={(event) => set("cookMinutes", event.target.value)}
-            placeholder="35"
+            placeholder={t("recipes.form.cookMinutes.placeholder")}
             error={allErrors.cookMinutes}
             disabled={pending}
           />
           <Input
-            label="Gesamtzeit (Min.)"
+            label={t("recipes.form.totalMinutes.label")}
             inputMode="numeric"
             value={values.totalMinutes}
             onChange={(event) => set("totalMinutes", event.target.value)}
-            placeholder="55"
+            placeholder={t("recipes.form.totalMinutes.placeholder")}
             hint={totalHint}
             error={allErrors.totalMinutes}
             disabled={pending}
@@ -236,16 +238,16 @@ export function RecipeForm({
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Select
-            label="Schwierigkeit"
-            options={DIFFICULTY_OPTIONS}
+            label={t("recipes.form.difficulty.label")}
+            options={difficultyOptions}
             value={values.difficulty}
             onChange={(event) => set("difficulty", event.target.value as Difficulty | "")}
             error={allErrors.difficulty}
             disabled={pending}
           />
           <Select
-            label="Bewertung"
-            options={RATING_OPTIONS}
+            label={t("recipes.form.rating.label")}
+            options={ratingOptions}
             value={values.rating}
             onChange={(event) => set("rating", event.target.value)}
             error={allErrors.rating}
@@ -263,7 +265,7 @@ export function RecipeForm({
 
         {collectionOptions.length > 0 ? (
           <fieldset className="flex flex-col gap-2">
-            <legend className="text-sm font-medium text-fg">Sammlungen</legend>
+            <legend className="text-sm font-medium text-fg">{t("recipes.form.collectionsLegend")}</legend>
             <ul className="flex flex-col gap-1">
               {availableCollections.map((collection) => {
                 const checked = values.collectionIds.includes(collection.id);
@@ -314,19 +316,19 @@ export function RecipeForm({
 
       <Card padding="md" className="flex flex-col gap-4">
         <Textarea
-          label="Notizen"
+          label={t("recipes.form.notes.label")}
           optional
           autoGrow
           rows={3}
           value={values.notes}
           onChange={(event) => set("notes", event.target.value)}
-          placeholder="Mit Vanilleeis servieren. Hält sich 2 Tage."
+          placeholder={t("recipes.form.notes.placeholder")}
           error={allErrors.notes}
           disabled={pending}
         />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Input
-            label="Quelle (URL)"
+            label={t("recipes.form.sourceUrl.label")}
             type="url"
             inputMode="url"
             optional
@@ -337,7 +339,7 @@ export function RecipeForm({
             disabled={pending}
           />
           <Input
-            label="Quelle (Name)"
+            label={t("recipes.form.sourceName.label")}
             optional
             value={values.sourceName}
             onChange={(event) => set("sourceName", event.target.value)}
@@ -373,7 +375,7 @@ export function RecipeForm({
             fullWidth
             leftIcon={<X className="size-4" />}
           >
-            Abbrechen
+            {t("recipes.form.cancel")}
           </Button>
           <Button
             type="submit"
@@ -392,10 +394,10 @@ export function RecipeForm({
         open={guard.blocked}
         onClose={guard.reset}
         destructive
-        title="Ungespeicherte Änderungen"
-        description="Wenn du diese Seite verlässt, gehen deine Eingaben verloren."
-        confirmLabel="Verlassen"
-        cancelLabel="Hier bleiben"
+        title={t("recipes.form.unsavedConfirm.title")}
+        description={t("recipes.form.unsavedConfirm.description")}
+        confirmLabel={t("recipes.form.unsavedConfirm.confirm")}
+        cancelLabel={t("recipes.form.unsavedConfirm.cancel")}
         onConfirm={guard.proceed}
       />
     </form>

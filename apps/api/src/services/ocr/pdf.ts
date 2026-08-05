@@ -17,6 +17,7 @@
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ServerKey } from "@toon/shared";
 import { env } from "../../env.ts";
 import { ApiError } from "../../lib/errors.ts";
 import { preprocessImage } from "./preprocess.ts";
@@ -36,8 +37,7 @@ export const RASTER_DPI = 144;
  */
 export const RASTER_SCALE = RASTER_DPI / 72;
 
-export const PDF_NO_TEXT_LAYER_MESSAGE =
-  "Das PDF enthält keinen Text — bitte ein Foto der Seite hochladen.";
+export const PDF_NO_TEXT_LAYER_MESSAGE: ServerKey = "server.ocr.pdfNoTextLayer";
 
 export interface PdfTextLayer {
   /** Page texts, index 0 = page 1. */

@@ -132,37 +132,33 @@ export async function readUploadedFile(
   try {
     form = await request.formData();
   } catch {
-    throw ApiError.badRequest("Die Datei konnte nicht gelesen werden (multipart/form-data erwartet).");
+    throw ApiError.badRequest("server.import.fileUnreadable");
   }
 
   const value = form.get(fieldName);
   if (value === null || typeof value === "string") {
-    throw ApiError.badRequest(`Es wurde keine Datei im Feld "${fieldName}" gesendet.`);
+    throw ApiError.badRequest({ key: "server.import.noFileInField", values: { fieldName } });
   }
   const file = value as File;
   if (file.size > MAX_UPLOAD_BYTES) throw ApiError.payloadTooLarge();
 
   const bytes = new Uint8Array(await file.arrayBuffer());
-  if (bytes.byteLength === 0) throw ApiError.badRequest("Die Datei ist leer.");
+  if (bytes.byteLength === 0) throw ApiError.badRequest("server.import.fileEmpty");
   if (bytes.byteLength > MAX_UPLOAD_BYTES) throw ApiError.payloadTooLarge();
 
   const mimeType = sniffMimeType(bytes);
   if (mimeType === undefined) {
-    throw ApiError.unsupportedMediaType(
-      "Dateityp wird nicht unterstützt. Bitte ein Foto (JPEG, PNG, WEBP, HEIC) oder ein PDF hochladen.",
-    );
+    throw ApiError.unsupportedMediaType("server.import.unsupportedFileType");
   }
 
   const kind: ImportFileKind = mimeType === "application/pdf" ? "pdf" : "image";
   if (!accept.includes(kind)) {
     throw ApiError.unsupportedMediaType(
-      kind === "pdf"
-        ? "Für diesen Endpunkt wird ein Bild erwartet, kein PDF."
-        : "Für diesen Endpunkt wird ein PDF erwartet, kein Bild.",
+      kind === "pdf" ? "server.import.expectedImageNotPdf" : "server.import.expectedPdfNotImage",
     );
   }
   if (kind === "image" && !ACCEPTED_IMPORT_IMAGE_TYPES.includes(mimeType)) {
-    throw ApiError.unsupportedMediaType(`Bildformat ${mimeType} wird nicht unterstützt.`);
+    throw ApiError.unsupportedMediaType({ key: "server.import.unsupportedImageFormat", values: { mimeType } });
   }
 
   const originalName = typeof file.name === "string" && file.name.length > 0 ? basename(file.name).slice(0, 300) : undefined;
@@ -197,12 +193,12 @@ export interface StoredUpload {
 export function resolveUploadPath(filename: string): string {
   const bare = basename(filename);
   if (bare.length === 0 || bare !== filename || bare.startsWith(".")) {
-    throw ApiError.badRequest("Ungültiger Dateiname.");
+    throw ApiError.badRequest("server.import.invalidFilename");
   }
   const absolute = resolve(join(env.uploadDir, bare));
   const root = resolve(env.uploadDir);
   if (absolute !== join(root, bare) || !absolute.startsWith(root)) {
-    throw ApiError.badRequest("Ungültiger Dateiname.");
+    throw ApiError.badRequest("server.import.invalidFilename");
   }
   return absolute;
 }

@@ -5,6 +5,7 @@
 import { Check } from "lucide-react";
 import type { RecipeStepRecord } from "@toon/shared";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import { groupBySection } from "../lib/format";
 import type { CheckedSteps } from "../lib/hooks";
 
@@ -15,8 +16,9 @@ export interface StepListProps {
 }
 
 export function StepList({ steps, checked, className }: StepListProps) {
+  const t = useT();
   if (steps.length === 0) {
-    return <p className="text-sm text-fg-muted">Für dieses Rezept sind keine Schritte erfasst.</p>;
+    return <p className="text-sm text-fg-muted">{t("recipes.steps.empty")}</p>;
   }
 
   const groups = groupBySection(steps);
@@ -65,7 +67,9 @@ export function StepList({ steps, checked, className }: StepListProps) {
                     >
                       {step.text}
                     </span>
-                    <span className="sr-only">{done ? "erledigt" : "als erledigt markieren"}</span>
+                    <span className="sr-only">
+                      {done ? t("recipes.steps.doneSr") : t("recipes.steps.markDoneSr")}
+                    </span>
                   </button>
                 </li>
               );

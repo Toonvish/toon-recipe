@@ -10,6 +10,7 @@ import { apiFieldErrors, clearField, validate, type FieldErrors } from "@/lib/va
 import { Button } from "@/components/ui/Button";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Input, PasswordInput } from "@/components/ui/Input";
+import { useT } from "@/lib/i18n";
 import { AuthLayout } from "./AuthLayout";
 import { AuthDivider, OAuthButtons, useHasOAuthProviders } from "./OAuthButtons";
 
@@ -19,6 +20,7 @@ import { AuthDivider, OAuthButtons, useHasOAuthProviders } from "./OAuthButtons"
  * the new user joins that group instead.
  */
 export function RegisterPage() {
+  const t = useT();
   const search = useSearchParams();
   const inviteToken = search.invite;
   const next = safeNextPath(search.next);
@@ -68,21 +70,19 @@ export function RegisterPage() {
 
   return (
     <AuthLayout
-      title="Konto anlegen"
+      title={t("auth.register.title")}
       description={
-        inviteToken
-          ? "Registriere dich, um der Gruppe beizutreten."
-          : "Sammle eure Rezepte an einem Ort – gemeinsam mit Familie und Freunden."
+        inviteToken ? t("auth.register.descriptionInvite") : t("auth.register.description")
       }
       footer={
         <>
-          Schon ein Konto?{" "}
+          {t("auth.register.haveAccount")}{" "}
           <Link
             to="/login"
             search={next === "/" ? {} : { next }}
             className="font-semibold text-brand underline-offset-2 hover:underline"
           >
-            Anmelden
+            {t("auth.common.signIn")}
           </Link>
         </>
       }
@@ -91,8 +91,10 @@ export function RegisterPage() {
         <div className="mb-4 flex items-start gap-3 rounded-xl border border-brand/30 bg-brand-soft p-3 text-sm text-brand-soft-fg">
           <Users className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
           <p>
-            <strong className="font-semibold">{invite.data.invitedByName}</strong> hat dich zur
-            Gruppe <strong className="font-semibold">{invite.data.groupName}</strong> eingeladen.
+            {t("auth.register.invitedBy", {
+              name: invite.data.invitedByName,
+              groupName: invite.data.groupName,
+            })}
           </p>
         </div>
       ) : null}
@@ -100,24 +102,24 @@ export function RegisterPage() {
         <ErrorState
           inline
           className="mb-4"
-          title="Einladung ungültig"
-          description="Du kannst dich trotzdem registrieren und später beitreten."
+          title={t("auth.register.inviteInvalid.title")}
+          description={t("auth.register.inviteInvalid.description")}
         />
       ) : null}
 
       <OAuthButtons next={next} mode="register" disabled={register.isPending} />
-      {hasOAuth ? <AuthDivider label="oder mit E-Mail" /> : null}
+      {hasOAuth ? <AuthDivider label={t("auth.oauth.orWithEmail")} /> : null}
 
       <form onSubmit={submit} noValidate className="flex flex-col gap-4">
         {errors._form ? <ErrorState inline description={errors._form} /> : null}
 
         <Input
-          label="Name"
+          label={t("auth.field.name.label")}
           name="name"
           autoComplete="name"
           required
           leftIcon={<UserIcon />}
-          placeholder="Wie sollen dich andere sehen?"
+          placeholder={t("auth.register.name.placeholder")}
           value={name}
           error={errors.name}
           onChange={(event) => {
@@ -127,7 +129,7 @@ export function RegisterPage() {
         />
 
         <Input
-          label="E-Mail"
+          label={t("auth.field.email.label")}
           type="email"
           name="email"
           inputMode="email"
@@ -136,7 +138,7 @@ export function RegisterPage() {
           spellCheck={false}
           required
           leftIcon={<Mail />}
-          placeholder="du@beispiel.de"
+          placeholder={t("auth.field.email.placeholder")}
           value={email}
           error={errors.email}
           onChange={(event) => {
@@ -146,12 +148,12 @@ export function RegisterPage() {
         />
 
         <PasswordInput
-          label="Passwort"
+          label={t("auth.field.password.label")}
           name="password"
           autoComplete="new-password"
           required
-          hint="Mindestens 8 Zeichen."
-          placeholder="••••••••"
+          hint={t("auth.password.minLengthHint")}
+          placeholder={t("auth.field.password.placeholder")}
           value={password}
           error={errors.password}
           onChange={(event) => {
@@ -162,12 +164,12 @@ export function RegisterPage() {
 
         {!inviteToken ? (
           <Input
-            label="Name deiner ersten Gruppe"
+            label={t("auth.register.groupName.label")}
             name="groupName"
             optional
             leftIcon={<Users />}
-            placeholder="Familie"
-            hint="Leer lassen für „Meine Rezepte“."
+            placeholder={t("auth.register.groupName.placeholder")}
+            hint={t("auth.register.groupName.hint")}
             value={groupName}
             error={errors.groupName}
             onChange={(event) => {
@@ -178,7 +180,7 @@ export function RegisterPage() {
         ) : null}
 
         <Button type="submit" size="lg" fullWidth loading={register.isPending}>
-          Konto anlegen
+          {t("auth.register.submit")}
         </Button>
       </form>
     </AuthLayout>

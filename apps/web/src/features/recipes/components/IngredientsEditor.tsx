@@ -1,16 +1,17 @@
 /**
  * Ingredients editor.
  *
- * - one row per ingredient: Menge / Einheit / Zutat / Notiz
- * - section headings ("Für den Teig") per row, with a datalist of existing sections
+ * - one row per ingredient: amount / unit / ingredient / note
+ * - section headings (e.g. "Für den Teig") per row, with a datalist of existing sections
  * - reordering via ALWAYS-VISIBLE up/down buttons (drag & drop is unusable on a phone)
- * - "Zutaten einfügen": paste a whole block, every line goes through
+ * - a "paste ingredients" dialog: paste a whole block, every line goes through
  *   `parseIngredientBlock` / `parseIngredientLine` from @toon/shared
  */
 import { useId, useState } from "react";
 import { ArrowDown, ArrowUp, ClipboardPaste, Plus, Trash2, WandSparkles } from "lucide-react";
 import { parseIngredientLine } from "@toon/shared";
 import { Button, Dialog, IconButton, Input, Textarea } from "@/components/ui";
+import { useT } from "@/lib/i18n";
 import type { FieldErrors } from "@/lib/validation";
 import { moveItem } from "../lib/hooks";
 import { sectionNames } from "../lib/format";
@@ -35,6 +36,7 @@ export function IngredientsEditor({
   errors = {},
   disabled = false,
 }: IngredientsEditorProps) {
+  const t = useT();
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [status, setStatus] = useState("");
@@ -49,18 +51,18 @@ export function IngredientsEditor({
     const target = index + delta;
     if (target < 0 || target >= rows.length) return;
     onChange(moveItem(rows, index, target));
-    setStatus(`Zutat an Position ${target + 1} verschoben.`);
+    setStatus(t("recipes.ingredientsEditor.status.moved", { position: target + 1 }));
   }
 
   function remove(index: number) {
     const next = rows.filter((_row, position) => position !== index);
     onChange(next.length > 0 ? next : [emptyIngredientRow()]);
-    setStatus("Zutat entfernt.");
+    setStatus(t("recipes.ingredientsEditor.status.removed"));
   }
 
   function add(section = "") {
     onChange([...rows, emptyIngredientRow(section)]);
-    setStatus("Zutat hinzugefügt.");
+    setStatus(t("recipes.ingredientsEditor.status.added"));
   }
 
   /**
@@ -80,13 +82,13 @@ export function IngredientsEditor({
       note: [row.note, parsed.note].filter((part) => part && part.trim().length > 0).join(", "),
       raw: row.raw,
     });
-    setStatus("Zeile neu erkannt.");
+    setStatus(t("recipes.ingredientsEditor.status.reparsed"));
   }
 
   function applyPaste() {
     const parsed = rowsFromPastedIngredients(pasteText);
     if (parsed.length === 0) {
-      setStatus("Keine Zutaten erkannt.");
+      setStatus(t("recipes.ingredientsEditor.status.pasteEmpty"));
       return;
     }
     // Drop a single empty starter row so pasting into a fresh form looks right.
@@ -94,7 +96,7 @@ export function IngredientsEditor({
     onChange([...keep, ...parsed]);
     setPasteText("");
     setPasteOpen(false);
-    setStatus(`${parsed.length} ${parsed.length === 1 ? "Zutat" : "Zutaten"} übernommen.`);
+    setStatus(t("recipes.ingredientsEditor.status.pasted", { count: parsed.length }));
   }
 
   return (
@@ -106,7 +108,7 @@ export function IngredientsEditor({
       </datalist>
 
       <div className="flex items-center justify-between gap-2">
-        <h2 className="font-display text-lg font-semibold">Zutaten</h2>
+        <h2 className="font-display text-lg font-semibold">{t("recipes.ingredients.heading")}</h2>
         <Button
           type="button"
           variant="secondary"
@@ -115,7 +117,7 @@ export function IngredientsEditor({
           disabled={disabled}
           leftIcon={<ClipboardPaste className="size-4" />}
         >
-          Zutaten einfügen
+          {t("recipes.ingredientsEditor.insertAction")}
         </Button>
       </div>
 
@@ -134,12 +136,12 @@ export function IngredientsEditor({
             >
               {isFirstOfSection || row.section.length > 0 ? (
                 <Input
-                  label="Abschnitt"
+                  label={t("recipes.ingredientsEditor.section.label")}
                   optional
                   list={sectionListId}
                   value={row.section}
                   onChange={(event) => patch(index, { section: event.target.value })}
-                  placeholder="z. B. Für den Teig"
+                  placeholder={t("recipes.ingredientsEditor.section.placeholder")}
                   disabled={disabled}
                   error={errors[`${prefix}.section`]}
                   containerClassName="mb-1"
@@ -148,7 +150,7 @@ export function IngredientsEditor({
 
               <div className="grid grid-cols-[5.5rem_5.5rem_1fr] gap-2">
                 <Input
-                  label="Menge"
+                  label={t("recipes.ingredientsEditor.quantity.label")}
                   inputMode="decimal"
                   value={row.quantity}
                   onChange={(event) => patch(index, { quantity: event.target.value })}
@@ -157,7 +159,7 @@ export function IngredientsEditor({
                   error={errors[`${prefix}.quantity`]}
                 />
                 <Input
-                  label="Einheit"
+                  label={t("recipes.ingredientsEditor.unit.label")}
                   value={row.unit}
                   onChange={(event) => patch(index, { unit: event.target.value })}
                   placeholder="g"
@@ -165,11 +167,11 @@ export function IngredientsEditor({
                   error={errors[`${prefix}.unit`]}
                 />
                 <Input
-                  label="Zutat"
+                  label={t("recipes.ingredientsEditor.name.label")}
                   required
                   value={row.name}
                   onChange={(event) => patch(index, { name: event.target.value })}
-                  placeholder="Mehl"
+                  placeholder={t("recipes.ingredientsEditor.name.placeholder")}
                   disabled={disabled}
                   error={errors[`${prefix}.name`]}
                 />
@@ -177,7 +179,7 @@ export function IngredientsEditor({
 
               <div className="grid grid-cols-[5.5rem_1fr] gap-2">
                 <Input
-                  label="bis"
+                  label={t("recipes.ingredientsEditor.quantityMax.label")}
                   optional
                   inputMode="decimal"
                   value={row.quantityMax}
@@ -187,11 +189,11 @@ export function IngredientsEditor({
                   error={errors[`${prefix}.quantityMax`]}
                 />
                 <Input
-                  label="Notiz"
+                  label={t("recipes.ingredientsEditor.note.label")}
                   optional
                   value={row.note}
                   onChange={(event) => patch(index, { note: event.target.value })}
-                  placeholder="fein gehackt"
+                  placeholder={t("recipes.ingredientsEditor.note.placeholder")}
                   disabled={disabled}
                   error={errors[`${prefix}.note`]}
                 />
@@ -199,32 +201,32 @@ export function IngredientsEditor({
 
               <div className="flex items-center justify-between gap-1">
                 <span className="text-xs text-fg-subtle tabular-nums">
-                  Position {index + 1} von {rows.length}
+                  {t("recipes.editor.positionOf", { index: index + 1, total: rows.length })}
                 </span>
                 <div className="flex items-center gap-1">
                   <IconButton
-                    label={`Zutat ${index + 1} neu erkennen`}
+                    label={t("recipes.ingredientsEditor.reparseAction", { index: index + 1 })}
                     icon={<WandSparkles />}
                     size="sm"
                     onClick={() => reparse(index)}
                     disabled={disabled}
                   />
                   <IconButton
-                    label={`Zutat ${index + 1} nach oben`}
+                    label={t("recipes.ingredientsEditor.moveUpAction", { index: index + 1 })}
                     icon={<ArrowUp />}
                     size="sm"
                     onClick={() => move(index, -1)}
                     disabled={disabled || index === 0}
                   />
                   <IconButton
-                    label={`Zutat ${index + 1} nach unten`}
+                    label={t("recipes.ingredientsEditor.moveDownAction", { index: index + 1 })}
                     icon={<ArrowDown />}
                     size="sm"
                     onClick={() => move(index, 1)}
                     disabled={disabled || index === rows.length - 1}
                   />
                   <IconButton
-                    label={`Zutat ${index + 1} entfernen`}
+                    label={t("recipes.ingredientsEditor.removeAction", { index: index + 1 })}
                     icon={<Trash2 />}
                     size="sm"
                     variant="danger"
@@ -246,7 +248,7 @@ export function IngredientsEditor({
           disabled={disabled}
           leftIcon={<Plus className="size-4" />}
         >
-          Zutat hinzufügen
+          {t("recipes.ingredientsEditor.addAction")}
         </Button>
         <Button
           type="button"
@@ -254,32 +256,34 @@ export function IngredientsEditor({
           onClick={() => add(rows[rows.length - 1]?.section ?? "")}
           disabled={disabled}
         >
-          Weitere im gleichen Abschnitt
+          {t("recipes.ingredientsEditor.addSameSectionAction")}
         </Button>
       </div>
 
       <Dialog
         open={pasteOpen}
         onClose={() => setPasteOpen(false)}
-        title="Zutaten einfügen"
-        description="Eine Zutat pro Zeile. Zeilen wie „Für den Teig:“ werden zu Abschnitten. Mengen, Einheiten und Notizen werden automatisch erkannt."
+        title={t("recipes.ingredientsEditor.insertAction")}
+        description={t("recipes.ingredientsEditor.dialog.description")}
         size="lg"
         footer={
           <>
             <Button variant="secondary" onClick={() => setPasteOpen(false)} fullWidth>
-              Abbrechen
+              {t("recipes.editor.cancel")}
             </Button>
             <Button onClick={applyPaste} disabled={pasteText.trim().length === 0} fullWidth>
-              Übernehmen
+              {t("recipes.editor.apply")}
             </Button>
           </>
         }
       >
         <Textarea
-          label="Zutatenliste"
+          label={t("recipes.ingredientsEditor.dialog.textareaLabel")}
           rows={10}
           value={pasteText}
           onChange={(event) => setPasteText(event.target.value)}
+          // German unit vocabulary example (g/Pck./TL) — content language, left
+          // untouched even in the English UI. See notesForVerifier.
           placeholder={"Für den Teig:\n250 g Mehl\n1 Pck. Backpulver\n2-3 Eier\n½ TL Salz"}
         />
       </Dialog>

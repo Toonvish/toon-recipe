@@ -6,7 +6,7 @@ export interface AuthLayoutProps {
   title: string;
   description?: ReactNode;
   children: ReactNode;
-  /** Rendered below the card (e.g. "Noch kein Konto? Registrieren"). */
+  /** Rendered below the card (e.g. "No account yet? Sign up"). */
   footer?: ReactNode;
 }
 

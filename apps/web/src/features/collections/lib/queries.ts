@@ -83,7 +83,7 @@ export interface CollectionRecipeInput {
   recipeId: string;
 }
 
-/** PUT is idempotent per the contract, so "hinzufügen" can be fired repeatedly. */
+/** PUT is idempotent per the contract, so "add" can be fired repeatedly. */
 export function useAddRecipeToCollection(groupId: string | null) {
   const client = useQueryClient();
   return useMutation<void, Error, CollectionRecipeInput>({

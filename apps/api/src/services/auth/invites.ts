@@ -49,7 +49,7 @@ export async function loadRedeemableInvite(
 ): Promise<GroupInviteRow> {
   const invite = await findInviteByToken(database, token);
   if (!invite || invite.status === "revoked") {
-    throw new ApiError(404, "invite_invalid", "Diese Einladung ist ungültig");
+    throw new ApiError(404, "invite_invalid", "server.invite.invalid");
   }
   if (invite.expiresAt <= Date.now()) {
     if (invite.status === "pending") {
@@ -58,10 +58,10 @@ export async function loadRedeemableInvite(
         .set({ status: "expired" })
         .where(eq(groupInvites.id, invite.id));
     }
-    throw new ApiError(409, "invite_expired", "Diese Einladung ist abgelaufen");
+    throw new ApiError(409, "invite_expired", "server.invite.expired");
   }
   if (invite.status === "expired") {
-    throw new ApiError(409, "invite_expired", "Diese Einladung ist abgelaufen");
+    throw new ApiError(409, "invite_expired", "server.invite.expired");
   }
   return invite;
 }
@@ -114,7 +114,7 @@ export async function acceptInvite(
 
   // A pending invite may only be redeemed once.
   if (invite.status === "accepted") {
-    throw new ApiError(404, "invite_invalid", "Diese Einladung wurde bereits verwendet");
+    throw new ApiError(404, "invite_invalid", "server.invite.alreadyUsed");
   }
 
   const role = invite.role === "admin" ? "admin" : "member";

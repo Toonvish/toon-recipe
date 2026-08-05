@@ -1,24 +1,18 @@
 import { z } from "zod";
+import { LOCALES } from "../i18n/locale.ts";
+import { refineKey } from "../i18n/zod.ts";
 import { IdSchema, IsoDateSchema } from "./common.ts";
 
 /** OAuth providers wired up in this app. */
 export const OAuthProviderSchema = z.enum(["google", "github"]);
 export type OAuthProvider = z.infer<typeof OAuthProviderSchema>;
 
-export const PasswordSchema = z
-  .string()
-  .min(8, "Passwort muss mindestens 8 Zeichen haben")
-  .max(200, "Passwort ist zu lang");
+export const PasswordSchema = z.string().min(8).max(200);
 
 /** Trims + lowercases BEFORE validating, so " Foo@Bar.DE " is accepted. */
-export const EmailSchema = z
-  .string()
-  .max(254)
-  .trim()
-  .toLowerCase()
-  .pipe(z.email("Bitte eine gültige E-Mail-Adresse angeben"));
+export const EmailSchema = z.string().max(254).trim().toLowerCase().pipe(z.email());
 
-export const DisplayNameSchema = z.string().trim().min(1, "Name fehlt").max(80);
+export const DisplayNameSchema = z.string().trim().min(1).max(80);
 
 /** The full user record as the API exposes it to the user themself. */
 export const UserSchema = z.object({
@@ -38,6 +32,14 @@ export const UserSchema = z.object({
   hasPassword: z.boolean(),
   /** Last group the user had active; the web app restores it after login. */
   activeGroupId: IdSchema.nullish(),
+  /**
+   * The account's INTERFACE locale (never `recipes.language`, the CONTENT
+   * axis). Nullable: null means "never chosen", which is what lets a
+   * deployment's `DEFAULT_LOCALE` win for an install that changed its
+   * default. Mirrors the device preference only because mail is delivered
+   * outside any browser (docs/i18n.md §6).
+   */
+  locale: z.enum(LOCALES).nullish(),
   createdAt: IsoDateSchema,
   updatedAt: IsoDateSchema,
 });
@@ -106,8 +108,10 @@ export const UpdateProfileRequestSchema = z
     name: DisplayNameSchema.optional(),
     avatarUrl: z.string().max(1000).nullish(),
     activeGroupId: IdSchema.nullish(),
+    /** Picking a locale mirrors the device choice onto the account (§6). */
+    locale: z.enum(LOCALES).nullish(),
   })
-  .refine((value) => Object.keys(value).length > 0, "Keine Änderungen übergeben");
+  .refine((value) => Object.keys(value).length > 0, refineKey("server.validation.noChanges"));
 export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>;
 
 export const ChangePasswordRequestSchema = z.object({

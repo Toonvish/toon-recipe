@@ -2,6 +2,7 @@ import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client
 import { RouterProvider } from "@tanstack/react-router";
 import { ErrorBoundary } from "@/components/layout/ErrorBoundary";
 import { ToastProvider } from "@/components/ui/Toast";
+import { I18nProvider } from "@/lib/i18n";
 import {
   PERSIST_BUSTER,
   PERSIST_MAX_AGE_MS,
@@ -58,9 +59,11 @@ export function App() {
           void queryClient.resumePausedMutations().catch(() => undefined);
         }}
       >
-        <ToastProvider>
-          <RouterProvider router={router} />
-        </ToastProvider>
+        <I18nProvider>
+          <ToastProvider>
+            <RouterProvider router={router} />
+          </ToastProvider>
+        </I18nProvider>
       </PersistQueryClientProvider>
     </ErrorBoundary>
   );

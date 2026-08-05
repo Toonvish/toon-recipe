@@ -79,7 +79,7 @@ export async function listGroupsForUser(db: DbLike, userId: string): Promise<Gro
 /** The raw group row or a 404. */
 export async function loadGroupRow(db: DbLike, groupId: string): Promise<GroupRow> {
   const [row] = await db.select().from(groups).where(eq(groups.id, groupId)).limit(1);
-  if (!row) throw ApiError.notFound("Gruppe nicht gefunden");
+  if (!row) throw ApiError.notFound("server.group.notFound");
   return row;
 }
 
@@ -120,7 +120,7 @@ export async function getMember(
     .innerJoin(users, eq(users.id, groupMembers.userId))
     .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, userId)))
     .limit(1);
-  if (!row) throw ApiError.notFound("Dieses Mitglied gehört nicht zur Gruppe");
+  if (!row) throw ApiError.notFound("server.group.memberNotFound");
   return toGroupMember(row.member, row.user);
 }
 
@@ -144,7 +144,7 @@ export async function createGroup(
     .where(and(eq(groupMembers.userId, userId), eqFolded(groups.name, input.name)))
     .limit(1);
   if (duplicate.length > 0) {
-    throw ApiError.conflict("group_name_taken", "Du hast schon eine Gruppe mit diesem Namen");
+    throw ApiError.conflict("group_name_taken", "server.group.nameTaken");
   }
 
   const id = crypto.randomUUID();
@@ -219,7 +219,7 @@ export async function updateMemberRole(
     .from(groupMembers)
     .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, targetUserId)))
     .limit(1);
-  if (!target) throw ApiError.notFound("Dieses Mitglied gehört nicht zur Gruppe");
+  if (!target) throw ApiError.notFound("server.group.memberNotFound");
 
   const currentRole = toGroupRole(target.role);
   if (currentRole === nextRole) return getMember(db, groupId, targetUserId);
@@ -227,10 +227,7 @@ export async function updateMemberRole(
   if (nextRole === "owner" || currentRole === "owner") assertRole(actor, "owner");
 
   if (currentRole === "owner" && (await countOwners(db, groupId)) <= 1) {
-    throw ApiError.conflict(
-      "last_owner",
-      "Die Gruppe braucht mindestens eine Besitzerin oder einen Besitzer",
-    );
+    throw ApiError.conflict("last_owner", "server.group.lastOwner");
   }
 
   const timestamp = nowMs();
@@ -274,7 +271,7 @@ export async function removeMember(
     .from(groupMembers)
     .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, targetUserId)))
     .limit(1);
-  if (!target) throw ApiError.notFound("Dieses Mitglied gehört nicht zur Gruppe");
+  if (!target) throw ApiError.notFound("server.group.memberNotFound");
 
   const targetRole = toGroupRole(target.role);
   const isSelf = actor.userId === targetUserId;
@@ -287,9 +284,7 @@ export async function removeMember(
   if (targetRole === "owner" && (await countOwners(db, groupId)) <= 1) {
     throw ApiError.conflict(
       "last_owner",
-      isSelf
-        ? "Übertrage die Besitzerrolle, bevor du die Gruppe verlässt"
-        : "Die Gruppe braucht mindestens eine Besitzerin oder einen Besitzer",
+      isSelf ? "server.group.transferOwnershipFirst" : "server.group.lastOwner",
     );
   }
 

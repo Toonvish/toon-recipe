@@ -6,7 +6,7 @@
  *  - touch targets are at least 44px (`sm` sizes are for dense desktop toolbars),
  *  - no hover-only affordances, focus-visible rings everywhere,
  *  - colours come from the semantic tokens in styles/theme.css (dark mode is automatic),
- *  - German copy, `error` props take a ready-to-render message.
+ *  - copy goes through the i18n catalogs, `error` props take a ready-to-render message.
  */
 export { ActionMenu, type ActionMenuItem, type ActionMenuProps } from "./ActionMenu";
 export { Avatar, type AvatarProps } from "./Avatar";

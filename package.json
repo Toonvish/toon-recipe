@@ -15,6 +15,7 @@
     "start": "bun --filter @toon/api start",
     "test": "bun test",
     "typecheck": "bun run scripts/typecheck.ts",
+    "i18n:check": "bun run scripts/i18n-check.ts",
     "db:generate": "bun --filter @toon/api db:generate",
     "db:migrate": "bun --filter @toon/api db:migrate",
     "db:studio": "bun --filter @toon/api db:studio",

@@ -27,10 +27,18 @@ function toIssues(error: unknown): ValidationIssue[] | undefined {
   }));
 }
 
-/** Throws 422 `validation_failed`; the global onError builds the envelope. */
+/**
+ * Throws 422 `validation_failed`; the global onError builds the envelope.
+ *
+ * A non-Zod error yields NO `details` rather than a fallback sentence. That
+ * sentence used to be a German literal in the `details` SLOT — not the message
+ * slot — so it went out on the wire untranslated whatever the request asked for,
+ * and it said nothing `validationFailed`'s own default message does not already
+ * say (`server.error.validationFailed`, rendered in the negotiated locale).
+ */
 export function onValidationError(result: { success: boolean; error?: unknown }): void {
   if (result.success) return;
-  throw ApiError.validationFailed(toIssues(result.error) ?? "Eingabe ist ungültig");
+  throw ApiError.validationFailed(toIssues(result.error));
 }
 
 /**

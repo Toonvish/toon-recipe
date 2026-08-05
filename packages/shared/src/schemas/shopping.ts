@@ -13,6 +13,7 @@
  *    cannot add the same ingredients twice. See services/shopping/idempotency.ts.
  */
 import { z } from "zod";
+import { refineKey } from "../i18n/zod.ts";
 import { IdSchema, IsoDateSchema } from "./common.ts";
 
 /** Upper bounds, mirrored by the UI so a phone never sends a doomed request. */
@@ -89,12 +90,12 @@ export type ShoppingCatalogEntry = z.infer<typeof ShoppingCatalogEntrySchema>;
 /* --------------------------------- requests ------------------------------- */
 
 export const CreateShoppingListRequestSchema = z.object({
-  name: z.string().trim().min(1, "Name fehlt").max(120),
+  name: z.string().trim().min(1).max(120),
 });
 export type CreateShoppingListRequest = z.infer<typeof CreateShoppingListRequestSchema>;
 
 export const UpdateShoppingListRequestSchema = z.object({
-  name: z.string().trim().min(1, "Name fehlt").max(120),
+  name: z.string().trim().min(1).max(120),
 });
 export type UpdateShoppingListRequest = z.infer<typeof UpdateShoppingListRequestSchema>;
 
@@ -104,7 +105,7 @@ export type UpdateShoppingListRequest = z.infer<typeof UpdateShoppingListRequest
  * `{ name: "Mehl", quantity: 500, unit: "g" }`.
  */
 export const ShoppingItemInputSchema = z.object({
-  name: z.string().trim().min(1, "Name fehlt").max(300),
+  name: z.string().trim().min(1).max(300),
   quantity: z.number().nonnegative().max(1_000_000).nullish(),
   unit: z.string().trim().max(40).nullish(),
   note: z.string().trim().max(300).nullish(),
@@ -129,7 +130,7 @@ export const UpdateShoppingItemRequestSchema = z
     unit: z.string().trim().max(40).nullish(),
     note: z.string().trim().max(300).nullish(),
   })
-  .refine((value) => Object.keys(value).length > 0, "Keine Änderungen übergeben");
+  .refine((value) => Object.keys(value).length > 0, refineKey("server.validation.noChanges"));
 export type UpdateShoppingItemRequest = z.infer<typeof UpdateShoppingItemRequestSchema>;
 
 /**

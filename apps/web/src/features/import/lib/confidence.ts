@@ -5,6 +5,7 @@
  * Rule: this NEVER blocks saving. It only decides where to draw attention.
  */
 import { isKnownUnit, type ParsedRecipe, type ParsedRecipeConfidence, type RecipeIngredient, type RecipeStep } from "@toon/shared";
+import { translate } from "@/lib/i18n";
 
 /** Below this the review screen shows the "bitte prüfen" banner. */
 export const CONFIDENCE_WARN = 0.5;
@@ -22,16 +23,31 @@ export function confidenceLevel(value: number | null | undefined): ConfidenceLev
 
 export type ConfidenceField = keyof Omit<ParsedRecipeConfidence, "overall">;
 
-/** German labels used in the "bitte prüfen" hint text. */
-export const FIELD_LABELS: Record<ConfidenceField, string> = {
-  title: "Titel",
-  description: "Beschreibung",
-  ingredients: "Zutaten",
-  steps: "Zubereitung",
-  servings: "Portionen",
-  times: "Zeiten",
-  image: "Bild",
-};
+/**
+ * Label for the "bitte prüfen" hint text. `field` is a domain value (locked);
+ * only the label is resolved at render/call time so a locale switch is picked
+ * up (docs/i18n.md §10 rule 8) — never freeze this into a module-level map.
+ */
+export function fieldLabel(field: ConfidenceField): string {
+  switch (field) {
+    case "title":
+      return translate("import.confidence.field.title");
+    case "description":
+      return translate("import.confidence.field.description");
+    case "ingredients":
+      return translate("import.confidence.field.ingredients");
+    case "steps":
+      return translate("import.confidence.field.steps");
+    case "servings":
+      return translate("import.confidence.field.servings");
+    case "times":
+      return translate("import.confidence.field.times");
+    case "image":
+      return translate("import.confidence.field.image");
+    default:
+      return field;
+  }
+}
 
 export function fieldConfidence(draft: ParsedRecipe, field: ConfidenceField): number | undefined {
   return draft.confidence[field];
@@ -64,7 +80,11 @@ const LETTER_RE = /\p{L}/u;
 
 export interface RowCheck {
   needsCheck: boolean;
-  /** Short German reasons, shown as a tooltip / hint under the row. */
+  /**
+   * Short reasons, already rendered in the active interface locale (they come
+   * from `translate()`, not from a raw literal), shown as a tooltip / hint
+   * under the row.
+   */
   reasons: string[];
 }
 
@@ -79,23 +99,23 @@ export function ingredientCheck(ingredient: RecipeIngredient, listConfidence?: n
   const name = (ingredient.name ?? "").trim();
   const raw = (ingredient.raw ?? "").trim();
 
-  if (name.length === 0) reasons.push("Kein Name erkannt");
-  else if (name.length < 2) reasons.push("Sehr kurzer Name");
-  if (!LETTER_RE.test(name) && name.length > 0) reasons.push("Name enthält keine Buchstaben");
-  if (OCR_NOISE_RE.test(name)) reasons.push("Ungewöhnliche Zeichen im Namen");
+  if (name.length === 0) reasons.push(translate("import.confidence.reason.noName"));
+  else if (name.length < 2) reasons.push(translate("import.confidence.reason.shortName"));
+  if (!LETTER_RE.test(name) && name.length > 0) reasons.push(translate("import.confidence.reason.noLetters"));
+  if (OCR_NOISE_RE.test(name)) reasons.push(translate("import.confidence.reason.strangeChars"));
   if (typeof ingredient.unit === "string" && ingredient.unit.trim().length > 0 && !isKnownUnit(ingredient.unit)) {
-    reasons.push(`Einheit „${ingredient.unit}“ unbekannt`);
+    reasons.push(translate("import.confidence.reason.unknownUnit", { unit: ingredient.unit }));
   }
   if (ingredient.quantity === null || ingredient.quantity === undefined) {
-    if (/\d/.test(raw)) reasons.push("Zahl in der Zeile, aber keine Menge erkannt");
+    if (/\d/.test(raw)) reasons.push(translate("import.confidence.reason.numberNoQuantity"));
   } else if (ingredient.quantity > 5000 && (ingredient.unit === undefined || ingredient.unit === null)) {
-    reasons.push("Sehr große Menge ohne Einheit");
+    reasons.push(translate("import.confidence.reason.largeQuantityNoUnit"));
   }
-  if (name.length > 90) reasons.push("Zeile wirkt zusammengefasst – evtl. teilen");
-  if (/\d\s*(g|kg|ml|l)\b/i.test(name)) reasons.push("Menge steckt noch im Namen");
+  if (name.length > 90) reasons.push(translate("import.confidence.reason.mergedLine"));
+  if (/\d\s*(g|kg|ml|l)\b/i.test(name)) reasons.push(translate("import.confidence.reason.quantityInName"));
 
   if (reasons.length === 0 && typeof listConfidence === "number" && listConfidence < CONFIDENCE_WARN) {
-    return { needsCheck: true, reasons: ["Zutatenliste unsicher erkannt"] };
+    return { needsCheck: true, reasons: [translate("import.confidence.reason.listUncertainIngredients")] };
   }
   return reasons.length === 0 ? OK : { needsCheck: true, reasons };
 }
@@ -103,12 +123,12 @@ export function ingredientCheck(ingredient: RecipeIngredient, listConfidence?: n
 export function stepCheck(step: RecipeStep, listConfidence?: number): RowCheck {
   const reasons: string[] = [];
   const text = step.text.trim();
-  if (text.length === 0) reasons.push("Leerer Schritt");
-  else if (text.length < 12) reasons.push("Sehr kurzer Schritt");
-  if (OCR_NOISE_RE.test(text)) reasons.push("Ungewöhnliche Zeichen im Text");
-  if (text.length > 1200) reasons.push("Sehr langer Schritt – evtl. teilen");
+  if (text.length === 0) reasons.push(translate("import.confidence.reason.emptyStep"));
+  else if (text.length < 12) reasons.push(translate("import.confidence.reason.shortStep"));
+  if (OCR_NOISE_RE.test(text)) reasons.push(translate("import.confidence.reason.strangeCharsStep"));
+  if (text.length > 1200) reasons.push(translate("import.confidence.reason.longStep"));
   if (reasons.length === 0 && typeof listConfidence === "number" && listConfidence < CONFIDENCE_WARN) {
-    return { needsCheck: true, reasons: ["Zubereitung unsicher erkannt"] };
+    return { needsCheck: true, reasons: [translate("import.confidence.reason.listUncertainSteps")] };
   }
   return reasons.length === 0 ? OK : { needsCheck: true, reasons };
 }
@@ -125,6 +145,6 @@ export function countRowsNeedingCheck(draft: ParsedRecipe): { ingredients: numbe
 
 /** Percent string for the UI, e.g. 0.62 -> "62 %". */
 export function formatConfidence(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "unbekannt";
+  if (typeof value !== "number" || !Number.isFinite(value)) return translate("import.confidence.unknown");
   return `${Math.round(value * 100)} %`;
 }

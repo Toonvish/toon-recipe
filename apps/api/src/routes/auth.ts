@@ -26,10 +26,13 @@ import {
   UpdateProfileRequestSchema,
   type UserResponse,
   VerifyEmailRequestSchema,
+  isLocale,
+  serverText,
 } from "@toon/shared";
 import { Hono } from "hono";
 import type { z } from "zod";
 import { db } from "../db/client.ts";
+import { env } from "../env.ts";
 import {
   clearOAuthCookies,
   clearSessionCookie,
@@ -39,6 +42,7 @@ import {
 } from "../lib/cookies.ts";
 import { ApiError } from "../lib/errors.ts";
 import { created, json, noContent } from "../lib/http.ts";
+import { requestLocale } from "../lib/locale.ts";
 import {
   type OAuthProvider,
   createAuthorization,
@@ -117,12 +121,12 @@ async function readJson<S extends z.ZodType>(c: AppContext, schema: S): Promise<
   try {
     raw = await c.req.json();
   } catch {
-    throw ApiError.badRequest("Der Anfrage-Body ist kein gültiges JSON");
+    throw ApiError.badRequest("server.auth.invalidJsonBody");
   }
   return schema.parse(raw) as z.output<S>;
 }
 
-/** What we store on a session row for the "Angemeldete Geräte" screen. */
+/** What we store on a session row for the "Signed-in devices" screen. */
 function fingerprint(c: AppContext): { ipAddress: string; userAgent: string | null } {
   return { ipAddress: clientIp(c), userAgent: c.req.header("user-agent") ?? null };
 }
@@ -143,7 +147,7 @@ async function authPayload(userId: string): Promise<AuthSessionResponse> {
 /** Path param -> provider, 404 for anything else. */
 function readProvider(c: AppContext): OAuthProvider {
   const parsed = OAuthProviderSchema.safeParse(c.req.param("provider"));
-  if (!parsed.success) throw ApiError.notFound("Unbekannter OAuth-Anbieter");
+  if (!parsed.success) throw ApiError.notFound("server.auth.unknownOauthProvider");
   return parsed.data;
 }
 
@@ -158,7 +162,7 @@ authRoutes.post("/register", async (c) => {
   if (body.inviteToken) await loadRedeemableInvite(db, body.inviteToken);
 
   if (await findUserByEmail(db, body.email)) {
-    throw ApiError.conflict("email_taken", "Diese E-Mail-Adresse ist bereits registriert");
+    throw ApiError.conflict("email_taken", "server.auth.emailTaken");
   }
 
   const passwordHash = await hashPassword(body.password);
@@ -200,11 +204,7 @@ authRoutes.post("/login", async (c) => {
 
   if (!user) throw ApiError.invalidCredentials();
   if (!user.passwordHash) {
-    throw new ApiError(
-      401,
-      "invalid_credentials",
-      "Für dieses Konto ist kein Passwort gesetzt. Bitte melde dich mit Google oder GitHub an.",
-    );
+    throw new ApiError(401, "invalid_credentials", "server.auth.noPasswordSet");
   }
   if (!matches) throw ApiError.invalidCredentials();
 
@@ -237,15 +237,17 @@ authRoutes.patch("/me", requireSession(), async (c) => {
   if (typeof body.activeGroupId === "string") {
     const access = await resolveMembership(body.activeGroupId, user.id);
     if (!access.membership) {
+      const locale = requestLocale(c);
       throw ApiError.validationFailed(
         [
           {
             path: "activeGroupId",
             code: "custom",
-            message: "Keine Mitgliedschaft in dieser Gruppe",
+            message: serverText(locale, "server.group.fieldNotAMember"),
+            i18n: { key: "server.group.fieldNotAMember" },
           },
         ],
-        "Du bist kein Mitglied dieser Gruppe",
+        "server.group.notAMember",
       );
     }
   }
@@ -277,10 +279,10 @@ authRoutes.post("/password", requireSession(), async (c) => {
 
   if (row.passwordHash) {
     if (!body.currentPassword) {
-      throw ApiError.invalidCredentials("Bitte gib dein aktuelles Passwort ein");
+      throw ApiError.invalidCredentials("server.auth.currentPasswordRequired");
     }
     const matches = await verifyPassword(body.currentPassword, row.passwordHash);
-    if (!matches) throw ApiError.invalidCredentials("Das aktuelle Passwort ist falsch");
+    if (!matches) throw ApiError.invalidCredentials("server.auth.currentPasswordWrong");
   }
 
   const passwordHash = await hashPassword(body.newPassword);
@@ -325,6 +327,7 @@ authRoutes.post("/password/forgot", async (c) => {
         name: user.name,
         resetUrl: webUrl(`/reset-password/${token}`),
         expiresInMinutes: PASSWORD_RESET_TTL_MINUTES,
+        locale: isLocale(user.locale) ? user.locale : env.defaultLocale,
       }),
     );
   }
@@ -381,6 +384,7 @@ authRoutes.post("/email/verify/request", requireSession(), async (c) => {
       name: row.name,
       verifyUrl: webUrl(`/verify-email/${token}`),
       expiresInHours: EMAIL_VERIFICATION_TTL_HOURS,
+      locale: isLocale(row.locale) ? row.locale : env.defaultLocale,
     }),
   );
   // The token is stored either way — a failed mail must not invalidate a link the
@@ -422,7 +426,7 @@ authRoutes.get("/sessions", requireSession(), async (c) => {
 authRoutes.delete("/sessions/:sessionId", requireSession(), async (c) => {
   const user = requireUser(c);
   const target = await findSessionByHandle(db, user.id, c.req.param("sessionId"));
-  if (!target) throw ApiError.notFound("Sitzung nicht gefunden");
+  if (!target) throw ApiError.notFound("server.auth.sessionNotFound");
 
   await deleteSession(db, target.id);
   if (target.id === c.get("sessionId")) clearSessionCookie(c);
@@ -524,15 +528,15 @@ authRoutes.get("/oauth/:provider/callback", optionalSession(), async (c) => {
   try {
     const providerError = c.req.query("error");
     if (providerError) {
-      throw new ApiError(400, "oauth_failed", `Der Anbieter hat abgebrochen: ${providerError}`);
+      throw new ApiError(400, "oauth_failed", { key: "server.auth.oauthProviderAborted", values: { providerError } });
     }
     const code = c.req.query("code");
     const state = c.req.query("state");
     if (!code || !state) {
-      throw new ApiError(400, "oauth_failed", "Unvollständige Antwort des Anbieters");
+      throw new ApiError(400, "oauth_failed", "server.auth.oauthIncompleteResponse");
     }
     if (!cookies.state || state !== cookies.state) {
-      throw new ApiError(400, "oauth_failed", "OAuth-Sitzung abgelaufen, bitte erneut anmelden");
+      throw new ApiError(400, "oauth_failed", "server.auth.oauthSessionExpired");
     }
 
     const profile = await exchangeCodeForProfile(provider, code, cookies.codeVerifier);
@@ -541,7 +545,7 @@ authRoutes.get("/oauth/:provider/callback", optionalSession(), async (c) => {
       // The session cookie survives the provider round-trip (SameSite=Lax on a
       // top-level GET); without it we cannot know whose account to extend.
       const sessionUser = c.get("user");
-      if (!sessionUser) throw ApiError.unauthorized("Bitte erneut anmelden und nochmal versuchen.");
+      if (!sessionUser) throw ApiError.unauthorized("server.auth.pleaseSignInAgain");
       await linkOAuthAccount(db, sessionUser.id, profile);
       return c.redirect(webUrl(next, { linked: provider }), 302);
     }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { refineKey } from "../i18n/zod.ts";
 import { IdSchema, IsoDateSchema, MailDeliverySchema, listResponse } from "./common.ts";
 import { EmailSchema, PublicUserSchema } from "./user.ts";
 
@@ -68,7 +69,7 @@ export type GroupInvite = z.infer<typeof GroupInviteSchema>;
 /* ------------------------------- requests -------------------------------- */
 
 export const CreateGroupRequestSchema = z.object({
-  name: z.string().trim().min(1, "Name fehlt").max(80),
+  name: z.string().trim().min(1).max(80),
   description: z.string().trim().max(500).optional(),
 });
 export type CreateGroupRequest = z.infer<typeof CreateGroupRequestSchema>;
@@ -79,7 +80,7 @@ export const UpdateGroupRequestSchema = z
     description: z.string().trim().max(500).nullish(),
     imageUrl: z.string().max(1000).nullish(),
   })
-  .refine((value) => Object.keys(value).length > 0, "Keine Änderungen übergeben");
+  .refine((value) => Object.keys(value).length > 0, refineKey("server.validation.noChanges"));
 export type UpdateGroupRequest = z.infer<typeof UpdateGroupRequestSchema>;
 
 export const CreateInviteRequestSchema = z.object({

@@ -9,6 +9,7 @@
 import { useMemo } from "react";
 import { Button, ErrorState } from "@/components/ui";
 import { useToast } from "@/components/ui";
+import { useT } from "@/lib/i18n";
 import { useActiveGroup } from "@/lib/session";
 import { useTags } from "@/features/tags/lib/queries";
 import { useCollections } from "@/features/collections/lib/queries";
@@ -18,6 +19,7 @@ import { useCreateRecipe, useUpdateRecipe, useUploadRecipeImage } from "./lib/qu
 import { RecipeForm, type RecipeFormSubmit } from "./components/RecipeForm";
 
 export default function RecipeNewPage() {
+  const t = useT();
   const { groupId } = useActiveGroup();
   const navigate = useAppNavigate();
   const toast = useToast();
@@ -41,27 +43,24 @@ export default function RecipeNewPage() {
         const upload = await uploadImage.mutateAsync({ recipeId: recipe.id, file });
         await patchRecipe.mutateAsync({ recipeId: recipe.id, imageUrl: upload.url });
       } catch (error) {
-        toast.fromError(
-          error,
-          "Rezept gespeichert, das Foto konnte aber nicht hochgeladen werden",
-        );
+        toast.fromError(error, t("recipes.new.photoUploadFailedToast"));
         navigate({ to: "/recipes/$recipeId", params: { recipeId: recipe.id }, replace: true });
         return;
       }
     }
 
-    toast.success("Rezept angelegt", recipe.title);
+    toast.success(t("recipes.new.createdToast"), recipe.title);
     navigate({ to: "/recipes/$recipeId", params: { recipeId: recipe.id }, replace: true });
   }
 
   if (groupId === null) {
     return (
       <ErrorState
-        title="Keine aktive Gruppe"
-        description="Wähle oben eine Gruppe aus oder lege eine neue an, um Rezepte zu speichern."
+        title={t("recipes.new.noGroup.title")}
+        description={t("recipes.new.noGroup.description")}
         action={
           <AppLink to="/groups">
-            <Button variant="secondary">Zu den Gruppen</Button>
+            <Button variant="secondary">{t("recipes.new.noGroup.action")}</Button>
           </AppLink>
         }
       />
@@ -70,17 +69,17 @@ export default function RecipeNewPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="font-display text-2xl font-semibold text-fg">Neues Rezept</h1>
+      <h1 className="font-display text-2xl font-semibold text-fg">{t("recipes.new.title")}</h1>
       <RecipeForm
         initialValues={initialValues}
         availableTags={tags.data ?? []}
         availableCollections={collections.data ?? []}
         onSubmit={submit}
         onCancel={() => navigate({ to: "/" })}
-        submitLabel="Rezept speichern"
+        submitLabel={t("recipes.new.submit")}
         pending={pending}
         error={createRecipe.error ?? patchRecipe.error}
-        imageHint="Wird direkt nach dem Speichern hochgeladen."
+        imageHint={t("recipes.new.imageHint")}
       />
     </div>
   );

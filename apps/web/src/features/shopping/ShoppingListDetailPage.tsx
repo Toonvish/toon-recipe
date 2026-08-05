@@ -29,7 +29,7 @@ import {
   useToast,
 } from "@/components/ui";
 import { errorMessage } from "@/lib/api";
-import { plural } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { useActiveGroup, useSession } from "@/lib/session";
 import { AppLink, useRouteParam } from "@/features/recipes/lib/nav";
 import { AddItemBar } from "./components/AddItemBar";
@@ -48,6 +48,7 @@ import {
 } from "./lib/queries";
 
 export default function ShoppingListDetailPage() {
+  const t = useT();
   const { groupId } = useActiveGroup();
   const { isOnline } = useSession();
   const listId = useRouteParam("listId") ?? "";
@@ -97,7 +98,7 @@ export default function ShoppingListDetailPage() {
           className="inline-flex w-fit items-center gap-1 text-sm text-fg-muted hover:text-fg"
         >
           <ChevronLeft aria-hidden="true" className="size-4" />
-          Alle Listen
+          {t("shopping.detail.backToLists")}
         </AppLink>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
@@ -105,18 +106,20 @@ export default function ShoppingListDetailPage() {
               {detail.list.name}
             </h1>
             <p className="flex items-center gap-2 text-sm text-fg-muted">
-              {items.length === 0 ? "Alles erledigt" : plural(items.length, "Position", "Positionen")}
+              {items.length === 0
+                ? t("shopping.detail.allDone")
+                : t("shopping.list.itemCount", { count: items.length })}
               {queued > 0 ? (
                 <span className="inline-flex items-center gap-1 text-warning-soft-fg">
                   <WifiOff aria-hidden="true" className="size-3.5" />
-                  {plural(queued, "Änderung wartet", "Änderungen warten")}
+                  {t("shopping.detail.queuedCount", { count: queued })}
                 </span>
               ) : null}
             </p>
           </div>
           {items.length > 0 ? (
             <IconButton
-              label="Liste leeren"
+              label={t("shopping.detail.clearList")}
               variant="ghost"
               icon={<Trash2 />}
               onClick={() => setClearOpen(true)}
@@ -128,8 +131,7 @@ export default function ShoppingListDetailPage() {
       {!isOnline ? (
         <p className="mb-3 flex items-center gap-2 rounded-xl bg-warning-soft px-3 py-2 text-sm text-warning-soft-fg">
           <WifiOff aria-hidden="true" className="size-4 shrink-0" />
-          Offline — Abhaken und Hinzufügen funktionieren trotzdem und werden später
-          synchronisiert.
+          {t("shopping.detail.offlineBanner")}
         </p>
       ) : null}
 
@@ -137,11 +139,11 @@ export default function ShoppingListDetailPage() {
         {items.length === 0 ? (
           <EmptyState
             icon={<CheckCheck />}
-            title="Nichts mehr zu kaufen"
+            title={t("shopping.detail.empty.title")}
             description={
               detail.catalog.length > 0
-                ? "Tippe unten auf einen Vorschlag oder gib etwas Neues ein."
-                : "Füge unten Artikel hinzu — oder schicke ein ganzes Rezept aus der Rezeptansicht hierher."
+                ? t("shopping.detail.empty.descriptionWithCatalog")
+                : t("shopping.detail.empty.description")
             }
           />
         ) : (
@@ -166,7 +168,7 @@ export default function ShoppingListDetailPage() {
           onDismiss={(entryId) =>
             dismiss.mutate(entryId, {
               onError: (error) =>
-                toast.error("Vorschlag bleibt bestehen", errorMessage(error)),
+                toast.error(t("shopping.suggestion.dismissError"), errorMessage(error)),
             })
           }
         />
@@ -184,9 +186,12 @@ export default function ShoppingListDetailPage() {
       <ConfirmDialog
         open={clearOpen}
         onClose={() => setClearOpen(false)}
-        title="Liste leeren?"
-        description={`Alle ${plural(items.length, "Position", "Positionen")} werden entfernt. „Häufig gekauft“ bleibt erhalten.`}
-        confirmLabel="Leeren"
+        title={t("shopping.clear.title")}
+        description={t("shopping.clear.description", {
+          itemCount: t("shopping.list.itemCount", { count: items.length }),
+          sectionName: t("shopping.frequentlyUsed.heading"),
+        })}
+        confirmLabel={t("shopping.action.clear")}
         destructive
         onConfirm={() => {
           clear.clear();

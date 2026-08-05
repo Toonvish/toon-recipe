@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { useT } from "@/lib/i18n";
 import { Button } from "./Button";
 import { Dialog } from "./Dialog";
 
@@ -26,12 +27,15 @@ export function ConfirmDialog({
   onConfirm,
   title,
   description,
-  confirmLabel = "Bestätigen",
-  cancelLabel = "Abbrechen",
+  confirmLabel,
+  cancelLabel,
   destructive = false,
   children,
 }: ConfirmDialogProps) {
+  const t = useT();
   const [pending, setPending] = useState(false);
+  const resolvedConfirmLabel = confirmLabel ?? t("ui.confirmDialog.confirm");
+  const resolvedCancelLabel = cancelLabel ?? t("ui.confirmDialog.cancel");
 
   async function confirm() {
     setPending(true);
@@ -56,7 +60,7 @@ export function ConfirmDialog({
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={pending} fullWidth>
-            {cancelLabel}
+            {resolvedCancelLabel}
           </Button>
           <Button
             variant={destructive ? "danger" : "primary"}
@@ -65,7 +69,7 @@ export function ConfirmDialog({
             fullWidth
             data-autofocus
           >
-            {confirmLabel}
+            {resolvedConfirmLabel}
           </Button>
         </>
       }

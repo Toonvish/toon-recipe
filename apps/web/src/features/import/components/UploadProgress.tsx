@@ -3,6 +3,7 @@
  */
 import clsx from "clsx";
 import { FileText, Image as ImageIcon } from "lucide-react";
+import { useT } from "@/lib/i18n";
 import { formatBytes } from "../lib/image";
 
 export interface UploadProgressProps {
@@ -27,6 +28,7 @@ export function UploadProgress({
   kind = "image",
   className,
 }: UploadProgressProps) {
+  const t = useT();
   const percent = Math.max(0, Math.min(100, Math.round(fraction * 100)));
   const Icon = kind === "pdf" ? FileText : ImageIcon;
 
@@ -35,7 +37,7 @@ export function UploadProgress({
       <div className="flex items-center gap-2 text-sm">
         <Icon aria-hidden className="h-4 w-4 shrink-0 text-fg-muted" />
         <span className="min-w-0 flex-1 truncate text-fg">
-          {fileName ?? "Datei"}
+          {fileName ?? t("import.upload.defaultFileName")}
           {typeof bytes === "number" ? (
             <span className="text-fg-muted"> · {formatBytes(bytes)}</span>
           ) : null}
@@ -47,7 +49,7 @@ export function UploadProgress({
       <div
         className="h-2 w-full overflow-hidden rounded-full bg-skeleton"
         role="progressbar"
-        aria-label="Upload-Fortschritt"
+        aria-label={t("import.upload.ariaLabel")}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={indeterminate ? undefined : percent}

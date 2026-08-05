@@ -90,11 +90,12 @@ function looksLikeHeic(input: Uint8Array): boolean {
 function decodeError(error: unknown, input: Uint8Array): ApiError {
   const message = error instanceof Error ? error.message : String(error);
   if (looksLikeHeic(input) || /heif|heic/i.test(message)) {
-    return ApiError.unsupportedMediaType(
-      "HEIC-Bilder können auf diesem Server nicht gelesen werden. Bitte das Foto als JPEG oder PNG hochladen (iPhone: Einstellungen › Kamera › Formate › „Maximale Kompatibilität“).",
-    );
+    return ApiError.unsupportedMediaType("server.ocr.heicUnsupported");
   }
-  return ApiError.unsupportedMediaType(`Das Bild konnte nicht gelesen werden (${message.slice(0, 120)}).`);
+  return ApiError.unsupportedMediaType({
+    key: "server.ocr.imageUnreadable",
+    values: { message: message.slice(0, 120) },
+  });
 }
 
 /** Lazily loads sharp so a missing native binary fails as a clean 422/415. */
@@ -103,11 +104,8 @@ async function loadSharp(): Promise<SharpFactory> {
     const module = await import("sharp");
     return module.default;
   } catch (error) {
-    throw new ApiError(
-      422,
-      "ocr_failed",
-      "Die Bildverarbeitung ist auf diesem Server nicht verfügbar (sharp fehlt). Bitte den Administrator informieren.",
-      { cause: error instanceof Error ? error.message : String(error) },
-    );
+    throw new ApiError(422, "ocr_failed", "server.ocr.imageProcessingUnavailable", {
+      cause: error instanceof Error ? error.message : String(error),
+    });
   }
 }

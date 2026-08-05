@@ -2,6 +2,9 @@
  * Duration + servings parsing. Pure, German-first, no I/O.
  * Handles ISO-8601 (schema.org `prepTime: "PT1H15M"`) and free German text.
  */
+import { DEFAULT_LOCALE, type Locale } from "./i18n/locale.ts";
+import { SERVER_CATALOGS } from "./i18n/catalogs/index.ts";
+import { resolveCatalogKey } from "./i18n/translate.ts";
 import { QUANTITY_TOKEN, parseNumberToken } from "./numbers.ts";
 import type { Servings } from "./schemas/import.ts";
 
@@ -105,18 +108,36 @@ export function parseDuration(raw: string | number | null | undefined): number |
   return undefined;
 }
 
-/** Renders minutes as German text: 95 => "1 Std. 35 Min.". */
-export function formatDuration(minutes: number | null | undefined): string {
+/**
+ * Renders minutes as text: 95 => "1 Std. 35 Min." (`de`) / "1 hr 35 min" (`en`).
+ *
+ * This is the INTERFACE half of this file — it renders words the codebase
+ * generates, not German it read out of a recipe (`parseDuration`, right above,
+ * is the CONTENT half and stays German-only; see docs/i18n.md §7). Defaults to
+ * `DEFAULT_LOCALE` so every call site that predates locale-awareness — and
+ * `test/duration.test.ts`'s six pinned outputs — keeps behaving exactly as
+ * before.
+ */
+export function formatDuration(minutes: number | null | undefined, locale: Locale = DEFAULT_LOCALE): string {
   if (minutes === null || minutes === undefined || !Number.isFinite(minutes) || minutes < 0) return "";
   const total = Math.round(minutes);
-  if (total === 0) return "0 Min.";
+  const catalog = SERVER_CATALOGS[locale] ?? SERVER_CATALOGS[DEFAULT_LOCALE];
+  // resolveCatalogKey, not the strongly-typed createTranslator: the catalog
+  // here is picked at RUNTIME from a Locale, so its type is a union of both
+  // locales' catalogs rather than one fixed shape — exactly the case
+  // Translator<C>'s generic inference is not built for (§3's "budget and
+  // escape hatch"). The keys below are fixed string literals we wrote
+  // ourselves, so the loss of compile-time placeholder checking here is safe.
+  const render = (key: string, values?: Record<string, string | number>) =>
+    resolveCatalogKey(catalog, locale, key, values) ?? key;
+  if (total === 0) return render("server.duration.zero");
   const days = Math.floor(total / 1440);
   const hours = Math.floor((total % 1440) / 60);
   const mins = total % 60;
   const parts: string[] = [];
-  if (days > 0) parts.push(`${days} ${days === 1 ? "Tag" : "Tage"}`);
-  if (hours > 0) parts.push(`${hours} Std.`);
-  if (mins > 0) parts.push(`${mins} Min.`);
+  if (days > 0) parts.push(render("server.duration.days", { count: days }));
+  if (hours > 0) parts.push(render("server.duration.hours", { count: hours }));
+  if (mins > 0) parts.push(render("server.duration.minutes", { count: mins }));
   return parts.join(" ");
 }
 

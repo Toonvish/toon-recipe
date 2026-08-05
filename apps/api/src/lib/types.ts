@@ -8,7 +8,7 @@
  * Handlers read them with c.get("user") / c.get("membership"); the non-optional
  * getters below throw a 401/403-shaped ApiError if the middleware was forgotten.
  */
-import type { GroupRole, User } from "@toon/shared";
+import type { GroupRole, Locale, User } from "@toon/shared";
 import type { Context } from "hono";
 import { ApiError } from "./errors.ts";
 
@@ -25,6 +25,13 @@ export interface AppVariables {
   sessionId?: string;
   /** Set by requireGroupRole for every /api/groups/:groupId/* route. */
   membership?: Membership;
+  /**
+   * Set by `localeMiddleware` (lib/locale.ts). OPTIONAL on purpose:
+   * `onError`/`notFound` can fire before an `app.use("*")` middleware has run,
+   * so `requestLocale(c)`'s `?? env.defaultLocale` is load-bearing — do not
+   * type this as required, it would read as dead code.
+   */
+  locale?: Locale;
 }
 
 export type AppEnv = { Variables: AppVariables };
@@ -41,6 +48,6 @@ export function requireUser(c: AppContext): User {
 /** Returns the verified group membership or throws 403. */
 export function requireMembership(c: AppContext): Membership {
   const membership = c.get("membership");
-  if (!membership) throw ApiError.forbidden("Kein Zugriff auf diese Gruppe");
+  if (!membership) throw ApiError.forbidden("server.group.noAccess");
   return membership;
 }

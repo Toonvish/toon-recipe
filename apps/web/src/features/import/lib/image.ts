@@ -6,6 +6,7 @@
  * several times faster on mobile data and keeps us under the 15 MB limit.
  */
 import { MAX_UPLOAD_BYTES } from "@toon/shared";
+import { translate } from "@/lib/i18n";
 
 export const MAX_EDGE = 2000;
 export const JPEG_QUALITY = 0.85;
@@ -37,12 +38,12 @@ export function isImageFile(file: File): boolean {
   return file.type.startsWith("image/") || /\.(jpe?g|png|webp|heic|heif|avif|gif|bmp|tiff?)$/i.test(file.name);
 }
 
-/** Client-side mirror of the API's 15 MB guard. Returns a German message or null. */
+/** Client-side mirror of the API's 15 MB guard. Returns a localised message or null. */
 export function checkFileSize(file: File): string | null {
   if (file.size > MAX_UPLOAD_BYTES) {
-    return `Die Datei ist ${formatBytes(file.size)} groß. Erlaubt sind maximal ${formatBytes(MAX_UPLOAD_BYTES)}.`;
+    return translate("import.image.tooLarge", { size: formatBytes(file.size), max: formatBytes(MAX_UPLOAD_BYTES) });
   }
-  if (file.size === 0) return "Die Datei ist leer.";
+  if (file.size === 0) return translate("import.image.empty");
   return null;
 }
 

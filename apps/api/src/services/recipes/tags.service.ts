@@ -30,7 +30,7 @@ export async function loadTagRow(db: DbLike, groupId: string, tagId: string): Pr
     .from(tags)
     .where(and(eq(tags.id, tagId), eq(tags.groupId, groupId)))
     .limit(1);
-  if (!row) throw ApiError.notFound("Tag nicht gefunden");
+  if (!row) throw ApiError.notFound("server.recipes.tagNotFound");
   return row;
 }
 
@@ -45,7 +45,7 @@ export async function createTag(
     .from(tags)
     .where(and(eq(tags.groupId, groupId), eqFolded(tags.name, input.name)))
     .limit(1);
-  if (clash.length > 0) throw ApiError.conflict("tag_name_taken", "Diesen Tag gibt es schon");
+  if (clash.length > 0) throw ApiError.conflict("tag_name_taken", "server.recipes.tagNameTaken");
 
   const row: TagRow = {
     id: crypto.randomUUID(),
@@ -75,7 +75,7 @@ export async function updateTag(
         and(eq(tags.groupId, groupId), ne(tags.id, tagId), eqFolded(tags.name, input.name)),
       )
       .limit(1);
-    if (clash.length > 0) throw ApiError.conflict("tag_name_taken", "Diesen Tag gibt es schon");
+    if (clash.length > 0) throw ApiError.conflict("tag_name_taken", "server.recipes.tagNameTaken");
   }
 
   const patch: Partial<TagRow> = {};

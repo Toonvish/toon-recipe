@@ -19,9 +19,9 @@ export class ConsoleMailer implements Mailer {
     this.sent.push(message);
     const lines = [
       "",
-      "┌─ [mail] KEIN VERSAND — MAIL_TRANSPORT ist nicht konfiguriert",
-      `│  An:      ${message.to}`,
-      `│  Betreff: ${message.subject}`,
+      "┌─ [mail] NOT SENT — MAIL_TRANSPORT is not configured",
+      `│  To:      ${message.to}`,
+      `│  Subject: ${message.subject}`,
       "│",
       ...message.text.split(/\r?\n/).map((line) => `│  ${line}`),
       "└─────────────────────────────────────────────────────────────",

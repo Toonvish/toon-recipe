@@ -34,11 +34,7 @@ export const PASSWORD_RESET_TTL_MINUTES = PASSWORD_RESET_TTL_MS / 60_000;
 
 /** The one error every rejection path uses. Never say WHY. */
 function invalidToken(): ApiError {
-  return new ApiError(
-    400,
-    "reset_token_invalid",
-    "Dieser Link ist nicht mehr gültig. Bitte fordere einen neuen an.",
-  );
+  return new ApiError(400, "reset_token_invalid", "server.auth.resetLinkInvalid");
 }
 
 export interface CreatedPasswordReset {

@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import { NAV_ITEMS } from "./nav-items";
 
 /**
@@ -11,9 +12,10 @@ import { NAV_ITEMS } from "./nav-items";
  * why there are four and what moved elsewhere.
  */
 export function BottomTabBar() {
+  const t = useT();
   return (
     <nav
-      aria-label="Hauptnavigation"
+      aria-label={t("ui.nav.mainNavLabel")}
       className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 pb-safe backdrop-blur-md lg:hidden"
     >
       <ul className="flex items-stretch justify-around px-safe">
@@ -45,7 +47,7 @@ export function BottomTabBar() {
                       isActive && "font-semibold",
                     )}
                   >
-                    {item.label}
+                    {t(item.labelKey)}
                   </span>
                 </>
               )}

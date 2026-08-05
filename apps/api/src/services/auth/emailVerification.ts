@@ -37,7 +37,7 @@ function invalidToken(): ApiError {
   return new ApiError(
     400,
     "verification_token_invalid",
-    "Dieser Bestätigungslink ist nicht mehr gültig. Bitte fordere einen neuen an.",
+    "server.auth.verificationLinkInvalid",
   );
 }
 
@@ -60,7 +60,7 @@ export async function createEmailVerificationToken(
   options: { requestedIp?: string | null } = {},
 ): Promise<CreatedEmailVerification> {
   if (user.emailVerifiedAt !== null) {
-    throw ApiError.conflict("conflict", "Diese E-Mail-Adresse ist schon bestätigt");
+    throw ApiError.conflict("conflict", "server.auth.emailAlreadyVerified");
   }
 
   const now = Date.now();
@@ -154,7 +154,7 @@ export async function markEmailVerified(
     .set({ emailVerified: true, emailVerifiedAt: at, updatedAt: at })
     .where(eq(users.id, userId));
   const row = await findUserById(db, userId);
-  if (!row) throw ApiError.notFound("Benutzer nicht gefunden");
+  if (!row) throw ApiError.notFound("server.auth.userNotFound");
   return row;
 }
 

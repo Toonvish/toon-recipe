@@ -120,7 +120,7 @@ export function registerServiceWorker(): void {
       .register("/sw.js", { scope: "/" })
       .then((registration) => watchForUpdates(registration))
       .catch((error: unknown) => {
-        console.warn("[pwa] Service Worker konnte nicht registriert werden:", error);
+        console.warn("[pwa] Service worker could not be registered:", error);
       });
   });
 }

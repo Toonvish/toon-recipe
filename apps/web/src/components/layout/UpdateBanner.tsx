@@ -1,4 +1,5 @@
 import { RefreshCw } from "lucide-react";
+import { useT } from "@/lib/i18n";
 import { useAppUpdate } from "@/lib/pwa";
 
 /**
@@ -15,6 +16,7 @@ import { useAppUpdate } from "@/lib/pwa";
  */
 export function UpdateBanner() {
   const { ready, unsavedWork, apply } = useAppUpdate();
+  const t = useT();
   if (!ready || !unsavedWork) return null;
 
   return (
@@ -24,14 +26,14 @@ export function UpdateBanner() {
     >
       <span className="flex items-center gap-2">
         <RefreshCw className="size-4 shrink-0" aria-hidden="true" />
-        Neue Version verfügbar. Deine Änderungen sind noch nicht gespeichert.
+        {t("ui.updateBanner.message")}
       </span>
       <button
         type="button"
         onClick={apply}
         className="rounded-lg border border-brand/40 bg-surface px-2.5 py-1 font-semibold text-brand hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       >
-        Trotzdem neu laden
+        {t("ui.updateBanner.reload")}
       </button>
     </div>
   );

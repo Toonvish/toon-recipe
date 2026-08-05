@@ -9,6 +9,7 @@ import { useMemo } from "react";
 import type { RecipeDetail } from "@toon/shared";
 import { ErrorState, LoadingBlock, buttonClasses } from "@/components/ui";
 import { useToast } from "@/components/ui";
+import { useT } from "@/lib/i18n";
 import { useActiveGroup, useCurrentUser } from "@/lib/session";
 import { useTags } from "@/features/tags/lib/queries";
 import { useCollections } from "@/features/collections/lib/queries";
@@ -19,6 +20,7 @@ import { useRecipe, useUpdateRecipe, useUploadRecipeImage } from "./lib/queries"
 import { RecipeForm, type RecipeFormSubmit } from "./components/RecipeForm";
 
 export default function RecipeEditPage() {
+  const t = useT();
   const recipeId = useRouteParam("recipeId");
   const { groupId, role } = useActiveGroup();
   const user = useCurrentUser();
@@ -34,7 +36,7 @@ export default function RecipeEditPage() {
 
   const initialValues = useMemo(() => (loaded ? recipeToForm(loaded) : null), [loaded]);
 
-  if (query.isPending) return <LoadingBlock label="Rezept wird geladen …" />;
+  if (query.isPending) return <LoadingBlock label={t("recipes.detail.loading")} />;
 
   if (query.isError || !loaded || !initialValues) {
     return (
@@ -43,7 +45,7 @@ export default function RecipeEditPage() {
         onRetry={() => void query.refetch()}
         action={
           <AppLink to="/" className={buttonClasses({ variant: "secondary" })}>
-            Zur Rezeptliste
+            {t("recipes.action.backToList")}
           </AppLink>
         }
       />
@@ -57,15 +59,15 @@ export default function RecipeEditPage() {
   if (!canModifyOwn(role, user.id, recipe.createdBy)) {
     return (
       <ErrorState
-        title="Bearbeiten nicht erlaubt"
-        description="Dieses Rezept darf nur die Autorin bzw. der Autor oder eine Administratorin bearbeiten."
+        title={t("recipes.edit.forbidden.title")}
+        description={t("recipes.edit.forbidden.description")}
         action={
           <AppLink
             to="/recipes/$recipeId"
             params={{ recipeId: recipe.id }}
             className={buttonClasses({ variant: "secondary" })}
           >
-            Zum Rezept
+            {t("recipes.action.backToRecipe")}
           </AppLink>
         }
       />
@@ -82,20 +84,20 @@ export default function RecipeEditPage() {
         const upload = await uploadImage.mutateAsync({ recipeId: recipe.id, file });
         imageUrl = upload.url;
       } catch (error) {
-        toast.fromError(error, "Das Foto konnte nicht hochgeladen werden");
+        toast.fromError(error, t("recipes.edit.photoUploadFailedToast"));
         return;
       }
     }
 
     await updateRecipe.mutateAsync({ ...payload, imageUrl });
-    toast.success("Änderungen gespeichert");
+    toast.success(t("recipes.edit.savedToast"));
     navigate({ to: "/recipes/$recipeId", params: { recipeId: recipe.id }, replace: true });
   }
 
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h1 className="font-display text-2xl font-semibold text-fg">Rezept bearbeiten</h1>
+        <h1 className="font-display text-2xl font-semibold text-fg">{t("recipes.edit.title")}</h1>
         <p className="truncate text-sm text-fg-muted">{recipe.title}</p>
       </div>
       <RecipeForm
@@ -106,7 +108,7 @@ export default function RecipeEditPage() {
         onCancel={() =>
           navigate({ to: "/recipes/$recipeId", params: { recipeId: recipe.id } })
         }
-        submitLabel="Änderungen speichern"
+        submitLabel={t("recipes.edit.submit")}
         pending={pending}
         error={updateRecipe.error}
       />

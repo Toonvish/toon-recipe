@@ -76,7 +76,7 @@ async function readJson<T>(request: Request, schema: z.ZodType<T>): Promise<T> {
   try {
     body = await request.json();
   } catch {
-    throw ApiError.badRequest("Der Request-Body ist kein gültiges JSON.");
+    throw ApiError.badRequest("server.import.invalidJsonBody");
   }
   // A ZodError becomes 422 validation_failed in the global error handler.
   return schema.parse(body);
@@ -257,10 +257,10 @@ importRoutes.get("/:draftId/source", async (c) => {
   const row = await getDraftOr404(importDb(), groupId, c.req.param("draftId"));
 
   const filename = storedFilenameOf(row);
-  if (filename === undefined) throw ApiError.notFound("Zu diesem Entwurf gibt es keine Quelldatei.");
+  if (filename === undefined) throw ApiError.notFound("server.import.noSourceFile");
 
   const absolute = resolveUploadPath(filename);
-  if (!existsSync(absolute)) throw ApiError.notFound("Die Quelldatei wurde bereits gelöscht.");
+  if (!existsSync(absolute)) throw ApiError.notFound("server.import.sourceFileDeleted");
 
   const file = Bun.file(absolute);
   return new Response(file, {
@@ -278,7 +278,7 @@ importRoutes.patch("/:draftId", async (c) => {
   const draftId = c.req.param("draftId");
   const row = await getDraftOr404(importDb(), groupId, draftId);
   if (row.status === "reviewed") {
-    throw ApiError.conflict("conflict", "Dieser Entwurf wurde bereits als Rezept gespeichert.");
+    throw ApiError.conflict("conflict", "server.import.draftAlreadyCommitted");
   }
 
   const body = await readJson(c.req.raw, UpdateImportDraftRequestSchema);
@@ -299,7 +299,7 @@ importRoutes.post("/:draftId/commit", async (c) => {
 
   const row = await getDraftOr404(importDb(), groupId, draftId);
   if (row.status === "reviewed" && row.recipeId !== null) {
-    throw ApiError.conflict("conflict", "Dieser Entwurf wurde bereits als Rezept gespeichert.");
+    throw ApiError.conflict("conflict", "server.import.draftAlreadyCommitted");
   }
 
   const body = await readJson(c.req.raw, CommitImportDraftRequestSchema);

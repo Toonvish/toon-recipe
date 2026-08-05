@@ -25,6 +25,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { Users } from "lucide-react";
+import { useT } from "@/lib/i18n";
 import type {
   AuthSessionResponse,
   GroupRole,
@@ -206,7 +207,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 export function useSession(): SessionContextValue {
   const context = useContext(SessionContext);
   if (!context) {
-    throw new Error("useSession muss innerhalb von <SessionProvider> verwendet werden.");
+    throw new Error("useSession must be used inside <SessionProvider>.");
   }
   return context;
 }
@@ -214,7 +215,7 @@ export function useSession(): SessionContextValue {
 /** Inside `<RequireAuth>` the user is guaranteed — use this to avoid null checks. */
 export function useCurrentUser(): User {
   const { user } = useSession();
-  if (!user) throw new Error("useCurrentUser darf nur in geschützten Routen verwendet werden.");
+  if (!user) throw new Error("useCurrentUser may only be used inside a protected route.");
   return user;
 }
 
@@ -240,7 +241,7 @@ export function useActiveGroup(): ActiveGroupValue {
 export function useRequiredGroupId(): string {
   const { activeGroupId } = useSession();
   if (!activeGroupId) {
-    throw new Error("Keine aktive Gruppe — <RequireActiveGroup> fehlt um diese Route.");
+    throw new Error("No active group — <RequireActiveGroup> is missing around this route.");
   }
   return activeGroupId;
 }
@@ -256,16 +257,17 @@ export function useRequiredGroupId(): string {
  *
  * ```tsx
  * const { canMutate, reason } = useCanMutate();
- * <Button disabled={!canMutate} title={reason}>Speichern</Button>
+ * <Button disabled={!canMutate} title={reason}>Save</Button>
  * ```
  */
 export function useCanMutate(): { canMutate: boolean; reason: string | undefined } {
   const { isOnline } = useSession();
+  const t = useT();
   return isOnline
     ? { canMutate: true, reason: undefined }
     : {
         canMutate: false,
-        reason: "Offline — Änderungen können nicht gespeichert werden.",
+        reason: t("ui.session.offlineSaveBlocked"),
       };
 }
 
@@ -334,6 +336,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
   const redirecting = useRef(false);
+  const t = useT();
 
   /**
    * AT MOST ONE REDIRECT PER MOUNT — the ref is the whole point.
@@ -360,7 +363,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     void navigate({ to: "/login", search: next === "/" ? {} : { next }, replace: true });
   }, [isLoading, isAuthenticated, error, navigate, location.href]);
 
-  if (isLoading) return <FullPageLoader label="Anmeldung wird geprüft …" />;
+  if (isLoading) return <FullPageLoader label={t("ui.session.checkingLogin")} />;
 
   // A RESTORED SESSION WINS OVER A FAILED REFETCH. This is what makes the installed
   // app usable in airplane mode: `/api/auth/me` cannot be reached, but the persisted
@@ -376,7 +379,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
       <div className="mx-auto w-full max-w-md p-4">
         <ErrorState
           error={error}
-          title="Server nicht erreichbar"
+          title={t("ui.session.serverUnreachable")}
           onRetry={() => {
             void refetch();
           }}
@@ -385,21 +388,22 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     );
   }
 
-  return <FullPageLoader label="Weiterleitung zur Anmeldung …" />;
+  return <FullPageLoader label={t("ui.session.redirectingToLogin")} />;
 }
 
 /** For group-scoped screens: shows an onboarding card when the user has no group. */
 export function RequireActiveGroup({ children }: { children: ReactNode }) {
   const { groups, activeGroupId } = useSession();
   const navigate = useNavigate();
+  const t = useT();
 
   if (groups.length === 0 || !activeGroupId) {
     return (
       <div className="mx-auto w-full max-w-md p-4">
         <EmptyState
           icon={<Users />}
-          title="Noch keine Gruppe"
-          description="Rezepte gehören immer zu einer Gruppe. Lege eine Gruppe an (z. B. „Familie“) oder nimm eine Einladung an."
+          title={t("ui.session.noGroupTitle")}
+          description={t("ui.session.noGroupDescription")}
           action={
             <Button
               fullWidth
@@ -407,7 +411,7 @@ export function RequireActiveGroup({ children }: { children: ReactNode }) {
                 void navigate({ to: "/groups" });
               }}
             >
-              Gruppe anlegen
+              {t("ui.session.createGroup")}
             </Button>
           }
         />

@@ -18,13 +18,15 @@ import {
   Textarea,
 } from "@/components/ui";
 import { useToast } from "@/components/ui";
-import { plural, roleLabels } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { apiFieldErrors, validate, type FieldErrors } from "@/lib/validation";
 import { useActiveGroup } from "@/lib/session";
 import { AppLink } from "@/features/recipes/lib/nav";
+import { ROLE_LABEL_KEYS } from "./lib/roleLabels";
 import { useCreateGroup, useGroups } from "./lib/queries";
 
 export default function GroupsPage() {
+  const t = useT();
   const groups = useGroups();
   const { groupId, setActiveGroup } = useActiveGroup();
   const [createOpen, setCreateOpen] = useState(false);
@@ -33,13 +35,11 @@ export default function GroupsPage() {
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-semibold text-fg">Gruppen</h1>
-          <p className="text-sm text-fg-muted">
-            Rezepte, Tags und Sammlungen gehören immer zu einer Gruppe.
-          </p>
+          <h1 className="font-display text-2xl font-semibold text-fg">{t("groups.list.title")}</h1>
+          <p className="text-sm text-fg-muted">{t("groups.list.subtitle")}</p>
         </div>
         <Button onClick={() => setCreateOpen(true)} leftIcon={<Plus className="size-4" />}>
-          Gruppe anlegen
+          {t("groups.list.create")}
         </Button>
       </header>
 
@@ -59,11 +59,11 @@ export default function GroupsPage() {
       ) : (groups.data ?? []).length === 0 ? (
         <EmptyState
           icon={<Users />}
-          title="Noch keine Gruppe"
-          description="Lege eine Gruppe an, z. B. „Familie“, und lade andere per E-Mail ein."
+          title={t("groups.list.emptyTitle")}
+          description={t("groups.list.emptyDescription")}
           action={
             <Button onClick={() => setCreateOpen(true)} fullWidth leftIcon={<Plus className="size-4" />}>
-              Gruppe anlegen
+              {t("groups.list.create")}
             </Button>
           }
         />
@@ -85,11 +85,11 @@ export default function GroupsPage() {
                           {group.name}
                         </AppLink>
                         <Badge variant={group.role === "owner" ? "brand" : "neutral"}>
-                          {roleLabels[group.role]}
+                          {t(ROLE_LABEL_KEYS[group.role])}
                         </Badge>
                         {isActive ? (
                           <Badge variant="success" icon={<Check />}>
-                            Aktiv
+                            {t("groups.badge.active")}
                           </Badge>
                         ) : null}
                       </div>
@@ -99,8 +99,8 @@ export default function GroupsPage() {
                         </p>
                       ) : null}
                       <p className="mt-1 text-sm text-fg-subtle">
-                        {plural(group.memberCount, "Mitglied", "Mitglieder")} ·{" "}
-                        {plural(group.recipeCount, "Rezept", "Rezepte")}
+                        {t("groups.count.members", { count: group.memberCount })} ·{" "}
+                        {t("groups.count.recipes", { count: group.recipeCount })}
                       </p>
                     </div>
                   </div>
@@ -112,12 +112,12 @@ export default function GroupsPage() {
                         size="sm"
                         onClick={() => setActiveGroup(group.id)}
                       >
-                        Aktivieren
+                        {t("groups.list.activate")}
                       </Button>
                     ) : null}
                     <AppLink to="/groups/$groupId" params={{ groupId: group.id }}>
                       <Button variant="ghost" size="sm">
-                        Verwalten
+                        {t("groups.list.manage")}
                       </Button>
                     </AppLink>
                   </div>
@@ -134,6 +134,7 @@ export default function GroupsPage() {
 }
 
 function CreateGroupDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT();
   const createGroup = useCreateGroup();
   const { setActiveGroup } = useActiveGroup();
   const toast = useToast();
@@ -161,7 +162,7 @@ function CreateGroupDialog({ open, onClose }: { open: boolean; onClose: () => vo
     try {
       const group = await createGroup.mutateAsync(result.data);
       setActiveGroup(group.id);
-      toast.success("Gruppe angelegt", group.name);
+      toast.success(t("groups.create.successTitle"), group.name);
       close();
     } catch (error) {
       setErrors(apiFieldErrors(error));
@@ -172,8 +173,8 @@ function CreateGroupDialog({ open, onClose }: { open: boolean; onClose: () => vo
     <Dialog
       open={open}
       onClose={close}
-      title="Neue Gruppe"
-      description="Du wirst automatisch Besitzer:in und kannst danach Mitglieder einladen."
+      title={t("groups.create.title")}
+      description={t("groups.create.description")}
       size="sm"
     >
       <form onSubmit={submit} noValidate className="flex flex-col gap-3">
@@ -183,31 +184,31 @@ function CreateGroupDialog({ open, onClose }: { open: boolean; onClose: () => vo
           </p>
         ) : null}
         <Input
-          label="Name"
+          label={t("groups.common.name")}
           required
           value={name}
           onChange={(event) => setName(event.target.value)}
-          placeholder="Familie"
+          placeholder={t("groups.create.namePlaceholder")}
           error={errors.name}
           disabled={createGroup.isPending}
           autoFocus
         />
         <Textarea
-          label="Beschreibung"
+          label={t("groups.common.description")}
           optional
           rows={3}
           value={description}
           onChange={(event) => setDescription(event.target.value)}
-          placeholder="Unsere gesammelten Familienrezepte."
+          placeholder={t("groups.create.descriptionPlaceholder")}
           error={errors.description}
           disabled={createGroup.isPending}
         />
         <div className="mt-1 flex gap-2">
           <Button type="button" variant="secondary" onClick={close} fullWidth disabled={createGroup.isPending}>
-            Abbrechen
+            {t("groups.common.cancel")}
           </Button>
           <Button type="submit" loading={createGroup.isPending} fullWidth>
-            Anlegen
+            {t("groups.common.create")}
           </Button>
         </div>
       </form>

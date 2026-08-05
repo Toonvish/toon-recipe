@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { LogOut, Plus } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import { useLogout, useSession } from "@/lib/session";
 import { GroupSwitcher } from "@/features/groups/GroupSwitcher";
 import { Avatar } from "@/components/ui/Avatar";
@@ -13,6 +14,7 @@ import { NAV_ITEMS, SECONDARY_NAV_ITEMS } from "./nav-items";
 export function SideNav() {
   const { user } = useSession();
   const logout = useLogout();
+  const t = useT();
 
   return (
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col gap-4 border-r border-line bg-bg-elevated p-4 lg:flex">
@@ -25,10 +27,10 @@ export function SideNav() {
 
       <Link to="/recipes/new" className={buttonClasses({ fullWidth: true })}>
         <Plus className="size-4" aria-hidden="true" />
-        Neues Rezept
+        {t("ui.sidenav.newRecipe")}
       </Link>
 
-      <nav aria-label="Hauptnavigation" className="mt-1 flex-1">
+      <nav aria-label={t("ui.nav.mainNavLabel")} className="mt-1 flex-1">
         <ul className="flex flex-col gap-1">
           {[...NAV_ITEMS, ...SECONDARY_NAV_ITEMS].map((item) => (
             <li key={item.to}>
@@ -48,7 +50,7 @@ export function SideNav() {
                       strokeWidth={isActive ? 2.3 : 1.9}
                       aria-hidden="true"
                     />
-                    {item.label}
+                    {t(item.labelKey)}
                   </>
                 )}
               </Link>
@@ -64,12 +66,14 @@ export function SideNav() {
         >
           <Avatar name={user?.name} src={user?.avatarUrl} size="sm" />
           <span className="min-w-0">
-            <span className="block truncate text-sm font-medium text-fg">{user?.name ?? "Profil"}</span>
+            <span className="block truncate text-sm font-medium text-fg">
+              {user?.name ?? t("ui.nav.profile")}
+            </span>
             <span className="block truncate text-xs text-fg-muted">{user?.email}</span>
           </span>
         </Link>
         <IconButton
-          label="Abmelden"
+          label={t("ui.sidenav.logout")}
           icon={<LogOut />}
           loading={logout.isPending}
           onClick={() => logout.mutate()}

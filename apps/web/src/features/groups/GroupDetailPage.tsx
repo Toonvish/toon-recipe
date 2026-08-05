@@ -21,18 +21,21 @@ import {
   buttonClasses,
 } from "@/components/ui";
 import { useToast } from "@/components/ui";
-import { formatDate, plural, roleLabels } from "@/lib/format";
+import { formatDate } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { apiFieldErrors, validate, type FieldErrors } from "@/lib/validation";
 import { useCurrentUser, useSession } from "@/lib/session";
 import { AppLink, useAppNavigate, useRouteParam } from "@/features/recipes/lib/nav";
 import { hasAtLeast } from "@/features/recipes/lib/permissions";
 import { MemberList } from "./components/MemberList";
 import { InvitePanel } from "./components/InvitePanel";
+import { ROLE_LABEL_KEYS } from "./lib/roleLabels";
 import { useDeleteGroup, useGroupDetail, useUpdateGroup } from "./lib/queries";
 
 type TabValue = "members" | "invites" | "settings";
 
 export default function GroupDetailPage() {
+  const t = useT();
   const groupId = useRouteParam("groupId");
   const user = useCurrentUser();
   const { activeGroupId, setActiveGroup, groups } = useSession();
@@ -41,7 +44,7 @@ export default function GroupDetailPage() {
   const query = useGroupDetail(groupId);
   const [tab, setTab] = useState<TabValue>("members");
 
-  if (query.isPending) return <LoadingBlock label="Gruppe wird geladen …" />;
+  if (query.isPending) return <LoadingBlock label={t("groups.detail.loading")} />;
 
   if (query.isError || !query.data) {
     return (
@@ -50,7 +53,7 @@ export default function GroupDetailPage() {
         onRetry={() => void query.refetch()}
         action={
           <AppLink to="/groups" className={buttonClasses({ variant: "secondary" })}>
-            Zu den Gruppen
+            {t("groups.detail.backToList")}
           </AppLink>
         }
       />
@@ -62,9 +65,9 @@ export default function GroupDetailPage() {
   const isOwner = group.role === "owner";
 
   const tabs = [
-    { value: "members" as const, label: "Mitglieder", badge: members.length },
-    ...(isAdmin ? [{ value: "invites" as const, label: "Einladungen" }] : []),
-    { value: "settings" as const, label: "Einstellungen" },
+    { value: "members" as const, label: t("groups.detail.tab.members"), badge: members.length },
+    ...(isAdmin ? [{ value: "invites" as const, label: t("groups.detail.tab.invites") }] : []),
+    { value: "settings" as const, label: t("groups.detail.tab.settings") },
   ];
 
   function afterLeaveOrDelete() {
@@ -78,18 +81,22 @@ export default function GroupDetailPage() {
     <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-2">
         <AppLink to="/groups" className="text-sm text-fg-muted hover:text-fg">
-          ← Alle Gruppen
+          {t("groups.detail.backLink")}
         </AppLink>
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="font-display text-2xl font-semibold text-fg">{group.name}</h1>
-          <Badge variant={isOwner ? "brand" : "neutral"}>{roleLabels[group.role]}</Badge>
-          {group.id === activeGroupId ? <Badge variant="success">Aktiv</Badge> : null}
+          <Badge variant={isOwner ? "brand" : "neutral"}>{t(ROLE_LABEL_KEYS[group.role])}</Badge>
+          {group.id === activeGroupId ? (
+            <Badge variant="success">{t("groups.badge.active")}</Badge>
+          ) : null}
         </div>
         {group.description ? <p className="text-fg-muted">{group.description}</p> : null}
         <p className="text-sm text-fg-subtle">
-          {plural(group.memberCount, "Mitglied", "Mitglieder")} ·{" "}
-          {plural(group.recipeCount, "Rezept", "Rezepte")} · angelegt am{" "}
-          {formatDate(group.createdAt)}
+          {t("groups.detail.meta", {
+            members: t("groups.count.members", { count: group.memberCount }),
+            recipes: t("groups.count.recipes", { count: group.recipeCount }),
+            date: formatDate(group.createdAt),
+          })}
         </p>
         {group.id !== activeGroupId ? (
           <Button
@@ -98,12 +105,18 @@ export default function GroupDetailPage() {
             className="self-start"
             onClick={() => setActiveGroup(group.id)}
           >
-            Als aktive Gruppe setzen
+            {t("groups.detail.activate")}
           </Button>
         ) : null}
       </header>
 
-      <Tabs items={tabs} value={tab} onChange={setTab} aria-label="Gruppenbereiche" scrollable />
+      <Tabs
+        items={tabs}
+        value={tab}
+        onChange={setTab}
+        aria-label={t("groups.detail.tabsAriaLabel")}
+        scrollable
+      />
 
       {tab === "members" ? (
         <Card padding="md">
@@ -154,6 +167,7 @@ function GroupSettingsForm({
   description: string;
   canEdit: boolean;
 }) {
+  const t = useT();
   const updateGroup = useUpdateGroup();
   const toast = useToast();
   const [name, setName] = useState(initialName);
@@ -180,7 +194,7 @@ function GroupSettingsForm({
     try {
       await updateGroup.mutateAsync({ groupId, ...result.data });
       setErrors({});
-      toast.success("Gruppe gespeichert");
+      toast.success(t("groups.settings.savedToast"));
     } catch (error) {
       setErrors(apiFieldErrors(error));
     }
@@ -189,11 +203,9 @@ function GroupSettingsForm({
   return (
     <Card padding="md">
       <form onSubmit={submit} noValidate className="flex flex-col gap-3">
-        <h2 className="font-display text-lg font-semibold">Gruppendaten</h2>
+        <h2 className="font-display text-lg font-semibold">{t("groups.settings.heading")}</h2>
         {!canEdit ? (
-          <p className="text-sm text-fg-muted">
-            Nur Administrator:innen und Besitzer:innen können diese Angaben ändern.
-          </p>
+          <p className="text-sm text-fg-muted">{t("groups.settings.readonlyHint")}</p>
         ) : null}
         {errors._form ? (
           <p role="alert" className="text-sm font-medium text-danger">
@@ -201,7 +213,7 @@ function GroupSettingsForm({
           </p>
         ) : null}
         <Input
-          label="Name"
+          label={t("groups.common.name")}
           required
           value={name}
           onChange={(event) => setName(event.target.value)}
@@ -209,7 +221,7 @@ function GroupSettingsForm({
           disabled={!canEdit || updateGroup.isPending}
         />
         <Textarea
-          label="Beschreibung"
+          label={t("groups.common.description")}
           optional
           rows={3}
           value={description}
@@ -224,7 +236,7 @@ function GroupSettingsForm({
           leftIcon={<Save className="size-4" />}
           className="sm:self-start"
         >
-          Speichern
+          {t("groups.common.save")}
         </Button>
       </form>
     </Card>
@@ -242,6 +254,7 @@ function DangerZone({
   recipeCount: number;
   onDeleted: () => void;
 }) {
+  const t = useT();
   const deleteGroup = useDeleteGroup();
   const toast = useToast();
   const [open, setOpen] = useState(false);
@@ -253,11 +266,11 @@ function DangerZone({
     if (!matches) return;
     try {
       await deleteGroup.mutateAsync(groupId);
-      toast.success("Gruppe gelöscht", groupName);
+      toast.success(t("groups.danger.deletedToast"), groupName);
       setOpen(false);
       onDeleted();
     } catch (error) {
-      toast.fromError(error, "Löschen fehlgeschlagen");
+      toast.fromError(error, t("groups.danger.deleteFailedToast"));
     }
   }
 
@@ -265,12 +278,10 @@ function DangerZone({
     <Card padding="md" className="border-danger/40">
       <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-danger">
         <TriangleAlert aria-hidden="true" className="size-5" />
-        Gruppe löschen
+        {t("groups.danger.heading")}
       </h2>
       <p className="mt-1 text-sm text-fg-muted">
-        Alle {recipeCount} {recipeCount === 1 ? "Rezept" : "Rezepte"}, Tags, Sammlungen und
-        Einladungen dieser Gruppe werden endgültig gelöscht. Das kann nicht rückgängig gemacht
-        werden.
+        {t("groups.danger.warning", { count: recipeCount })}
       </p>
       <Button
         variant="danger"
@@ -281,15 +292,15 @@ function DangerZone({
         }}
         leftIcon={<Trash2 className="size-4" />}
       >
-        Gruppe löschen
+        {t("groups.danger.deleteButton")}
       </Button>
 
       <Dialog
         open={open}
         onClose={() => setOpen(false)}
         dismissable={!deleteGroup.isPending}
-        title="Gruppe endgültig löschen?"
-        description={`Tippe den Gruppennamen „${groupName}“ ein, um das Löschen zu bestätigen.`}
+        title={t("groups.danger.confirmTitle")}
+        description={t("groups.danger.confirmDescription", { name: groupName })}
         size="sm"
         footer={
           <>
@@ -299,7 +310,7 @@ function DangerZone({
               disabled={deleteGroup.isPending}
               fullWidth
             >
-              Abbrechen
+              {t("groups.common.cancel")}
             </Button>
             <Button
               variant="danger"
@@ -308,13 +319,13 @@ function DangerZone({
               loading={deleteGroup.isPending}
               fullWidth
             >
-              Endgültig löschen
+              {t("groups.danger.confirmButton")}
             </Button>
           </>
         }
       >
         <Input
-          label="Gruppenname"
+          label={t("groups.danger.nameLabel")}
           value={confirmText}
           onChange={(event) => setConfirmText(event.target.value)}
           placeholder={groupName}
@@ -322,7 +333,7 @@ function DangerZone({
           autoCapitalize="none"
           spellCheck={false}
           error={
-            confirmText.length > 0 && !matches ? "Der Name stimmt noch nicht überein." : undefined
+            confirmText.length > 0 && !matches ? t("groups.danger.nameMismatch") : undefined
           }
           disabled={deleteGroup.isPending}
         />

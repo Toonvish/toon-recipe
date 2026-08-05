@@ -4,6 +4,7 @@ import type { OAuthProvider } from "@toon/shared";
 import { startOAuth } from "@/lib/api";
 import { oauthProvidersQuery } from "@/lib/queries";
 import { Button } from "@/components/ui/Button";
+import { useT } from "@/lib/i18n";
 
 /** Brand marks are not part of lucide, so they are inlined here. */
 function GoogleMark() {
@@ -40,7 +41,7 @@ function GithubMark() {
 export interface OAuthButtonsProps {
   /** Path the user should land on after the provider round-trip. */
   next?: string | undefined;
-  /** "anmelden" (default) or "registrieren" — only changes the copy. */
+  /** "sign in" (default) or "sign up" — only changes the copy. */
   mode?: "login" | "register";
   disabled?: boolean;
 }
@@ -51,7 +52,7 @@ const MARKS: Record<OAuthProvider, { label: string; mark: () => ReactElement }> 
 };
 
 /**
- * "Mit Google anmelden" / "Mit GitHub anmelden".
+ * "Sign in with Google" / "Sign in with GitHub".
  * These are full-page navigations to `GET /api/auth/oauth/:provider` — the API
  * answers with a 302 into the provider's consent screen, so fetch is not an option.
  *
@@ -63,7 +64,8 @@ const MARKS: Record<OAuthProvider, { label: string; mark: () => ReactElement }> 
  * stale cache cannot strand anybody either.)
  */
 export function OAuthButtons({ next, mode = "login", disabled = false }: OAuthButtonsProps) {
-  const verb = mode === "register" ? "registrieren" : "anmelden";
+  const t = useT();
+  const key = mode === "register" ? "auth.oauth.signUp" : "auth.oauth.signIn";
   const providers = useQuery(oauthProvidersQuery());
   const available = (providers.data?.providers ?? []).filter((entry) => entry.configured);
 
@@ -83,7 +85,7 @@ export function OAuthButtons({ next, mode = "login", disabled = false }: OAuthBu
             leftIcon={<Mark />}
             onClick={() => startOAuth(entry.provider, next)}
           >
-            Mit {label} {verb}
+            {t(key, { provider: label })}
           </Button>
         );
       })}
@@ -97,12 +99,14 @@ export function useHasOAuthProviders(): boolean {
   return (providers.data?.providers ?? []).some((entry) => entry.configured);
 }
 
-/** "oder" divider between the OAuth block and the password form. */
-export function AuthDivider({ label = "oder" }: { label?: string }) {
+/** "or" divider between the OAuth block and the password form. */
+export function AuthDivider({ label }: { label?: string }) {
+  const t = useT();
+  const text = label ?? t("auth.oauth.or");
   return (
     <div className="my-5 flex items-center gap-3" aria-hidden="true">
       <span className="h-px flex-1 bg-line" />
-      <span className="text-xs font-medium tracking-wide text-fg-subtle uppercase">{label}</span>
+      <span className="text-xs font-medium tracking-wide text-fg-subtle uppercase">{text}</span>
       <span className="h-px flex-1 bg-line" />
     </div>
   );

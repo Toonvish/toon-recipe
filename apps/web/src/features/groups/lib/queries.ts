@@ -10,6 +10,7 @@ import type {
   GroupWithRole,
   UpdateGroupRequest,
 } from "@toon/shared";
+import type { MessageKey } from "@/lib/i18n";
 import {
   acceptInvite,
   createGroup,
@@ -198,9 +199,13 @@ export function useAcceptInvite() {
   });
 }
 
-export const INVITE_STATUS_LABELS: Record<string, string> = {
-  pending: "Offen",
-  accepted: "Angenommen",
-  revoked: "Zurückgezogen",
-  expired: "Abgelaufen",
+/**
+ * Invite status labels as translator keys, resolved at render time (docs/i18n.md
+ * §10 rule 8) — the map's keys are the wire `status` values and stay locked.
+ */
+export const INVITE_STATUS_LABELS: Record<string, MessageKey> = {
+  pending: "groups.inviteStatus.pending",
+  accepted: "groups.inviteStatus.accepted",
+  revoked: "groups.inviteStatus.revoked",
+  expired: "groups.inviteStatus.expired",
 };

@@ -48,8 +48,10 @@ describe("error envelope", () => {
   });
 
   test("ApiError.toBody() matches the contract", () => {
-    const body = ApiError.conflict("email_taken", "E-Mail ist bereits registriert").toBody();
-    expect(body).toEqual({ error: { code: "email_taken", message: "E-Mail ist bereits registriert" } });
+    const body = ApiError.conflict("email_taken", "server.auth.emailTaken").toBody();
+    expect(body).toEqual({
+      error: { code: "email_taken", message: "Diese E-Mail-Adresse ist bereits registriert" },
+    });
   });
 });
 

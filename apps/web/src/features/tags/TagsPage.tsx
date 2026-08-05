@@ -18,7 +18,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { useToast } from "@/components/ui";
-import { plural } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { apiFieldErrors, validate, type FieldErrors } from "@/lib/validation";
 import { useActiveGroup } from "@/lib/session";
 import { isApiError } from "@/lib/api";
@@ -40,6 +40,7 @@ const PRESET_COLORS = [
 ] as const;
 
 export default function TagsPage() {
+  const t = useT();
   const { groupId, role } = useActiveGroup();
   const tags = useTags(groupId);
   const [createOpen, setCreateOpen] = useState(false);
@@ -54,13 +55,11 @@ export default function TagsPage() {
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-semibold text-fg">Tags</h1>
-          <p className="text-sm text-fg-muted">
-            Tags gehören zur Gruppe und lassen sich in der Rezeptliste als Filter nutzen.
-          </p>
+          <h1 className="font-display text-2xl font-semibold text-fg">{t("groups.tags.title")}</h1>
+          <p className="text-sm text-fg-muted">{t("groups.tags.subtitle")}</p>
         </div>
         <Button onClick={() => setCreateOpen(true)} leftIcon={<Plus className="size-4" />}>
-          Tag anlegen
+          {t("groups.tags.create")}
         </Button>
       </header>
 
@@ -73,14 +72,14 @@ export default function TagsPage() {
       ) : (tags.data ?? []).length === 0 ? (
         <EmptyState
           icon={<Tags />}
-          title="Noch keine Tags"
-          description="Tags entstehen automatisch, wenn du sie beim Anlegen eines Rezepts eintippst — oder du legst sie hier vorab an."
+          title={t("groups.tags.emptyTitle")}
+          description={t("groups.tags.emptyDescription")}
           action={
             <Button onClick={() => setCreateOpen(true)} fullWidth leftIcon={<Plus className="size-4" />}>
-              Tag anlegen
+              {t("groups.tags.create")}
             </Button>
           }
-          secondaryAction={<AppLink to="/">Zur Rezeptliste</AppLink>}
+          secondaryAction={<AppLink to="/">{t("groups.tags.toRecipeList")}</AppLink>}
         />
       ) : (
         <Card padding="none">
@@ -89,17 +88,17 @@ export default function TagsPage() {
               <li key={tag.id} className="flex items-center gap-3 p-3">
                 <TagChip tag={tag} />
                 <span className="min-w-0 flex-1 truncate text-sm text-fg-muted">
-                  {plural(tag.recipeCount ?? 0, "Rezept", "Rezepte")}
+                  {t("groups.count.recipes", { count: tag.recipeCount ?? 0 })}
                 </span>
                 <IconButton
-                  label={`Tag ${tag.name} bearbeiten`}
+                  label={t("groups.tags.editLabel", { name: tag.name })}
                   icon={<Pencil />}
                   size="sm"
                   onClick={() => setEditing(tag)}
                 />
                 {canDelete ? (
                   <IconButton
-                    label={`Tag ${tag.name} löschen`}
+                    label={t("groups.tags.deleteLabel", { name: tag.name })}
                     icon={<Trash2 />}
                     size="sm"
                     variant="danger"
@@ -119,20 +118,23 @@ export default function TagsPage() {
         open={pendingDelete !== null}
         onClose={() => setPendingDelete(null)}
         destructive
-        title="Tag löschen?"
+        title={t("groups.tags.deleteConfirmTitle")}
         description={
           pendingDelete
-            ? `„${pendingDelete.name}“ wird von allen ${plural(pendingDelete.recipeCount ?? 0, "Rezept", "Rezepten")} entfernt. Die Rezepte selbst bleiben erhalten.`
+            ? t("groups.tags.deleteConfirmDescription", {
+                name: pendingDelete.name,
+                count: pendingDelete.recipeCount ?? 0,
+              })
             : undefined
         }
-        confirmLabel="Löschen"
+        confirmLabel={t("groups.common.delete")}
         onConfirm={async () => {
           if (!pendingDelete) return;
           try {
             await deleteTag.mutateAsync(pendingDelete.id);
-            toast.success("Tag gelöscht", pendingDelete.name);
+            toast.success(t("groups.tags.deletedToast"), pendingDelete.name);
           } catch (error) {
-            toast.fromError(error, "Löschen fehlgeschlagen");
+            toast.fromError(error, t("groups.tags.deleteFailedToast"));
             throw error;
           }
         }}
@@ -151,6 +153,7 @@ function TagDialog({
   onClose: () => void;
   tag: Tag | null;
 }) {
+  const t = useT();
   const { groupId } = useActiveGroup();
   const createTag = useCreateTag(groupId);
   const updateTag = useUpdateTag(groupId);
@@ -183,15 +186,15 @@ function TagDialog({
     try {
       if (tag) {
         await updateTag.mutateAsync({ tagId: tag.id, ...result.data });
-        toast.success("Tag gespeichert", result.data.name);
+        toast.success(t("groups.tags.savedToast"), result.data.name);
       } else {
         await createTag.mutateAsync(result.data);
-        toast.success("Tag angelegt", result.data.name);
+        toast.success(t("groups.tags.createdToast"), result.data.name);
       }
       onClose();
     } catch (error) {
       if (isApiError(error) && error.code === "tag_name_taken") {
-        setErrors({ name: "Diesen Tag gibt es in der Gruppe schon." });
+        setErrors({ name: t("groups.tags.nameTakenError") });
         return;
       }
       setErrors(apiFieldErrors(error));
@@ -202,7 +205,7 @@ function TagDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title={tag ? "Tag bearbeiten" : "Neuer Tag"}
+      title={tag ? t("groups.tags.editTitle") : t("groups.tags.createTitle")}
       size="sm"
     >
       <form onSubmit={submit} noValidate className="flex flex-col gap-3">
@@ -212,28 +215,28 @@ function TagDialog({
           </p>
         ) : null}
         <Input
-          label="Name"
+          label={t("groups.common.name")}
           required
           value={name}
           onChange={(event) => setName(event.target.value)}
-          placeholder="Vegetarisch"
+          placeholder={t("groups.tags.namePlaceholder")}
           error={errors.name}
           disabled={pending}
           autoFocus
         />
 
         <fieldset className="flex flex-col gap-2">
-          <legend className="text-sm font-medium text-fg">Farbe</legend>
+          <legend className="text-sm font-medium text-fg">{t("groups.tags.colorLegend")}</legend>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => setColor("")}
               aria-pressed={color === ""}
-              aria-label="Keine Farbe"
+              aria-label={t("groups.tags.noColorAriaLabel")}
               className="tap flex items-center justify-center rounded-full border border-line bg-surface-2 px-3 text-sm text-fg-muted"
             >
               {color === "" ? <Check aria-hidden="true" className="size-4" /> : null}
-              Standard
+              {t("groups.tags.noColor")}
             </button>
             {PRESET_COLORS.map((preset) => (
               <button
@@ -241,7 +244,7 @@ function TagDialog({
                 type="button"
                 onClick={() => setColor(preset)}
                 aria-pressed={color.toLowerCase() === preset}
-                aria-label={`Farbe ${preset}`}
+                aria-label={t("groups.tags.colorAriaLabel", { hex: preset })}
                 style={{ backgroundColor: preset }}
                 className="flex size-11 items-center justify-center rounded-full text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
@@ -252,7 +255,7 @@ function TagDialog({
             ))}
           </div>
           <Input
-            label="Eigener Hex-Wert"
+            label={t("groups.tags.customHexLabel")}
             optional
             value={color}
             onChange={(event) => setColor(event.target.value)}
@@ -265,8 +268,13 @@ function TagDialog({
         </fieldset>
 
         <div className="flex items-center gap-2">
-          <span className="text-sm text-fg-muted">Vorschau:</span>
-          <TagChip tag={{ name: name.trim().length > 0 ? name : "Beispiel", color: color || null }} />
+          <span className="text-sm text-fg-muted">{t("groups.tags.previewLabel")}</span>
+          <TagChip
+            tag={{
+              name: name.trim().length > 0 ? name : t("groups.tags.previewName"),
+              color: color || null,
+            }}
+          />
         </div>
 
         <div className="mt-1 flex gap-2">
@@ -278,10 +286,10 @@ function TagDialog({
             disabled={pending}
             leftIcon={<X className="size-4" />}
           >
-            Abbrechen
+            {t("groups.common.cancel")}
           </Button>
           <Button type="submit" loading={pending} fullWidth>
-            {tag ? "Speichern" : "Anlegen"}
+            {tag ? t("groups.common.save") : t("groups.common.create")}
           </Button>
         </div>
       </form>

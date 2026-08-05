@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import { nameKey, type ShoppingItem, type UpdateShoppingItemRequest } from "@toon/shared";
 import { Button, Dialog, Input } from "@/components/ui";
+import { useT } from "@/lib/i18n";
 
 export interface EditItemDialogProps {
   item: ShoppingItem | null;
@@ -22,6 +23,7 @@ export interface EditItemDialogProps {
 }
 
 export function EditItemDialog({ item, siblings, onClose, onSave }: EditItemDialogProps) {
+  const t = useT();
   const [name, setName] = useState("");
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("");
@@ -61,15 +63,15 @@ export function EditItemDialog({ item, siblings, onClose, onSave }: EditItemDial
     <Dialog
       open={item !== null}
       onClose={onClose}
-      title="Position bearbeiten"
+      title={t("shopping.editItem.title")}
       size="sm"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Abbrechen
+            {t("shopping.action.cancel")}
           </Button>
           <Button onClick={save} disabled={trimmedName.length === 0 || quantityInvalid}>
-            Speichern
+            {t("shopping.action.save")}
           </Button>
         </>
       }
@@ -82,41 +84,40 @@ export function EditItemDialog({ item, siblings, onClose, onSave }: EditItemDial
         }}
       >
         <Input
-          label="Artikel"
+          label={t("shopping.editItem.name.label")}
           value={name}
           onChange={(event) => setName(event.target.value)}
           autoComplete="off"
         />
         <div className="flex gap-3">
           <Input
-            label="Menge"
+            label={t("shopping.editItem.quantity.label")}
             className="flex-1"
             value={quantity}
             onChange={(event) => setQuantity(event.target.value)}
             inputMode="decimal"
-            placeholder="leer = ohne Menge"
-            error={quantityInvalid ? "Bitte eine Zahl eingeben" : undefined}
+            placeholder={t("shopping.editItem.quantity.placeholder")}
+            error={quantityInvalid ? t("shopping.editItem.quantity.error") : undefined}
           />
           <Input
-            label="Einheit"
+            label={t("shopping.editItem.unit.label")}
             className="flex-1"
             value={unit}
             onChange={(event) => setUnit(event.target.value)}
-            placeholder="g, ml, Stück …"
+            placeholder={t("shopping.editItem.unit.placeholder")}
             autoComplete="off"
           />
         </div>
         <Input
-          label="Notiz"
+          label={t("shopping.editItem.note.label")}
           value={note}
           onChange={(event) => setNote(event.target.value)}
-          placeholder="z. B. laktosefrei"
+          placeholder={t("shopping.editItem.note.placeholder")}
           autoComplete="off"
         />
         {wouldMerge ? (
           <p className="text-sm text-warning-soft-fg">
-            „{trimmedName}“ steht schon auf der Liste — die beiden Positionen werden
-            zusammengefasst.
+            {t("shopping.editItem.mergeWarning", { name: trimmedName })}
           </p>
         ) : null}
       </form>

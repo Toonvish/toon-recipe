@@ -486,7 +486,7 @@ describe("SmtpMailer TLS", () => {
         from: FROM,
       }).send({ to: "a@b.de", subject: "Test", text: "x" });
 
-      await expect(send).rejects.toThrow(/bietet kein STARTTLS an/);
+      await expect(send).rejects.toThrow(/does not offer STARTTLS/);
       // Nothing beyond the greeting was sent — no AUTH, no envelope, no message.
       expect(relay.transcript.map((line) => line.split(" ")[0])).toEqual(["EHLO"]);
       expect(relay.messages).toHaveLength(0);
@@ -601,7 +601,7 @@ describe("SmtpMailer failures", () => {
         from: FROM,
         timeoutMs: 300,
       }).send({ to: "a@b.de", subject: "Test", text: "x" });
-      await expect(send).rejects.toThrow(/Zeitüberschreitung|hat nicht geantwortet/);
+      await expect(send).rejects.toThrow(/timeout|did not respond/);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
@@ -618,10 +618,10 @@ describe("SmtpMailer failures", () => {
       });
       await expect(
         mailer.send({ to: "max@beispiel.de\r\nBcc: opfer@beispiel.de", subject: "x", text: "y" }),
-      ).rejects.toThrow(/Empfängeradresse enthält unerlaubte Zeichen/);
+      ).rejects.toThrow(/recipient address contains illegal characters/);
       await expect(
         mailer.send({ to: "max@beispiel.de", subject: "Hallo\r\nBcc: opfer@beispiel.de", text: "y" }),
-      ).rejects.toThrow(/Betreff enthält unerlaubte Zeichen/);
+      ).rejects.toThrow(/subject contains illegal characters/);
       // Nothing reached the relay at all.
       expect(relay.transcript).toHaveLength(0);
       expect(relay.messages).toHaveLength(0);

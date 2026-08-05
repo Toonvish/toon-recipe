@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import clsx from "clsx";
 import { LoaderCircle, ScanText, WandSparkles } from "lucide-react";
+import { useT } from "@/lib/i18n";
 
 export type ImportPhase = "idle" | "preparing" | "uploading" | "processing" | "done" | "error";
 
@@ -18,24 +19,25 @@ export interface OcrProgressPanelProps {
   className?: string;
 }
 
-const MESSAGES: Record<"ocr" | "text" | "url", { title: string; body: string }> = {
-  ocr: {
-    title: "Texterkennung läuft…",
-    body:
-      "Der Server liest die Schrift aus dem Bild (Deutsch + Englisch). Das dauert je nach Bildgröße bis zu einer Minute und kann nicht abgebrochen werden. Du kannst das Fenster offen lassen – schließe es bitte nicht.",
-  },
-  text: {
-    title: "PDF wird gelesen…",
-    body:
-      "Zuerst wird die Textebene des PDFs ausgelesen. Fehlt sie, werden die Seiten in Bilder umgewandelt und per Texterkennung gelesen – das dauert dann bis zu einer Minute.",
-  },
-  url: {
-    title: "Seite wird geladen…",
-    body: "Die Seite wird abgerufen und nach Rezeptdaten durchsucht. Das dauert meist nur wenige Sekunden.",
-  },
-};
+/**
+ * `mode` is a domain value (locked); the copy is resolved at render time via
+ * `t()` so a locale switch is picked up (docs/i18n.md §10 rule 8) — never a
+ * frozen module-level map of translated strings.
+ */
+function modeCopy(t: ReturnType<typeof useT>, mode: "ocr" | "text" | "url"): { title: string; body: string } {
+  switch (mode) {
+    case "text":
+      return { title: t("import.ocrProgress.text.title"), body: t("import.ocrProgress.text.body") };
+    case "url":
+      return { title: t("import.ocrProgress.url.title"), body: t("import.ocrProgress.url.body") };
+    case "ocr":
+    default:
+      return { title: t("import.ocrProgress.ocr.title"), body: t("import.ocrProgress.ocr.body") };
+  }
+}
 
 export function OcrProgressPanel({ phase, subject, mode = "ocr", className }: OcrProgressPanelProps) {
+  const t = useT();
   const [seconds, setSeconds] = useState(0);
   const active = phase === "processing" || phase === "uploading" || phase === "preparing";
 
@@ -51,12 +53,12 @@ export function OcrProgressPanel({ phase, subject, mode = "ocr", className }: Oc
 
   if (!active) return null;
 
-  const copy = MESSAGES[mode];
+  const copy = modeCopy(t, mode);
   const heading =
     phase === "preparing"
-      ? "Foto wird vorbereitet…"
+      ? t("import.ocrProgress.preparing")
       : phase === "uploading"
-        ? "Datei wird übertragen…"
+        ? t("import.ocrProgress.uploading")
         : copy.title;
 
   return (
@@ -89,9 +91,7 @@ export function OcrProgressPanel({ phase, subject, mode = "ocr", className }: Oc
           <p className="text-xs leading-5 text-fg-muted">{copy.body}</p>
         ) : null}
         {phase === "processing" && seconds > 60 ? (
-          <p className="text-xs leading-5 text-warning">
-            Das dauert länger als üblich. Bitte noch etwas Geduld – abbrechen würde die Erkennung nicht beschleunigen.
-          </p>
+          <p className="text-xs leading-5 text-warning">{t("import.ocrProgress.longWait")}</p>
         ) : null}
       </div>
     </div>

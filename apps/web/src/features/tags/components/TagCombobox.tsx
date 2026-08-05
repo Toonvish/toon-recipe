@@ -12,6 +12,7 @@ import { useId, useMemo, useRef, useState } from "react";
 import { Check, Plus, X } from "lucide-react";
 import type { Tag } from "@toon/shared";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import { Label } from "@/components/ui";
 import { TagChip } from "./TagChip";
 
@@ -35,11 +36,13 @@ export function TagCombobox({
   value,
   onChange,
   available,
-  label = "Tags",
+  label,
   disabled = false,
   error,
   maxTags = 30,
 }: TagComboboxProps) {
+  const t = useT();
+  const resolvedLabel = label ?? t("groups.tagCombobox.label");
   const [text, setText] = useState("");
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
@@ -121,7 +124,7 @@ export function TagCombobox({
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={inputId} optional>
-        {label}
+        {resolvedLabel}
       </Label>
 
       {value.length > 0 ? (
@@ -134,7 +137,7 @@ export function TagCombobox({
                   type="button"
                   onClick={() => removeAt(index)}
                   disabled={disabled}
-                  aria-label={`Tag ${name} entfernen`}
+                  aria-label={t("groups.tagCombobox.removeLabel", { name })}
                   className="flex size-6 items-center justify-center rounded-full text-fg-muted hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
                 >
                   <X aria-hidden="true" className="size-3.5" />
@@ -158,7 +161,11 @@ export function TagCombobox({
           aria-describedby={error ? `${inputId}-error` : `${inputId}-hint`}
           value={text}
           disabled={disabled || value.length >= maxTags}
-          placeholder={value.length >= maxTags ? "Maximum erreicht" : "Tag eingeben oder wählen …"}
+          placeholder={
+            value.length >= maxTags
+              ? t("groups.tagCombobox.maxReached")
+              : t("groups.tagCombobox.placeholder")
+          }
           onChange={(event) => {
             setText(event.target.value);
             setOpen(true);
@@ -204,9 +211,7 @@ export function TagCombobox({
                     {option.kind === "create" ? (
                       <>
                         <Plus aria-hidden="true" className="size-4" />
-                        <span>
-                          „{name}“ neu anlegen
-                        </span>
+                        <span>{t("groups.tagCombobox.createOption", { name })}</span>
                       </>
                     ) : (
                       <>
@@ -228,8 +233,7 @@ export function TagCombobox({
         </p>
       ) : (
         <p id={`${inputId}-hint`} className="text-sm text-fg-muted">
-          Enter fügt hinzu, Backspace entfernt den letzten. Neue Tags werden automatisch
-          angelegt.
+          {t("groups.tagCombobox.hint")}
         </p>
       )}
     </div>

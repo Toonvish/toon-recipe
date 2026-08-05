@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { MAX_UPLOAD_BYTES } from "@toon/shared";
+import { useT } from "@/lib/i18n";
 import {
   Button,
   Input,
@@ -73,6 +74,7 @@ function isValidHttpUrl(value: string): boolean {
 }
 
 export default function ImportPage() {
+  const t = useT();
   const { groupId, groupName, groups, switchGroup } = useActiveGroupState();
   const navigation = useImportNavigation();
   const toast = useShellToast();
@@ -154,12 +156,12 @@ export default function ImportPage() {
   const requireGroup = useCallback((): string | undefined => {
     if (typeof effectiveGroupId === "string" && effectiveGroupId.length > 0) return effectiveGroupId;
     toast({
-      title: "Keine Gruppe ausgewählt",
-      description: "Wähle zuerst die Gruppe, in die das Rezept importiert werden soll.",
+      title: t("import.page.toast.noGroup.title"),
+      description: t("import.page.toast.noGroup.description"),
       variant: "error",
     });
     return undefined;
-  }, [effectiveGroupId, toast]);
+  }, [effectiveGroupId, t, toast]);
 
   /* -------------------------------- actions ------------------------------- */
 
@@ -187,7 +189,7 @@ export default function ImportPage() {
       fraction: 0,
       mode: "ocr",
       kind: "image",
-      subject: files.length === 1 ? files[0]!.name : `${files.length} Fotos`,
+      subject: files.length === 1 ? files[0]!.name : t("import.page.photo.subjectCount", { count: files.length }),
     });
     try {
       const prepared = files.length === 1 ? await prepareImageForUpload(files[0]!) : await stitchImagesForUpload(files);
@@ -209,7 +211,7 @@ export default function ImportPage() {
     } catch (cause) {
       fail("photo", cause);
     }
-  }, [fail, finish, photos, requireGroup]);
+  }, [fail, finish, photos, requireGroup, t]);
 
   const runDocumentImport = useCallback(async () => {
     const group = requireGroup();
@@ -249,14 +251,21 @@ export default function ImportPage() {
     const group = requireGroup();
     if (group === undefined || textValue.trim().length === 0) return;
     setError(undefined);
-    setJob({ source: "text", phase: "processing", fraction: 1, mode: "url", kind: "image", subject: "Eingefügter Text" });
+    setJob({
+      source: "text",
+      phase: "processing",
+      fraction: 1,
+      mode: "url",
+      kind: "image",
+      subject: t("import.page.text.subject"),
+    });
     try {
       const draft = await importFromText(group, textValue, textTitle.trim().length > 0 ? textTitle.trim() : undefined);
       finish(draft.id);
     } catch (cause) {
       fail("text", cause);
     }
-  }, [fail, finish, requireGroup, textTitle, textValue]);
+  }, [fail, finish, requireGroup, t, textTitle, textValue]);
 
   /* ------------------------------ file helpers ---------------------------- */
 
@@ -265,7 +274,7 @@ export default function ImportPage() {
     const accepted: PickedPhoto[] = [];
     for (const file of files) {
       if (!isImageFile(file)) {
-        setPhotoNotice(`„${file.name}“ ist kein Bild. Erlaubt sind JPEG, PNG, WebP oder HEIC.`);
+        setPhotoNotice(t("import.page.photo.invalidFile", { filename: file.name }));
         continue;
       }
       const problem = checkFileSize(file);
@@ -276,7 +285,7 @@ export default function ImportPage() {
       accepted.push({ id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`, file, url: URL.createObjectURL(file) });
     }
     if (accepted.length > 0) setPhotos((current) => [...current, ...accepted].slice(0, 10));
-  }, []);
+  }, [t]);
 
   const removePhoto = useCallback((id: string) => {
     setPhotos((current) => {
@@ -291,7 +300,7 @@ export default function ImportPage() {
     const file = files[0];
     if (file === undefined) return;
     if (!isPdfFile(file) && !isImageFile(file)) {
-      setDocumentNotice("Bitte eine PDF-Datei oder ein Bild auswählen.");
+      setDocumentNotice(t("import.page.document.invalid"));
       return;
     }
     const problem = checkFileSize(file);
@@ -300,7 +309,7 @@ export default function ImportPage() {
       return;
     }
     setDocumentFile(file);
-  }, []);
+  }, [t]);
 
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -315,12 +324,12 @@ export default function ImportPage() {
       else setPhotoNotice(undefined);
     } catch {
       toast({
-        title: "Zwischenablage nicht lesbar",
-        description: "Dein Browser erlaubt das Einfügen nicht automatisch – bitte die URL manuell einfügen.",
+        title: t("import.page.clipboard.unreadable.title"),
+        description: t("import.page.clipboard.unreadable.description"),
         variant: "info",
       });
     }
-  }, [toast]);
+  }, [t, toast]);
 
   const clipboardSupported = typeof navigator !== "undefined" && typeof navigator.clipboard?.readText === "function";
 
@@ -345,11 +354,9 @@ export default function ImportPage() {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5 px-4 pb-28 pt-4 lg:pb-8">
       <header className="space-y-1">
-        <h1 className="text-xl font-semibold text-fg">Rezept importieren</h1>
+        <h1 className="text-xl font-semibold text-fg">{t("import.page.title")}</h1>
         <p className="text-sm text-fg-muted">
-          {ocrAvailable
-            ? "Aus dem Netz, vom Kochbuch-Foto oder aus einem PDF. Vor dem Speichern kannst du alles prüfen und korrigieren."
-            : "Aus dem Netz oder als eingefügter Text. Vor dem Speichern kannst du alles prüfen und korrigieren."}
+          {ocrAvailable ? t("import.page.subtitle.ocr") : t("import.page.subtitle.noOcr")}
         </p>
       </header>
 
@@ -359,11 +366,7 @@ export default function ImportPage() {
           className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning-soft p-3 text-sm text-warning-soft-fg"
         >
           <WifiOff aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
-            Offline — Importieren braucht eine Verbindung, weil{" "}
-            {ocrAvailable ? "die Texterkennung auf dem Server läuft" : "der Server die Seite abrufen muss"}.
-            Gespeicherte Rezepte kannst du weiterhin ansehen und nachkochen.
-          </span>
+          <span>{ocrAvailable ? t("import.page.offline.ocr") : t("import.page.offline.url")}</span>
         </p>
       )}
 
@@ -371,7 +374,7 @@ export default function ImportPage() {
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface p-3">
           <Users aria-hidden className="h-4 w-4 text-fg-subtle" />
           <Label htmlFor="import-group" className="text-xs font-medium text-fg-muted">
-            Ziel-Gruppe
+            {t("import.common.targetGroup")}
           </Label>
           <Select
             id="import-group"
@@ -386,9 +389,7 @@ export default function ImportPage() {
           />
         </div>
       ) : groupName !== undefined ? (
-        <p className="text-xs text-fg-muted">
-          Wird gespeichert in <span className="font-medium">{groupName}</span>
-        </p>
+        <p className="text-xs text-fg-muted">{t("import.page.savingToGroup", { groupName })}</p>
       ) : null}
 
       {/* ----------------------------- a) URL ------------------------------ */}
@@ -398,8 +399,8 @@ export default function ImportPage() {
             <Globe aria-hidden className="h-4 w-4" />
           </span>
           <div>
-            <h2 className="text-sm font-semibold text-fg">Von einer Webseite</h2>
-            <p className="text-xs text-fg-muted">Link einfügen, wir lesen das Rezept aus.</p>
+            <h2 className="text-sm font-semibold text-fg">{t("import.page.url.heading")}</h2>
+            <p className="text-xs text-fg-muted">{t("import.page.url.subtitle")}</p>
           </div>
         </div>
 
@@ -411,8 +412,8 @@ export default function ImportPage() {
               type="url"
               inputMode="url"
               value={urlValue}
-              placeholder="https://www.chefkoch.de/rezepte/…"
-              aria-label="Rezept-URL"
+              placeholder={t("import.page.url.placeholder")}
+              aria-label={t("import.page.url.ariaLabel")}
               aria-invalid={urlTouched && !urlValid}
               autoComplete="off"
               onChange={(event) => setUrlValue(readChangeValue(event))}
@@ -428,8 +429,8 @@ export default function ImportPage() {
                 type="button"
                 variant="secondary"
                 onClick={() => void pasteFromClipboard()}
-                aria-label="Aus Zwischenablage einfügen"
-                title="Aus Zwischenablage einfügen"
+                aria-label={t("import.page.url.pasteLabel")}
+                title={t("import.page.url.pasteLabel")}
                 disabled={busy}
               >
                 <ClipboardPaste aria-hidden className="h-4 w-4" />
@@ -438,27 +439,24 @@ export default function ImportPage() {
           </div>
 
           {urlTouched && !urlValid ? (
-            <p className="text-xs text-warning">
-              Das sieht noch nicht nach einer vollständigen Adresse aus – sie muss mit http:// oder https:// beginnen.
-            </p>
+            <p className="text-xs text-warning">{t("import.page.url.invalid")}</p>
           ) : null}
 
           {/* The sentence must be ONE flex item. Left directly in the flex container,
               every text run and every <span> becomes its own flex item: each gets the
               1.5 gap around it and wraps on its own, so the emphasised hostnames drifted
-              apart and the full stop after them started a line of its own. */}
+              apart and the full stop after them started a line of its own. Porting to
+              i18n drops the emphasis on the two hostnames — the one accepted visual
+              change in this port (docs/i18n.md §3/§11): a sentence with data mid-sentence
+              becomes ONE key with placeholders, never fragments. */}
           <p className="flex items-start gap-1.5 text-xs text-fg-muted">
             <Info aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>
-              Getestet mit <span className="font-medium">chefkoch.de</span> und{" "}
-              <span className="font-medium">biancazapatka.com</span>. Andere Seiten funktionieren,
-              wenn sie Rezeptdaten im Standardformat mitliefern.
-            </span>
+            <span>{t("import.page.url.hint", { first: "chefkoch.de", second: "biancazapatka.com" })}</span>
           </p>
 
           <Button type="button" onClick={() => void runUrlImport()} disabled={!urlValid || busy} className="w-full sm:w-auto">
             <LinkIcon aria-hidden className="mr-2 h-4 w-4" />
-            Rezept laden
+            {t("import.page.url.submit")}
           </Button>
 
           {job?.source === "url" ? <OcrProgressPanel phase={job.phase} mode="url" subject={job.subject} /> : null}
@@ -476,7 +474,7 @@ export default function ImportPage() {
                     className="inline-flex items-center gap-1.5 rounded-lg border border-danger/40 bg-surface px-2.5 py-1.5 text-xs font-medium text-danger-soft-fg hover:bg-danger-soft"
                   >
                     <Camera aria-hidden className="h-3.5 w-3.5" />
-                    Trotzdem als Foto importieren
+                    {t("import.page.url.retryPhoto")}
                   </button>
                   ) : null}
                   <button
@@ -485,7 +483,7 @@ export default function ImportPage() {
                     className="inline-flex items-center gap-1.5 rounded-lg border border-danger/40 bg-surface px-2.5 py-1.5 text-xs font-medium text-danger-soft-fg hover:bg-danger-soft"
                   >
                     <PenLine aria-hidden className="h-3.5 w-3.5" />
-                    Text von Hand einfügen
+                    {t("import.page.url.retryText")}
                   </button>
                 </>
               }
@@ -511,39 +509,36 @@ export default function ImportPage() {
             <Camera aria-hidden className="h-4 w-4" />
           </span>
           <div>
-            <h2 className="text-sm font-semibold text-fg">Foto vom Rezept</h2>
-            <p className="text-xs text-fg-muted">
-              Kochbuch, Zeitschrift, Zettel – die Texterkennung läuft auf dem Server.
-            </p>
+            <h2 className="text-sm font-semibold text-fg">{t("import.page.photo.heading")}</h2>
+            <p className="text-xs text-fg-muted">{t("import.page.photo.subtitle")}</p>
           </div>
         </div>
 
         <ImageCaptureButton onFiles={addPhotos} disabled={busy} />
 
-        <p className="mt-2 text-xs text-fg-muted">
-          Tipp: gerade von oben fotografieren, gutes Licht, keine Schatten. Bilder werden vor dem Upload automatisch
-          verkleinert.
-        </p>
+        <p className="mt-2 text-xs text-fg-muted">{t("import.page.photo.tip")}</p>
 
         {photos.length > 0 ? (
           <div className="mt-3 space-y-2">
             <div className="flex items-center justify-between text-xs text-fg-muted">
-              <span>
-                {photos.length} Foto{photos.length === 1 ? "" : "s"} · {formatBytes(totalPhotoBytes)}
-              </span>
-              {photos.length > 1 ? <span>werden zu einer Vorlage zusammengefügt</span> : null}
+              <span>{t("import.page.photo.count", { count: photos.length, bytes: formatBytes(totalPhotoBytes) })}</span>
+              {photos.length > 1 ? <span>{t("import.page.photo.merge")}</span> : null}
             </div>
             <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {photos.map((photo, index) => (
                 <li key={photo.id} className="relative overflow-hidden rounded-lg border border-line">
-                  <img src={photo.url} alt={`Ausgewähltes Foto ${index + 1}`} className="h-24 w-full object-cover" />
+                  <img
+                    src={photo.url}
+                    alt={t("import.page.photo.altSelected", { index: index + 1 })}
+                    className="h-24 w-full object-cover"
+                  />
                   <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 text-[11px] font-medium text-white">
                     {index + 1}
                   </span>
                   <button
                     type="button"
                     onClick={() => removePhoto(photo.id)}
-                    aria-label={`Foto ${index + 1} entfernen`}
+                    aria-label={t("import.page.photo.remove", { index: index + 1 })}
                     className="absolute right-1 top-1 rounded bg-black/60 p-1 text-white hover:bg-black/80"
                   >
                     <X aria-hidden className="h-3 w-3" />
@@ -553,7 +548,7 @@ export default function ImportPage() {
             </ul>
             <Button type="button" onClick={() => void runPhotoImport()} disabled={busy} className="w-full">
               <Upload aria-hidden className="mr-2 h-4 w-4" />
-              {photos.length > 1 ? `${photos.length} Fotos importieren` : "Foto importieren"}
+              {t("import.page.photo.submit", { count: photos.length })}
             </Button>
           </div>
         ) : null}
@@ -587,10 +582,8 @@ export default function ImportPage() {
             <FileUp aria-hidden className="h-4 w-4" />
           </span>
           <div>
-            <h2 className="text-sm font-semibold text-fg">PDF oder Bilddatei</h2>
-            <p className="text-xs text-fg-muted">
-              Bei PDFs wird zuerst die Textebene gelesen – das ist exakt und schnell.
-            </p>
+            <h2 className="text-sm font-semibold text-fg">{t("import.page.document.heading")}</h2>
+            <p className="text-xs text-fg-muted">{t("import.page.document.subtitle")}</p>
           </div>
         </div>
 
@@ -608,12 +601,10 @@ export default function ImportPage() {
               : "border-line-strong",
           )}
         >
-          <p className="hidden text-xs text-fg-muted sm:block">
-            Datei hierher ziehen oder
-          </p>
+          <p className="hidden text-xs text-fg-muted sm:block">{t("import.page.document.dragHint")}</p>
           <label className="mt-2 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm font-medium text-fg hover:bg-surface-2">
             <FileUp aria-hidden className="h-4 w-4" />
-            Datei auswählen
+            {t("import.page.document.pick")}
             <input
               type="file"
               accept="application/pdf,image/*"
@@ -627,7 +618,7 @@ export default function ImportPage() {
             />
           </label>
           <p className="mt-2 text-[11px] text-fg-muted">
-            PDF, JPEG, PNG, WebP oder HEIC · max. {formatBytes(MAX_UPLOAD_BYTES)}
+            {t("import.page.document.formats", { size: formatBytes(MAX_UPLOAD_BYTES) })}
           </p>
         </div>
 
@@ -641,7 +632,7 @@ export default function ImportPage() {
             <button
               type="button"
               onClick={() => setDocumentFile(undefined)}
-              aria-label="Datei entfernen"
+              aria-label={t("import.page.document.remove")}
               className="rounded-md p-1.5 text-fg-subtle hover:bg-surface-2"
             >
               <Trash2 aria-hidden className="h-4 w-4" />
@@ -658,7 +649,7 @@ export default function ImportPage() {
         {documentFile !== undefined ? (
           <Button type="button" className="mt-3 w-full" onClick={() => void runDocumentImport()} disabled={busy}>
             <Upload aria-hidden className="mr-2 h-4 w-4" />
-            Datei importieren
+            {t("import.page.document.submit")}
           </Button>
         ) : null}
 
@@ -683,7 +674,7 @@ export default function ImportPage() {
                 className="inline-flex items-center gap-1.5 rounded-lg border border-danger/40 bg-surface px-2.5 py-1.5 text-xs font-medium text-danger-soft-fg hover:bg-danger-soft"
               >
                 <Camera aria-hidden className="h-3.5 w-3.5" />
-                Stattdessen Foto aufnehmen
+                {t("import.page.document.retryPhoto")}
               </button>
             }
           />
@@ -703,31 +694,31 @@ export default function ImportPage() {
             <PenLine aria-hidden className="h-4 w-4" />
           </span>
           <span className="flex-1">
-            <span className="block text-sm font-semibold text-fg">Text einfügen</span>
-            <span className="block text-xs text-fg-muted">
-              Wenn du das Rezept schon als Text hast – z. B. aus einer Nachricht.
-            </span>
+            <span className="block text-sm font-semibold text-fg">{t("import.page.text.heading")}</span>
+            <span className="block text-xs text-fg-muted">{t("import.page.text.subtitle")}</span>
           </span>
-          <span className="text-xs text-fg-muted">{textOpen ? "schließen" : "öffnen"}</span>
+          <span className="text-xs text-fg-muted">
+            {textOpen ? t("import.page.text.toggleClose") : t("import.page.text.toggleOpen")}
+          </span>
         </button>
 
         {textOpen ? (
           <div className="mt-3 space-y-2">
             <Input
               value={textTitle}
-              placeholder="Titel (optional)"
-              aria-label="Titel"
+              placeholder={t("import.page.text.titlePlaceholder")}
+              aria-label={t("import.page.text.titleLabel")}
               onChange={(event) => setTextTitle(readChangeValue(event))}
             />
             <Textarea
               rows={8}
               value={textValue}
-              aria-label="Rezepttext"
-              placeholder={"Zutaten und Zubereitung einfügen.\n\nZutaten\n250 g Mehl\n2 Eier\n\nZubereitung\n1. Alles verrühren…"}
+              aria-label={t("import.page.text.bodyLabel")}
+              placeholder={t("import.page.text.bodyPlaceholder")}
               onChange={(event) => setTextValue(readChangeValue(event))}
             />
             <Button type="button" className="w-full" onClick={() => void runTextImport()} disabled={busy || textValue.trim().length === 0}>
-              Text auswerten
+              {t("import.page.text.submit")}
             </Button>
             {job?.source === "text" ? <OcrProgressPanel phase={job.phase} mode="url" subject={job.subject} /> : null}
             {error?.source === "text" ? (
@@ -741,14 +732,12 @@ export default function ImportPage() {
       {(draftsQuery.data?.items.length ?? 0) > 0 || draftsQuery.isLoading || draftsQuery.error != null ? (
         <section className="space-y-2">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-fg">Offene Entwürfe</h2>
+            <h2 className="text-sm font-semibold text-fg">{t("import.page.drafts.heading")}</h2>
             {(draftsQuery.data?.total ?? 0) > 0 ? (
               <span className="text-xs text-fg-muted">{draftsQuery.data?.total}</span>
             ) : null}
           </div>
-          <p className="text-xs text-fg-muted">
-            Ein abgebrochener Import ist nicht verloren – hier kannst du weitermachen.
-          </p>
+          <p className="text-xs text-fg-muted">{t("import.page.drafts.hint")}</p>
           <PendingDraftsList
             drafts={draftsQuery.data?.items ?? []}
             isLoading={draftsQuery.isLoading}
@@ -765,8 +754,8 @@ export default function ImportPage() {
                   onSettled: () => setDeletingDraftId(undefined),
                   onError: () =>
                     toast({
-                      title: "Entwurf konnte nicht verworfen werden",
-                      description: "Bitte versuche es erneut.",
+                      title: t("import.page.drafts.deleteError.title"),
+                      description: t("import.page.drafts.deleteError.description"),
                       variant: "error",
                     }),
                 },

@@ -1,15 +1,16 @@
 import type { ReactNode } from "react";
 import { CircleAlert, RefreshCw, WifiOff } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import { errorMessage, isApiError } from "@/lib/api";
 import { Button } from "./Button";
 
 export interface ErrorStateProps {
-  /** The thrown value — the German message is extracted automatically. */
+  /** The thrown value — its localized message is extracted automatically. */
   error?: unknown;
   title?: string;
   description?: ReactNode;
-  /** Shows a "Erneut versuchen" button. */
+  /** Shows a retry button. */
   onRetry?: () => void;
   action?: ReactNode;
   className?: string;
@@ -26,8 +27,10 @@ export function ErrorState({
   className,
   inline = false,
 }: ErrorStateProps) {
+  const t = useT();
   const offline = isApiError(error) && error.isOffline;
-  const heading = title ?? (offline ? "Keine Verbindung" : "Etwas ist schiefgelaufen");
+  const heading =
+    title ?? (offline ? t("ui.errorState.offlineTitle") : t("ui.errorState.genericTitle"));
   const message = description ?? (error !== undefined ? errorMessage(error) : undefined);
 
   if (inline) {
@@ -46,7 +49,7 @@ export function ErrorState({
         </div>
         {onRetry ? (
           <Button variant="ghost" size="sm" onClick={onRetry}>
-            Erneut
+            {t("ui.errorState.retryInline")}
           </Button>
         ) : null}
       </div>
@@ -72,7 +75,7 @@ export function ErrorState({
       <div className="mt-2 flex flex-col gap-2 sm:flex-row">
         {onRetry ? (
           <Button onClick={onRetry} leftIcon={<RefreshCw className="size-4" />}>
-            Erneut versuchen
+            {t("ui.errorState.retry")}
           </Button>
         ) : null}
         {action}

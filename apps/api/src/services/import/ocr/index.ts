@@ -11,7 +11,7 @@
 import type { ImportSourceMeta, ParsedRecipe } from "@toon/shared";
 import { ApiError } from "../../../lib/errors.ts";
 import { type OcrEngine, getOcrEngine, withOcrTimeout } from "../../ocr/index.ts";
-import { pdfToText } from "../../ocr/pdf.ts";
+import { PDF_NO_TEXT_LAYER_MESSAGE, pdfToText } from "../../ocr/pdf.ts";
 import { preprocessImage } from "../../ocr/preprocess.ts";
 import { type SniffedMime, deleteUpload, storeUpload } from "../files.ts";
 import { finalizeParsed } from "../parsed.ts";
@@ -97,12 +97,7 @@ export async function importFromImage(
     langs = result.langs;
 
     if (rawText.replace(/\s+/g, "").length < 10) {
-      throw new ApiError(
-        422,
-        "ocr_failed",
-        "Auf dem Bild wurde kein Text erkannt. Bitte näher heranzoomen, für gutes Licht sorgen und das Blatt gerade fotografieren.",
-        { engine: engineName, langs },
-      );
+      throw new ApiError(422, "ocr_failed", "server.ocr.noTextDetected", { engine: engineName, langs });
     }
   } catch (error) {
     await deleteUpload(stored?.filename);
@@ -160,12 +155,12 @@ export async function importFromPdf(bytes: Uint8Array, options: PdfImportOptions
           ...(options.useTextLayer === undefined ? {} : { useTextLayer: options.useTextLayer }),
         }),
       options.timeoutMs,
-      "Die Verarbeitung des PDFs hat zu lange gedauert. Bitte nur die Seiten mit dem Rezept hochladen.",
+      "server.ocr.pdfProcessingTimedOut",
     );
 
     rawText = clampRawText(result.text.trim());
     if (rawText.replace(/\s+/g, "").length < 10) {
-      throw new ApiError(422, "pdf_no_text_layer", "Das PDF enthält keinen Text — bitte ein Foto der Seite hochladen.", {
+      throw new ApiError(422, "pdf_no_text_layer", PDF_NO_TEXT_LAYER_MESSAGE, {
         reason: "empty_result",
       });
     }
@@ -203,7 +198,7 @@ export interface TextPasteOptions {
 /** Pasted text -> draft payload. Synchronous: no OCR, no I/O. */
 export function importFromText(rawText: string, options: TextPasteOptions = {}): TextImportResult {
   const text = clampRawText(rawText.trim());
-  if (text.length === 0) throw ApiError.badRequest("Der eingefügte Text ist leer.");
+  if (text.length === 0) throw ApiError.badRequest("server.import.pastedTextEmpty");
 
   const parsed = parseRecipeText(text, {
     source: "manual",

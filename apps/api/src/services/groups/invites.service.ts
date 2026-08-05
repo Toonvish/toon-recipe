@@ -21,6 +21,7 @@ import type {
   InvitePreviewResponse,
   PaginationQuery,
 } from "@toon/shared";
+import { type Locale, isLocale } from "@toon/shared";
 import { and, count, desc, eq } from "drizzle-orm";
 import type { Database } from "../../db/client.ts";
 import { groupInvites, groupMembers, groups, users } from "../../db/schema.ts";
@@ -74,7 +75,7 @@ export async function createInvite(
     .where(and(eq(groupMembers.groupId, groupId), eqFolded(users.email, input.email)))
     .limit(1);
   if (alreadyMember.length > 0) {
-    throw ApiError.conflict("conflict", "Diese Person ist schon Mitglied der Gruppe");
+    throw ApiError.conflict("conflict", "server.group.alreadyMember");
   }
 
   const timestamp = nowMs();
@@ -116,6 +117,11 @@ export async function createInvite(
     .from(groups)
     .where(eq(groups.id, groupId))
     .limit(1);
+  // The invitee usually has no account (and so no locale preference) yet, so the
+  // INVITER's own `users.locale` is the closest proxy — a household invites its
+  // own household (docs/i18n.md §8).
+  const [inviter] = await db.select({ locale: users.locale }).from(users).where(eq(users.id, invitedBy)).limit(1);
+  const locale: Locale = isLocale(inviter?.locale) ? inviter.locale : env.defaultLocale;
   const sent = await trySendMail(
     inviteMail({
       to: input.email,
@@ -123,6 +129,7 @@ export async function createInvite(
       invitedByName: invite.invitedByName,
       inviteUrl,
       expiresInDays: INVITE_TTL_DAYS,
+      locale,
     }),
   );
 
@@ -147,7 +154,7 @@ async function loadInvite(
     .innerJoin(users, eq(users.id, groupInvites.invitedBy))
     .where(where)
     .limit(1);
-  if (!row) throw ApiError.notFound("Einladung nicht gefunden");
+  if (!row) throw ApiError.notFound("server.invite.notFound");
   return toGroupInvite(row.invite, row.invitedByName);
 }
 
@@ -186,9 +193,9 @@ export async function revokeInvite(db: DbLike, groupId: string, inviteId: string
     .from(groupInvites)
     .where(and(eq(groupInvites.id, inviteId), eq(groupInvites.groupId, groupId)))
     .limit(1);
-  if (!row) throw ApiError.notFound("Einladung nicht gefunden");
+  if (!row) throw ApiError.notFound("server.invite.notFound");
   if (row.status === "accepted") {
-    throw ApiError.conflict("conflict", "Diese Einladung wurde schon angenommen");
+    throw ApiError.conflict("conflict", "server.invite.alreadyAccepted");
   }
   await db.update(groupInvites).set({ status: "revoked" }).where(eq(groupInvites.id, inviteId));
 }
@@ -213,11 +220,11 @@ async function loadUsableInvite(db: DbLike, token: string): Promise<InviteContex
     .where(eq(groupInvites.token, token))
     .limit(1);
 
-  if (!row) throw ApiError.notFound("Diese Einladung ist ungültig");
+  if (!row) throw ApiError.notFound("server.invite.invalid");
   const status = toInviteStatus(row.invite.status, row.invite.expiresAt);
-  if (status === "revoked") throw ApiError.notFound("Diese Einladung wurde zurückgezogen");
+  if (status === "revoked") throw ApiError.notFound("server.invite.revoked");
   if (status === "expired") {
-    throw ApiError.conflict("invite_expired", "Diese Einladung ist abgelaufen");
+    throw ApiError.conflict("invite_expired", "server.invite.expired");
   }
   return { invite: row.invite, groupName: row.groupName, invitedByName: row.invitedByName };
 }
@@ -256,7 +263,7 @@ export async function acceptInvite(
   const timestamp = nowMs();
 
   if (!existing && invite.status === "accepted") {
-    throw ApiError.notFound("Diese Einladung wurde bereits verwendet");
+    throw ApiError.notFound("server.invite.alreadyUsed");
   }
 
   const role: GroupRole = existing ? toGroupRole(existing.role) : toInvitableRole(invite.role);

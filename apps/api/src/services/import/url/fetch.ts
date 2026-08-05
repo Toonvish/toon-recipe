@@ -78,7 +78,7 @@ function decodeBody(bytes: Uint8Array, contentType: string): string {
 async function readCapped(response: Response, maxBytes: number): Promise<Uint8Array> {
   const declared = Number(response.headers.get("content-length") ?? "0");
   if (Number.isFinite(declared) && declared > maxBytes) {
-    throw new ApiError(400, "fetch_failed", "Die Seite ist zu groß zum Importieren (max. 5 MB).");
+    throw new ApiError(400, "fetch_failed", "server.import.pageTooLarge");
   }
   const body = response.body;
   if (!body) return new Uint8Array(0);
@@ -94,7 +94,7 @@ async function readCapped(response: Response, maxBytes: number): Promise<Uint8Ar
       total += value.byteLength;
       if (total > maxBytes) {
         await reader.cancel().catch(() => undefined);
-        throw new ApiError(400, "fetch_failed", "Die Seite ist zu groß zum Importieren (max. 5 MB).");
+        throw new ApiError(400, "fetch_failed", "server.import.pageTooLarge");
       }
       chunks.push(value);
     }
@@ -148,22 +148,24 @@ export async function fetchHtml(rawUrl: string, options: FetchHtmlOptions = {}):
         });
       } catch (error) {
         if (controller.signal.aborted) {
-          throw new ApiError(400, "fetch_failed", "Die Seite hat nicht rechtzeitig geantwortet (Timeout 10 s).");
+          throw new ApiError(400, "fetch_failed", "server.import.pageTimeout");
         }
-        throw new ApiError(
-          400,
-          "fetch_failed",
-          `Die Seite konnte nicht geladen werden: ${error instanceof Error ? error.message : "Netzwerkfehler"}`,
-        );
+        throw new ApiError(400, "fetch_failed", {
+          key: "server.import.pageLoadFailed",
+          values: { reason: error instanceof Error ? error.message : "network error" },
+        });
       }
 
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get("location");
         if (!location) {
-          throw new ApiError(400, "fetch_failed", `Die Seite antwortete mit ${response.status} ohne Zieladresse.`);
+          throw new ApiError(400, "fetch_failed", {
+            key: "server.import.redirectNoLocation",
+            values: { status: response.status },
+          });
         }
         if (redirect >= maxRedirects) {
-          throw new ApiError(400, "fetch_failed", "Die Seite leitet zu oft weiter.");
+          throw new ApiError(400, "fetch_failed", "server.import.tooManyRedirects");
         }
         await response.body?.cancel().catch(() => undefined);
         // Resolve relative Locations against the current hop, then re-validate.
@@ -174,21 +176,19 @@ export async function fetchHtml(rawUrl: string, options: FetchHtmlOptions = {}):
 
       if (!response.ok) {
         await response.body?.cancel().catch(() => undefined);
-        throw new ApiError(
-          400,
-          "fetch_failed",
-          `Die Seite antwortete mit HTTP ${response.status}. Bitte prüfe die Adresse.`,
-        );
+        throw new ApiError(400, "fetch_failed", {
+          key: "server.import.pageHttpError",
+          values: { status: response.status },
+        });
       }
 
       const contentType = response.headers.get("content-type") ?? "";
       if (contentType.length > 0 && !HTML_CONTENT_TYPE_RE.test(contentType)) {
         await response.body?.cancel().catch(() => undefined);
-        throw new ApiError(
-          400,
-          "fetch_failed",
-          `Diese Adresse liefert kein HTML (${contentType.split(";")[0]}). Bitte den Link zur Rezeptseite verwenden.`,
-        );
+        throw new ApiError(400, "fetch_failed", {
+          key: "server.import.pageNotHtml",
+          values: { contentType: contentType.split(";")[0] ?? contentType },
+        });
       }
 
       const bytes = await readCapped(response, maxBytes);

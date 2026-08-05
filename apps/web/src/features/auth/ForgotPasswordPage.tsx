@@ -8,6 +8,7 @@ import { apiFieldErrors, clearField, validate, type FieldErrors } from "@/lib/va
 import { Button } from "@/components/ui/Button";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Input } from "@/components/ui/Input";
+import { useT } from "@/lib/i18n";
 import { AuthLayout } from "./AuthLayout";
 
 /**
@@ -15,12 +16,13 @@ import { AuthLayout } from "./AuthLayout";
  *
  * THE CONFIRMATION IS THE SAME NO MATTER WHAT. The API answers 204 for a known and
  * an unknown address alike so it cannot be used to find out who has an account
- * here, and this screen must not undo that: it shows one "Wenn es ein Konto mit
- * dieser Adresse gibt …" panel on success, never "E-Mail nicht gefunden". The only
+ * here, and this screen must not undo that: it shows one "If there is an account
+ * with this address …" panel on success, never "E-mail not found". The only
  * failures rendered are the ones that say nothing about the account — a malformed
  * address (client-side) and a rate limit.
  */
 export function ForgotPasswordPage() {
+  const t = useT();
   const [email, setEmail] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [submittedTo, setSubmittedTo] = useState<string | null>(null);
@@ -45,24 +47,20 @@ export function ForgotPasswordPage() {
   if (submittedTo !== null) {
     return (
       <AuthLayout
-        title="E-Mail unterwegs"
-        description="Prüfe dein Postfach."
+        title={t("auth.forgotPassword.sent.title")}
+        description={t("auth.forgotPassword.sent.description")}
         footer={
           <Link to="/login" className="font-semibold text-brand underline-offset-2 hover:underline">
-            Zurück zur Anmeldung
+            {t("auth.common.backToLoginLink")}
           </Link>
         }
       >
         <div className="flex flex-col items-center gap-3 text-center">
           <CheckCircle2 aria-hidden className="size-10 text-success" />
           <p className="text-sm text-fg">
-            Wenn es ein Konto mit der Adresse <strong className="break-all">{submittedTo}</strong>{" "}
-            gibt, haben wir einen Link zum Zurücksetzen verschickt.
+            {t("auth.forgotPassword.sent.lead", { email: submittedTo })}
           </p>
-          <p className="text-sm text-fg-muted">
-            Der Link gilt eine Stunde und kann nur einmal verwendet werden. Schau notfalls auch im
-            Spam-Ordner nach.
-          </p>
+          <p className="text-sm text-fg-muted">{t("auth.forgotPassword.sent.hint")}</p>
           <Button
             variant="ghost"
             size="sm"
@@ -71,7 +69,7 @@ export function ForgotPasswordPage() {
               requestReset.reset();
             }}
           >
-            Andere Adresse verwenden
+            {t("auth.forgotPassword.sent.useOther")}
           </Button>
         </div>
       </AuthLayout>
@@ -80,13 +78,13 @@ export function ForgotPasswordPage() {
 
   return (
     <AuthLayout
-      title="Passwort vergessen"
-      description="Wir schicken dir einen Link, mit dem du ein neues Passwort setzen kannst."
+      title={t("auth.forgotPassword.title")}
+      description={t("auth.forgotPassword.description")}
       footer={
         <>
-          Passwort wieder eingefallen?{" "}
+          {t("auth.forgotPassword.rememberedPrompt")}{" "}
           <Link to="/login" className="font-semibold text-brand underline-offset-2 hover:underline">
-            Zur Anmeldung
+            {t("auth.common.loginLink")}
           </Link>
         </>
       }
@@ -95,7 +93,7 @@ export function ForgotPasswordPage() {
         {errors._form ? <ErrorState inline description={errors._form} /> : null}
 
         <Input
-          label="E-Mail"
+          label={t("auth.field.email.label")}
           type="email"
           name="email"
           inputMode="email"
@@ -104,7 +102,7 @@ export function ForgotPasswordPage() {
           spellCheck={false}
           required
           leftIcon={<Mail />}
-          placeholder="du@beispiel.de"
+          placeholder={t("auth.field.email.placeholder")}
           value={email}
           error={errors.email}
           onChange={(event) => {
@@ -114,13 +112,10 @@ export function ForgotPasswordPage() {
         />
 
         <Button type="submit" size="lg" fullWidth loading={requestReset.isPending}>
-          Link anfordern
+          {t("auth.forgotPassword.submit")}
         </Button>
 
-        <p className="text-xs text-fg-muted">
-          Melde dich mit Google oder GitHub an, falls du dein Konto so angelegt hast — dann brauchst
-          du kein Passwort.
-        </p>
+        <p className="text-xs text-fg-muted">{t("auth.forgotPassword.oauthHint")}</p>
       </form>
     </AuthLayout>
   );

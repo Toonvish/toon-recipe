@@ -15,6 +15,7 @@ import { useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { formatQuantity, formatShoppingAmount } from "@toon/shared";
 import { Button, Input } from "@/components/ui";
+import { useT } from "@/lib/i18n";
 import { parseShoppingInput, parseShoppingInputBlock } from "../lib/parse";
 
 export interface AddItemBarProps {
@@ -23,6 +24,7 @@ export interface AddItemBarProps {
 }
 
 export function AddItemBar({ onAdd, disabled = false }: AddItemBarProps) {
+  const t = useT();
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -61,15 +63,15 @@ export function AddItemBar({ onAdd, disabled = false }: AddItemBarProps) {
             ref={inputRef}
             value={text}
             onChange={(event) => setText(event.target.value)}
-            placeholder="z. B. 500 g Mehl"
-            aria-label="Artikel hinzufügen"
+            placeholder={t("shopping.addItem.placeholder")}
+            aria-label={t("shopping.addItem.ariaLabel")}
             enterKeyHint="done"
             autoComplete="off"
             disabled={disabled}
           />
           {preview ? (
             <p className="mt-1.5 truncate text-xs text-fg-muted">
-              Wird hinzugefügt:{" "}
+              {t("shopping.addItem.previewLabel")}{" "}
               <span className="font-medium text-fg">
                 {[
                   formatShoppingAmount(
@@ -91,7 +93,7 @@ export function AddItemBar({ onAdd, disabled = false }: AddItemBarProps) {
           disabled={disabled || preview === null}
           className="shrink-0"
         >
-          <span className="sr-only sm:not-sr-only">Hinzufügen</span>
+          <span className="sr-only sm:not-sr-only">{t("shopping.action.add")}</span>
         </Button>
       </form>
     </div>

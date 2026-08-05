@@ -53,9 +53,7 @@ export function requireProviderConfigured(provider: OAuthProvider): void {
   throw new ApiError(
     400,
     "oauth_not_configured",
-    provider === "google"
-      ? "Google-Login ist auf diesem Server nicht konfiguriert"
-      : "GitHub-Login ist auf diesem Server nicht konfiguriert",
+    provider === "google" ? "server.auth.googleNotConfigured" : "server.auth.githubNotConfigured",
   );
 }
 
@@ -135,7 +133,7 @@ export async function exchangeCodeForProfile(
 
   if (provider === "google") {
     if (!codeVerifier) {
-      throw new ApiError(400, "oauth_failed", "OAuth-Sitzung abgelaufen, bitte erneut anmelden");
+      throw new ApiError(400, "oauth_failed", "server.auth.oauthSessionExpired");
     }
     const tokens = await validate(() => googleClient().validateAuthorizationCode(code, codeVerifier));
     // `idToken()` throws when the response carried none — then we fall back to
@@ -158,7 +156,7 @@ async function validate<T>(run: () => Promise<T>): Promise<T> {
     return await run();
   } catch (error) {
     console.warn("[auth] OAuth code exchange failed:", error instanceof Error ? error.message : error);
-    throw new ApiError(400, "oauth_failed", "Die Anmeldung beim Anbieter ist fehlgeschlagen");
+    throw new ApiError(400, "oauth_failed", "server.auth.oauthLoginFailed");
   }
 }
 
@@ -176,14 +174,14 @@ async function googleProfile(idToken: string | undefined, accessToken: string): 
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!response.ok) {
-      throw new ApiError(400, "oauth_failed", "Google-Profil konnte nicht geladen werden");
+      throw new ApiError(400, "oauth_failed", "server.auth.googleProfileUnavailable");
     }
     claims = await response.json();
   }
 
   const parsed = GoogleClaimsSchema.safeParse(claims);
   if (!parsed.success) {
-    throw new ApiError(400, "oauth_failed", "Google-Profil war unvollständig");
+    throw new ApiError(400, "oauth_failed", "server.auth.googleProfileIncomplete");
   }
   const data = parsed.data;
   return {
@@ -206,11 +204,11 @@ async function githubProfile(accessToken: string): Promise<OAuthProfile> {
 
   const userResponse = await fetch("https://api.github.com/user", { headers });
   if (!userResponse.ok) {
-    throw new ApiError(400, "oauth_failed", "GitHub-Profil konnte nicht geladen werden");
+    throw new ApiError(400, "oauth_failed", "server.auth.githubProfileUnavailable");
   }
   const user = GitHubUserSchema.safeParse(await userResponse.json());
   if (!user.success) {
-    throw new ApiError(400, "oauth_failed", "GitHub-Profil war unvollständig");
+    throw new ApiError(400, "oauth_failed", "server.auth.githubProfileIncomplete");
   }
 
   let email = user.data.email?.trim().toLowerCase() ?? null;

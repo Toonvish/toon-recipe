@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { refineKey } from "../i18n/zod.ts";
 
 /** All ids are crypto.randomUUID() strings. */
 export const IdSchema = z.uuid();
@@ -30,7 +31,7 @@ export function isHttpUrl(value: string): boolean {
 export const HttpUrlSchema = z
   .string()
   .max(2000)
-  .refine(isHttpUrl, { message: "Nur http(s)-Links sind erlaubt" });
+  .refine(isHttpUrl, refineKey("server.validation.httpUrlOnly"));
 
 /** Machine-readable error codes. `ApiError.code` is a plain string for forward compat. */
 export const ERROR_CODES = [
@@ -92,6 +93,33 @@ export const ApiErrorSchema = z.object({
   }),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
+
+/**
+ * One entry of a `validation_failed` error's `details` array.
+ *
+ * `message` is rendered in the locale the request negotiated — display it if
+ * you cannot use `i18n`. `i18n` is the structured form, so a client can
+ * re-render the issue in ITS OWN active locale regardless of what the server
+ * negotiated; resolve it with `resolveWireKey`, never with a cast to a
+ * catalog's key type (see the i18n runtime's `resolveWireKey`).
+ *
+ * `path` is a `string` on the wire (`issue.path.join(".")`), not an array —
+ * `fromIssues` in apps/web/src/lib/validation.ts accepts both shapes because an
+ * older server-side branch used to send an array and some code still tests for
+ * it; see docs/i18n.md §4 for why that matters for where a field error lands.
+ */
+export const ValidationIssueSchema = z.object({
+  path: z.string(),
+  code: z.string(),
+  message: z.string(),
+  i18n: z
+    .object({
+      key: z.string(),
+      values: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+    })
+    .optional(),
+});
+export type ValidationIssue = z.infer<typeof ValidationIssueSchema>;
 
 /** Shared list envelope: `{ items, total, limit, offset }`. */
 export function listResponse<T extends z.ZodTypeAny>(item: T) {

@@ -21,3 +21,6 @@ export * from "./units.ts";
 export * from "./ingredients.ts";
 export * from "./duration.ts";
 export * from "./shopping.ts";
+
+// --- interface language: the i18n runtime + server catalogs ----------------
+export * from "./i18n/index.ts";

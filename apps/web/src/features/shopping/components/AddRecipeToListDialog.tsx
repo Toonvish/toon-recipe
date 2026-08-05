@@ -28,6 +28,7 @@ import {
   type ShoppingList,
 } from "@toon/shared";
 import { Button, Dialog, Field, Input, Select, Spinner } from "@/components/ui";
+import { useT } from "@/lib/i18n";
 import { ServingsScaler } from "@/features/recipes/components/ServingsScaler";
 
 export interface AddRecipeToListDialogProps {
@@ -54,9 +55,6 @@ export interface AddRecipeToListDialogProps {
   }) => void;
 }
 
-/** Name of the list offered when a group has none yet. */
-export const DEFAULT_SHOPPING_LIST_NAME = "Einkaufsliste";
-
 export function AddRecipeToListDialog({
   open,
   onClose,
@@ -70,10 +68,12 @@ export function AddRecipeToListDialog({
   creatingList = false,
   onSubmit,
 }: AddRecipeToListDialogProps) {
+  const t = useT();
+  const defaultListName = t("shopping.list.defaultName");
   const [listId, setListId] = useState("");
   const [servings, setServings] = useState(initialServings);
   const [excluded, setExcluded] = useState<ReadonlySet<string>>(new Set());
-  const [newListName, setNewListName] = useState(DEFAULT_SHOPPING_LIST_NAME);
+  const [newListName, setNewListName] = useState(defaultListName);
   const [createError, setCreateError] = useState<string | undefined>(undefined);
 
   /** Only lines with a name reach the list — `recipeToShoppingItems` drops the rest. */
@@ -90,9 +90,9 @@ export function AddRecipeToListDialog({
     setServings(initialServings);
     setExcluded(new Set());
     setCreateError(undefined);
-    setNewListName(DEFAULT_SHOPPING_LIST_NAME);
+    setNewListName(defaultListName);
     setListId((current) => (current.length > 0 ? current : (lists[0]?.id ?? "")));
-  }, [open, initialServings, lists]);
+  }, [open, initialServings, lists, defaultListName]);
 
   const base =
     typeof recipe.servingsAmount === "number" && recipe.servingsAmount > 0
@@ -157,10 +157,12 @@ export function AddRecipeToListDialog({
     if (onCreateList === undefined) return;
     setCreateError(undefined);
     try {
-      const list = await onCreateList(newListName.trim() || DEFAULT_SHOPPING_LIST_NAME);
+      const list = await onCreateList(newListName.trim() || defaultListName);
       if (list) setListId(list.id);
     } catch (error) {
-      setCreateError(error instanceof Error ? error.message : "Liste konnte nicht angelegt werden.");
+      setCreateError(
+        error instanceof Error ? error.message : t("shopping.addRecipe.createListError"),
+      );
     }
   };
 
@@ -170,12 +172,12 @@ export function AddRecipeToListDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Zur Einkaufsliste"
+      title={t("shopping.addRecipe.title")}
       description={recipe.title}
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={submitting}>
-            Abbrechen
+            {t("shopping.action.cancel")}
           </Button>
           <Button
             leftIcon={<ShoppingBasket />}
@@ -189,26 +191,24 @@ export function AddRecipeToListDialog({
               })
             }
           >
-            {preview.length === 1 ? "1 Position" : `${preview.length} Positionen`} hinzufügen
+            {t("shopping.addRecipe.submit", { count: preview.length })}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-4">
         {listsLoading ? (
-          <Spinner label="Einkaufslisten werden geladen" />
+          <Spinner label={t("shopping.addRecipe.listsLoading")} />
         ) : lists.length === 0 ? (
           /* No dead end here: a group's first list can be created from this dialog,
              otherwise "zur Einkaufsliste" is a button that can never do anything. */
           <div className="flex flex-col gap-2 rounded-xl border border-line bg-surface-2/50 p-3">
-            <p className="text-sm text-fg-muted">
-              Diese Gruppe hat noch keine Einkaufsliste. Leg gleich hier eine an.
-            </p>
+            <p className="text-sm text-fg-muted">{t("shopping.addRecipe.noLists")}</p>
             {canCreateList && onCreateList !== undefined ? (
               <>
                 <div className="flex items-end gap-2">
                   <Input
-                    label="Name"
+                    label={t("shopping.list.name.label")}
                     containerClassName="min-w-0 flex-1"
                     value={newListName}
                     maxLength={80}
@@ -227,7 +227,7 @@ export function AddRecipeToListDialog({
                     disabled={newListName.trim().length === 0}
                     onClick={() => void createList()}
                   >
-                    Anlegen
+                    {t("shopping.action.create")}
                   </Button>
                 </div>
                 {createError !== undefined ? (
@@ -237,13 +237,11 @@ export function AddRecipeToListDialog({
                 ) : null}
               </>
             ) : (
-              <p className="text-sm text-fg-muted">
-                Dafür brauchst du eine Internetverbindung — Listen anlegen geht nicht offline.
-              </p>
+              <p className="text-sm text-fg-muted">{t("shopping.addRecipe.createOffline")}</p>
             )}
           </div>
         ) : (
-          <Field label="Liste">
+          <Field label={t("shopping.addRecipe.list.label")}>
             {(props) => (
               <Select
                 {...props}
@@ -256,7 +254,10 @@ export function AddRecipeToListDialog({
         )}
 
         {scalable ? (
-          <Field label="Portionen" hint="Die Mengen werden entsprechend umgerechnet.">
+          <Field
+            label={t("shopping.addRecipe.servings.label")}
+            hint={t("shopping.addRecipe.servings.hint")}
+          >
             {() => (
               <ServingsScaler
                 value={servings}
@@ -267,19 +268,17 @@ export function AddRecipeToListDialog({
             )}
           </Field>
         ) : (
-          <p className="text-sm text-fg-muted">
-            Dieses Rezept hat keine Portionsangabe, die Mengen werden unverändert übernommen.
-          </p>
+          <p className="text-sm text-fg-muted">{t("shopping.addRecipe.noServings")}</p>
         )}
 
         {shoppable.length > 0 ? (
           <fieldset className="min-w-0">
             {/* A <legend> is only a legend as the fieldset's FIRST child, so the visible
                 heading below is a plain span and this one carries the accessible name. */}
-            <legend className="sr-only">Zutaten</legend>
+            <legend className="sr-only">{t("shopping.addRecipe.ingredients.heading")}</legend>
             <div className="mb-1.5 flex flex-wrap items-center gap-2">
               <span aria-hidden="true" className="text-sm font-medium text-fg">
-                Zutaten
+                {t("shopping.addRecipe.ingredients.heading")}
               </span>
               <label className="ml-auto flex min-h-11 items-center gap-2 text-sm text-fg-muted">
                 <input
@@ -289,7 +288,7 @@ export function AddRecipeToListDialog({
                   checked={allSelected}
                   onChange={toggleAll}
                 />
-                Alle
+                {t("shopping.addRecipe.selectAll")}
               </label>
             </div>
             <ul className="max-h-56 overflow-y-auto rounded-xl border border-line bg-surface-2/50 px-3 py-1 text-sm">
@@ -330,16 +329,14 @@ export function AddRecipeToListDialog({
             </ul>
             <p className="mt-1.5 text-xs text-fg-muted">
               {noneSelected
-                ? "Wähle mindestens eine Zutat aus."
+                ? t("shopping.addRecipe.selectAtLeastOne")
                 : merged
-                  ? `Wird zu ${preview.length === 1 ? "1 Position" : `${preview.length} Positionen`} zusammengefasst. Gleiche Artikel werden mit dem zusammengezählt, was schon auf der Liste steht.`
-                  : "Gleiche Artikel werden mit dem zusammengezählt, was schon auf der Liste steht."}
+                  ? t("shopping.addRecipe.mergeNotice", { count: preview.length })
+                  : t("shopping.addRecipe.mergeHint")}
             </p>
           </fieldset>
         ) : (
-          <p className="text-sm text-fg-muted">
-            Dieses Rezept hat keine Zutaten, die auf eine Einkaufsliste passen.
-          </p>
+          <p className="text-sm text-fg-muted">{t("shopping.addRecipe.noIngredients")}</p>
         )}
       </div>
     </Dialog>

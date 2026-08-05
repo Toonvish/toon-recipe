@@ -9,7 +9,7 @@
  * without changing any caller.
  */
 import { env } from "../../env.ts";
-import { ApiError } from "../../lib/errors.ts";
+import { ApiError, type ErrorText } from "../../lib/errors.ts";
 import { preprocessImage } from "./preprocess.ts";
 import { TesseractEngine } from "./tesseract.ts";
 import type { OcrEngine, OcrOptions, OcrResult } from "./types.ts";
@@ -69,7 +69,7 @@ export const OCR_TIMEOUT_MS = 60_000;
 export async function withOcrTimeout<T>(
   operation: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number = OCR_TIMEOUT_MS,
-  message = "Die Texterkennung hat zu lange gedauert. Bitte ein kleineres oder schärferes Bild hochladen.",
+  message: ErrorText = "server.ocr.recognitionTimedOut",
 ): Promise<T> {
   const controller = new AbortController();
   let timedOut = false;
@@ -134,12 +134,9 @@ export function ocrInFlight(): number {
  */
 export async function withOcrSlot<T>(operation: () => Promise<T>): Promise<T> {
   if (inFlightOcr >= MAX_CONCURRENT_OCR) {
-    throw new ApiError(
-      429,
-      "rate_limited",
-      "Es laufen gerade zu viele Texterkennungen. Bitte in einem Moment erneut versuchen.",
-      { maxConcurrent: MAX_CONCURRENT_OCR },
-    );
+    throw new ApiError(429, "rate_limited", "server.ocr.tooManyConcurrentRecognitions", {
+      maxConcurrent: MAX_CONCURRENT_OCR,
+    });
   }
   inFlightOcr += 1;
   try {

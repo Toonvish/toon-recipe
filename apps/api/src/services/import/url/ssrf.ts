@@ -15,21 +15,25 @@
  * the *second* lookup performed by fetch itself. Mitigating that needs a
  * pinned-IP HTTP client; the deny-list above blocks every realistic attack.
  */
+import { serverText } from "@toon/shared";
 import { lookup } from "node:dns/promises";
 import { env } from "../../../env.ts";
-import { ApiError } from "../../../lib/errors.ts";
+import { ApiError, type ErrorText } from "../../../lib/errors.ts";
 
 export class SsrfError extends Error {
   readonly reason: string;
-  constructor(reason: string, message: string) {
-    super(message);
+  readonly text: ErrorText;
+  constructor(reason: string, text: ErrorText) {
+    // English: this is what lands in the log, same rule as ApiError.
+    super(serverText("en", text));
     this.name = "SsrfError";
     this.reason = reason;
+    this.text = text;
   }
 
   /** Maps to a 400 `fetch_failed` — the URL is unusable, not our bug. */
   toApiError(): ApiError {
-    return new ApiError(400, "fetch_failed", this.message, { reason: this.reason });
+    return new ApiError(400, "fetch_failed", this.text, { reason: this.reason });
   }
 }
 
@@ -40,7 +44,7 @@ function warnPrivateHostsAllowed(): void {
   if (warnedAboutPrivateHosts) return;
   warnedAboutPrivateHosts = true;
   console.warn(
-    "[import] IMPORT_ALLOW_PRIVATE_HOSTS=1 — der SSRF-Schutz des URL-Imports ist deaktiviert. Nur für lokale Tests!",
+    "[import] IMPORT_ALLOW_PRIVATE_HOSTS=1 — the URL importer's SSRF guard is disabled. Local tests only!",
   );
 }
 
@@ -268,20 +272,20 @@ export async function assertPublicUrl(input: string, options: AssertPublicUrlOpt
   try {
     url = new URL(input);
   } catch {
-    throw new SsrfError("invalid_url", "Die URL ist ungültig.");
+    throw new SsrfError("invalid_url", "server.import.urlInvalid");
   }
 
   if (!ALLOWED_PROTOCOLS.has(url.protocol)) {
-    throw new SsrfError("bad_scheme", `Nur http- und https-Adressen können importiert werden (${url.protocol}).`);
+    throw new SsrfError("bad_scheme", { key: "server.import.schemeNotAllowed", values: { protocol: url.protocol } });
   }
 
   // Credentials in the URL are a classic way to confuse redirect targets.
   if (url.username.length > 0 || url.password.length > 0) {
-    throw new SsrfError("credentials_in_url", "URLs mit Benutzername/Passwort werden nicht unterstützt.");
+    throw new SsrfError("credentials_in_url", "server.import.credentialsInUrl");
   }
 
   const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (hostname.length === 0) throw new SsrfError("no_host", "Die URL enthält keinen Hostnamen.");
+  if (hostname.length === 0) throw new SsrfError("no_host", "server.import.noHostname");
 
   /**
    * Development-only escape hatch (`IMPORT_ALLOW_PRIVATE_HOSTS=1`, ignored when
@@ -294,17 +298,17 @@ export async function assertPublicUrl(input: string, options: AssertPublicUrlOpt
   }
 
   if (isBlockedHostname(hostname)) {
-    throw new SsrfError("blocked_host", `Adressen im lokalen Netzwerk können nicht importiert werden (${hostname}).`);
+    throw new SsrfError("blocked_host", { key: "server.import.blockedHost", values: { hostname } });
   }
   if (isPrivateAddress(hostname)) {
-    throw new SsrfError("private_ip", `Private IP-Adressen können nicht importiert werden (${hostname}).`);
+    throw new SsrfError("private_ip", { key: "server.import.privateIp", values: { hostname } });
   }
 
   // Anything numeric-looking that got this far is refused: an IP literal is
   // never a legitimate recipe URL, and the octal/hex/decimal shorthands
   // (0177.0.0.1, 2130706433, 0x7f000001) exist only to smuggle past filters.
   if (/^[0-9]+$/.test(hostname) || /^0[xX][0-9a-fA-F]+$/.test(hostname) || /^[0-9.]+$/.test(hostname)) {
-    throw new SsrfError("suspicious_host", `Diese Adresse ist keine gültige öffentliche Domain (${hostname}).`);
+    throw new SsrfError("suspicious_host", { key: "server.import.suspiciousHost", values: { hostname } });
   }
 
   if (options.skipDns === true) return url;
@@ -314,17 +318,17 @@ export async function assertPublicUrl(input: string, options: AssertPublicUrlOpt
   try {
     records = await resolver(hostname);
   } catch {
-    throw new SsrfError("dns_failed", `Der Hostname ${hostname} konnte nicht aufgelöst werden.`);
+    throw new SsrfError("dns_failed", { key: "server.import.dnsFailed", values: { hostname } });
   }
   if (records.length === 0) {
-    throw new SsrfError("dns_failed", `Der Hostname ${hostname} konnte nicht aufgelöst werden.`);
+    throw new SsrfError("dns_failed", { key: "server.import.dnsFailed", values: { hostname } });
   }
   for (const record of records) {
     if (isPrivateAddress(record.address)) {
-      throw new SsrfError(
-        "private_ip",
-        `${hostname} zeigt auf eine private IP-Adresse (${record.address}) und kann nicht importiert werden.`,
-      );
+      throw new SsrfError("private_ip", {
+        key: "server.import.dnsPointsToPrivateIp",
+        values: { hostname, address: record.address },
+      });
     }
   }
   return url;

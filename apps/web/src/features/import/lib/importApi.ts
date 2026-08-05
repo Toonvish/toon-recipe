@@ -7,8 +7,16 @@
  * JSON fetch helper provides. Cookies are always sent (`credentials: include` /
  * `xhr.withCredentials`), exactly like the rest of the app.
  *
- * Every failure is mapped to an ImportApiError with a specific German message,
- * so no screen ever has to render a bare "Fehler".
+ * Every failure is mapped to an ImportApiError carrying a specific title and
+ * hint, so no screen ever has to render a bare "Error".
+ *
+ * Those two are catalog KEYS, not rendered strings (`ImportErrorText`). This
+ * module is not a component, so it cannot hold a `useT()`; rendering here with
+ * the ambient `translate()` would freeze the copy at throw time, and
+ * `useAutosave` stores a hint in React state for minutes, so a locale switch
+ * would leave a stale sentence on screen. Resolution therefore belongs to the
+ * renderer — `useImportError()` / `resolveImportErrorText()` in
+ * `./importErrorText.ts` — which is also what docs/i18n.md §10 rule 6 requires.
  */
 import {
   ImportDraftListResponseSchema,
@@ -22,10 +30,13 @@ import {
   type ImportDraftListResponse,
   type ImportDraftStatus,
   type Tag,
+  type MessageValues,
   type UpdateImportDraftRequest,
 } from "@toon/shared";
 import type { ZodType } from "zod";
 import { API_BASE_URL } from "@/lib/api";
+import type { MessageKey } from "@/lib/i18n/catalogs/index.ts";
+import { getLocale } from "@/lib/i18n/store.ts";
 
 /** Base URL of the API without trailing slash (single source of truth: @/lib/api). */
 export function apiBaseUrl(): string {
@@ -54,13 +65,36 @@ export type ImportErrorKind =
   | "aborted"
   | "unknown";
 
+/**
+ * Copy that has not been rendered yet: either one of OUR catalog keys, or a
+ * string this codebase did not write.
+ *
+ * The `{ text }` variant is what the server's own `message` arrives as. Unlike
+ * the server-side `ErrorText` — where docs/i18n.md §4 deliberately REJECTED a
+ * pass-through variant, because it would have become the escape hatch that kept
+ * German sentences in handlers — a pass-through here is not a loophole: the
+ * server already localised that sentence via `Accept-Language`, and an arbitrary
+ * `Error.message` from a library genuinely has no key. It is still the minority
+ * path; a hard-coded sentence in this file belongs in a catalog.
+ */
+export type ImportErrorText =
+  | { readonly key: MessageKey; readonly values?: MessageValues }
+  | { readonly text: string };
+
+/** Log/stack-trace form: the key itself, never a translation. Stable and greppable. */
+function errorTextForLog(text: ImportErrorText): string {
+  return "text" in text ? text.text : text.key;
+}
+
 export class ImportApiError extends Error {
   readonly kind: ImportErrorKind;
   readonly code: string;
   readonly status: number;
   readonly details: unknown;
-  /** Long, actionable German explanation for the UI. */
-  readonly hint: string;
+  /** Short headline for the UI, unrendered — see `ImportErrorText`. */
+  readonly title: ImportErrorText;
+  /** Long, actionable explanation for the UI, unrendered. */
+  readonly hint: ImportErrorText;
   /** True when simply pressing the button again can help. */
   readonly retryable: boolean;
 
@@ -68,16 +102,20 @@ export class ImportApiError extends Error {
     kind: ImportErrorKind;
     code: string;
     status: number;
-    message: string;
-    hint: string;
+    title: ImportErrorText;
+    hint: ImportErrorText;
     retryable: boolean;
     details?: unknown;
   }) {
-    super(init.message);
+    // `Error.message` is for the console and for a crash report, so it holds the
+    // KEY: a translated message in a log is unsearchable and depends on whoever
+    // happened to be looking at the screen.
+    super(errorTextForLog(init.title));
     this.name = "ImportApiError";
     this.kind = init.kind;
     this.code = init.code;
     this.status = init.status;
+    this.title = init.title;
     this.hint = init.hint;
     this.retryable = init.retryable;
     this.details = init.details;
@@ -102,153 +140,156 @@ function readServerError(body: unknown): ServerError {
   };
 }
 
-/** Maps status + error code to a specific German message. */
+/**
+ * Maps status + error code to a specific title/hint pair of catalog keys.
+ *
+ * The `kind` and the status/code tests are unchanged wire logic; only the copy
+ * moved. Note that `toImportApiError` still keeps its OWN sentences for codes
+ * the server also has a message for (docs/i18n.md §14 open question 3): these
+ * hints are longer and more actionable than the server's one-liner. Collapsing
+ * the two remains a deliberate follow-up, not an oversight.
+ */
 export function toImportApiError(status: number, body: unknown, fallbackMessage?: string): ImportApiError {
   const server = readServerError(body);
   const code = server.code ?? "unknown";
   const serverMessage = server.message;
   const make = (
     kind: ImportErrorKind,
-    message: string,
-    hint: string,
+    title: ImportErrorText,
+    hint: MessageKey,
     retryable = false,
   ): ImportApiError =>
-    new ImportApiError({ kind, code, status, message, hint, retryable, details: server.details });
+    new ImportApiError({ kind, code, status, title, hint: { key: hint }, retryable, details: server.details });
 
   if (status === 0) {
-    return make(
-      "network",
-      "Keine Verbindung zum Server",
-      "Prüfe deine Internetverbindung. Der Import wurde nicht gestartet, du kannst es einfach nochmal versuchen.",
-      true,
-    );
+    return make("network", { key: "import.error.network.title" }, "import.error.network.hint", true);
   }
   if (status === 401 || code === "unauthorized") {
-    return make(
-      "unauthorized",
-      "Du bist nicht mehr angemeldet",
-      "Deine Sitzung ist abgelaufen. Melde dich neu an – dein Entwurf bleibt gespeichert.",
-    );
+    return make("unauthorized", { key: "import.error.unauthorized.title" }, "import.error.unauthorized.hint");
   }
   if (status === 403 || code === "forbidden") {
-    return make(
-      "forbidden",
-      "Kein Zugriff auf diese Gruppe",
-      "Du bist kein Mitglied der Gruppe, in die importiert werden soll. Wechsle die Gruppe oder lass dich einladen.",
-    );
+    return make("forbidden", { key: "import.error.forbidden.title" }, "import.error.forbidden.hint");
   }
   if (status === 404 || code === "not_found") {
-    return make(
-      "not_found",
-      "Entwurf nicht gefunden",
-      "Der Import-Entwurf existiert nicht mehr – vielleicht wurde er schon gespeichert oder verworfen.",
-    );
+    return make("not_found", { key: "import.error.notFound.title" }, "import.error.notFound.hint");
   }
   if (status === 413 || code === "payload_too_large") {
-    return make(
-      "too_large",
-      "Datei zu groß",
-      "Die Datei ist größer als 15 MB. Mach ein Foto mit geringerer Auflösung oder verkleinere die PDF-Datei.",
-    );
+    return make("too_large", { key: "import.error.tooLarge.title" }, "import.error.tooLarge.hint");
   }
   if (status === 415 || code === "unsupported_media_type") {
     return make(
       "unsupported_media_type",
-      "Dateityp nicht unterstützt",
-      "Erlaubt sind Fotos (JPEG, PNG, WebP, HEIC) und PDF-Dateien.",
+      { key: "import.error.unsupportedMediaType.title" },
+      "import.error.unsupportedMediaType.hint",
     );
   }
   if (code === "pdf_no_text_layer") {
     return make(
       "pdf_no_text_layer",
-      "PDF ohne Textebene",
-      "Dieses PDF enthält keinen auslesbaren Text und konnte auch nicht in Bilder umgewandelt werden. Bitte lade ein Foto der Seite hoch.",
+      { key: "import.error.pdfNoTextLayer.title" },
+      "import.error.pdfNoTextLayer.hint",
     );
   }
   if (code === "ocr_failed") {
-    return make(
-      "ocr_failed",
-      "Text konnte nicht erkannt werden",
-      "Die Texterkennung hat auf diesem Bild nichts gefunden. Tipps: gerade von oben fotografieren, gutes Licht, keine Schatten, Seite ganz im Bild.",
-      true,
-    );
+    return make("ocr_failed", { key: "import.error.ocrFailed.title" }, "import.error.ocrFailed.hint", true);
   }
   if (code === "parse_failed") {
-    return make(
-      "no_recipe_data",
-      "Auf dieser Seite wurden keine Rezeptdaten gefunden",
-      "Die Seite liefert kein maschinenlesbares Rezept. Du kannst die Seite stattdessen abfotografieren oder den Text von Hand einfügen.",
-    );
+    return make("no_recipe_data", { key: "import.error.noRecipeData.title" }, "import.error.noRecipeData.hint");
   }
   if (code === "fetch_failed") {
-    return make(
-      "fetch_failed",
-      "Seite konnte nicht geladen werden",
-      "Der Server konnte die URL nicht abrufen (offline, Login-Pflicht oder Bot-Schutz). Prüfe die Adresse oder importiere die Seite als Foto.",
-      true,
-    );
+    return make("fetch_failed", { key: "import.error.fetchFailed.title" }, "import.error.fetchFailed.hint", true);
   }
   if (status === 504 || status === 408 || code === "timeout") {
-    return make(
-      "ocr_timeout",
-      "Die Texterkennung hat zu lange gedauert",
-      "Der Server hat abgebrochen. Versuche es mit einem kleineren Ausschnitt oder einem Foto pro Seite nochmal.",
-      true,
-    );
+    return make("ocr_timeout", { key: "import.error.ocrTimeout.title" }, "import.error.ocrTimeout.hint", true);
   }
   if (status === 429 || code === "rate_limited") {
-    return make("rate_limited", "Zu viele Anfragen", "Bitte warte einen Moment und versuche es dann erneut.", true);
+    return make("rate_limited", { key: "import.error.rateLimited.title" }, "import.error.rateLimited.hint", true);
   }
   if (status === 422 || code === "validation_failed" || status === 400) {
     return make(
       "validation",
-      serverMessage ?? "Die Daten wurden nicht akzeptiert",
-      "Bitte prüfe die markierten Felder. Ein Titel ist Pflicht, Mengen müssen Zahlen sein.",
+      passThroughOr(serverMessage, "import.error.validation.title"),
+      "import.error.validation.hint",
     );
   }
   if (status >= 500) {
-    return make(
-      "server",
-      "Serverfehler",
-      "Auf dem Server ist etwas schiefgelaufen. Bitte versuche es in einem Moment erneut.",
-      true,
-    );
+    return make("server", { key: "import.error.server.title" }, "import.error.server.hint", true);
   }
   return make(
     "unknown",
-    serverMessage ?? fallbackMessage ?? "Unerwarteter Fehler",
-    "Bitte versuche es erneut. Falls es wieder passiert, notiere dir was du getan hast.",
+    passThroughOr(serverMessage ?? fallbackMessage, "import.error.unknown.title"),
+    "import.error.unknown.hint",
     true,
   );
+}
+
+/**
+ * The server's own message is already in the requester's locale (it negotiated
+ * `Accept-Language`), so prefer it over second-guessing it with a key of ours.
+ *
+ * An EMPTY string is NOT a message: `describeError()` below hands this module
+ * `message: ""` for a shell `ApiError` that carries none, and `readJson()`
+ * synthesises the same for an unparseable body. Passing that straight through
+ * renders a blank headline, which is exactly the "bare Fehler" this whole module
+ * exists to avoid.
+ */
+function passThroughOr(serverMessage: string | undefined, fallbackKey: MessageKey): ImportErrorText {
+  return serverMessage !== undefined && serverMessage.length > 0
+    ? { text: serverMessage }
+    : { key: fallbackKey };
 }
 
 export function isImportApiError(error: unknown): error is ImportApiError {
   return error instanceof ImportApiError;
 }
 
-/** Never returns a bare "Fehler": always a title + explanation. */
-export function describeError(error: unknown): { title: string; hint: string; retryable: boolean } {
-  if (isImportApiError(error)) return { title: error.message, hint: error.hint, retryable: error.retryable };
+/** A described error: never a bare "Error", always a title + explanation. */
+export interface DescribedImportError {
+  readonly title: ImportErrorText;
+  readonly hint: ImportErrorText;
+  readonly retryable: boolean;
+}
+
+/**
+ * Never returns a bare "Error": always a title + explanation, both UNRENDERED
+ * (see `ImportErrorText`). Render with `useImportError()` in a component, or
+ * `resolveImportErrorText()` where you already hold a `t`.
+ */
+export function describeError(error: unknown): DescribedImportError {
+  if (isImportApiError(error)) return { title: error.title, hint: error.hint, retryable: error.retryable };
   // Errors thrown by the shell's generic client (@/lib/api ApiError) carry the
-  // same code/status pair, so they get the same specific German messages.
+  // same code/status pair, so they get the same specific copy.
   if (typeof error === "object" && error !== null) {
     const candidate = error as { status?: unknown; code?: unknown; message?: unknown };
     if (typeof candidate.status === "number" && typeof candidate.code === "string") {
       const mapped = toImportApiError(candidate.status, {
         error: { code: candidate.code, message: typeof candidate.message === "string" ? candidate.message : "" },
       });
-      return { title: mapped.message, hint: mapped.hint, retryable: mapped.retryable };
+      return { title: mapped.title, hint: mapped.hint, retryable: mapped.retryable };
     }
   }
   if (error instanceof DOMException && error.name === "AbortError") {
-    return { title: "Abgebrochen", hint: "Der Vorgang wurde abgebrochen.", retryable: true };
+    return {
+      title: { key: "import.error.aborted.title" },
+      hint: { key: "import.error.aborted.hint" },
+      retryable: true,
+    };
   }
   if (error instanceof Error && error.message === "no_files") {
-    return { title: "Keine Datei ausgewählt", hint: "Bitte wähle zuerst ein Foto oder eine Datei aus.", retryable: true };
+    return {
+      title: { key: "import.error.noFiles.title" },
+      hint: { key: "import.error.noFiles.hint" },
+      retryable: true,
+    };
   }
   return {
-    title: "Unerwarteter Fehler",
-    hint: error instanceof Error && error.message.length > 0 ? error.message : "Bitte versuche es erneut.",
+    title: { key: "import.error.unknown.title" },
+    // A raw `Error.message` is not ours to key — pass it through when there is
+    // one, and only then fall back to our own sentence.
+    hint:
+      error instanceof Error && error.message.length > 0
+        ? { text: error.message }
+        : { key: "import.error.unexpected.hint" },
     retryable: true,
   };
 }
@@ -265,7 +306,7 @@ function parseOrPassThrough<T>(schema: ZodType<T>, payload: unknown, label: stri
   const result = schema.safeParse(payload);
   if (result.success) return result.data;
   if (import.meta.env.DEV) {
-    console.warn(`[import] Antwort von ${label} entspricht nicht dem Schema`, result.error);
+    console.warn(`[import] response from ${label} does not match the schema`, result.error);
   }
   return payload as T;
 }
@@ -345,6 +386,10 @@ function uploadFile<T>(path: string, file: File, schema: ZodType<T>, handle: Upl
     xhr.responseType = "text";
     xhr.timeout = handle.timeoutMs ?? DEFAULT_UPLOAD_TIMEOUT_MS;
     xhr.setRequestHeader("Accept", "application/json");
+    // Same negotiation as lib/api.ts's fetch calls (docs/i18n.md §4) — this is
+    // the one XHR in the app, foundation-owned so the header lands in one
+    // commit rather than something a later port has to remember.
+    xhr.setRequestHeader("Accept-Language", getLocale());
 
     const abort = () => xhr.abort();
     handle.signal?.addEventListener("abort", abort, { once: true });
@@ -368,15 +413,20 @@ function uploadFile<T>(path: string, file: File, schema: ZodType<T>, handle: Upl
           kind: "ocr_timeout",
           code: "timeout",
           status: 504,
-          message: "Die Texterkennung hat zu lange gedauert",
-          hint: "Der Server hat nicht rechtzeitig geantwortet. Versuche es mit einem Foto pro Seite oder einem kleineren Bild erneut.",
+          title: { key: "import.error.ocrTimeout.title" },
+          // A CLIENT-side timeout: the server never answered at all, which is a
+          // different situation from the 504 above (where it gave up itself),
+          // hence its own hint.
+          hint: { key: "import.error.ocrTimeoutClient.hint" },
           retryable: true,
         }),
       );
     };
     xhr.onabort = () => {
       cleanup();
-      reject(new DOMException("Upload abgebrochen", "AbortError"));
+      // English literal, not a key: `describeError()` matches on `name`, so this
+      // string only ever reaches a console or a stack trace.
+      reject(new DOMException("Upload aborted", "AbortError"));
     };
     xhr.onload = () => {
       cleanup();

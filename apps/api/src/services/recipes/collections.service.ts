@@ -47,7 +47,7 @@ export async function loadCollectionRow(
     .from(collections)
     .where(and(eq(collections.id, collectionId), eq(collections.groupId, groupId)))
     .limit(1);
-  if (!row) throw ApiError.notFound("Sammlung nicht gefunden");
+  if (!row) throw ApiError.notFound("server.recipes.collectionNotFound");
   return row;
 }
 
@@ -71,7 +71,7 @@ async function assertRecipesInGroup(
     .select({ id: recipes.id })
     .from(recipes)
     .where(and(eq(recipes.groupId, groupId), inArray(recipes.id, [...recipeIds])));
-  if (rows.length !== recipeIds.length) throw ApiError.notFound("Rezept nicht gefunden");
+  if (rows.length !== recipeIds.length) throw ApiError.notFound("server.recipes.recipeNotFound");
 }
 
 /** Writes the membership rows with contiguous positions (0..n-1). */

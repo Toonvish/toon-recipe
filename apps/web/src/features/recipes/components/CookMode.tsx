@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, Eye, ListOrdered, X } from "lucide-react";
 import type { RecipeIngredient, RecipeStepRecord } from "@toon/shared";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import { formatAmountWithUnit } from "../lib/format";
 import { useWakeLock, type CheckedSteps } from "../lib/hooks";
 
@@ -23,6 +24,7 @@ export interface CookModeProps {
 }
 
 export function CookMode({ title, steps, ingredients, checked, onClose }: CookModeProps) {
+  const t = useT();
   const [index, setIndex] = useState(0);
   const [showIngredients, setShowIngredients] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -84,7 +86,7 @@ export function CookMode({ title, steps, ingredients, checked, onClose }: CookMo
       ref={containerRef}
       role="dialog"
       aria-modal="true"
-      aria-label={`Kochmodus: ${title}`}
+      aria-label={t("recipes.cookMode.dialogLabel", { title })}
       tabIndex={-1}
       className="fixed inset-0 z-50 flex flex-col bg-bg pt-safe pb-safe outline-none"
       onTouchStart={(event) => {
@@ -108,10 +110,16 @@ export function CookMode({ title, steps, ingredients, checked, onClose }: CookMo
               "hidden items-center gap-1 rounded-full px-2 py-0.5 text-xs sm:inline-flex",
               held ? "bg-success-soft text-success-soft-fg" : "bg-surface-2 text-fg-subtle",
             )}
-            title={held ? "Display bleibt an" : "Display-Sperre nicht aktiv"}
+            title={
+              held
+                ? t("recipes.cookMode.wakeLock.active")
+                : t("recipes.cookMode.wakeLock.inactiveTitle")
+            }
           >
             <Eye aria-hidden="true" className="size-3.5" />
-            {held ? "Display bleibt an" : "Display kann sperren"}
+            {held
+              ? t("recipes.cookMode.wakeLock.active")
+              : t("recipes.cookMode.wakeLock.inactiveText")}
           </span>
         ) : null}
         <button
@@ -121,13 +129,13 @@ export function CookMode({ title, steps, ingredients, checked, onClose }: CookMo
           className="tap inline-flex items-center gap-1 rounded-full px-3 text-sm text-fg-muted hover:text-fg"
         >
           <ListOrdered aria-hidden="true" className="size-5" />
-          <span className="hidden sm:inline">Zutaten</span>
+          <span className="hidden sm:inline">{t("recipes.ingredients.heading")}</span>
         </button>
         <button
           type="button"
           onClick={onClose}
           className="tap inline-flex items-center justify-center rounded-full px-2 text-fg-muted hover:text-fg"
-          aria-label="Kochmodus beenden"
+          aria-label={t("recipes.cookMode.closeAction")}
         >
           <X aria-hidden="true" className="size-6" />
         </button>
@@ -136,7 +144,7 @@ export function CookMode({ title, steps, ingredients, checked, onClose }: CookMo
       {showIngredients ? (
         <div className="max-h-[40vh] overflow-y-auto border-b border-line bg-surface px-4 py-3">
           <h3 className="mb-2 text-sm font-semibold tracking-wide text-fg-muted uppercase">
-            Zutaten
+            {t("recipes.ingredients.heading")}
           </h3>
           <ul className="flex flex-col gap-1 text-lg">
             {ingredients.map((ingredient, position) => (
@@ -153,7 +161,7 @@ export function CookMode({ title, steps, ingredients, checked, onClose }: CookMo
 
       <div className="flex flex-1 flex-col justify-center overflow-y-auto px-5 py-6">
         <p className="mb-3 text-sm font-semibold tracking-widest text-brand uppercase">
-          Schritt {index + 1} von {steps.length}
+          {t("recipes.cookMode.stepOf", { current: index + 1, total: steps.length })}
         </p>
         <p
           aria-live="polite"
@@ -173,7 +181,7 @@ export function CookMode({ title, steps, ingredients, checked, onClose }: CookMo
           aria-valuemin={1}
           aria-valuemax={steps.length}
           aria-valuenow={index + 1}
-          aria-label="Fortschritt"
+          aria-label={t("recipes.cookMode.progressAriaLabel")}
         >
           <div
             className="bg-brand transition-all"
@@ -188,7 +196,7 @@ export function CookMode({ title, steps, ingredients, checked, onClose }: CookMo
             className="tap inline-flex flex-1 items-center justify-center gap-1 rounded-full border border-line bg-surface px-4 text-base font-medium text-fg disabled:opacity-40"
           >
             <ChevronLeft aria-hidden="true" className="size-5" />
-            Zurück
+            {t("recipes.cookMode.back")}
           </button>
           <button
             type="button"
@@ -200,7 +208,9 @@ export function CookMode({ title, steps, ingredients, checked, onClose }: CookMo
             )}
           >
             <Check aria-hidden="true" className="size-5" />
-            <span className="hidden sm:inline">{done ? "Erledigt" : "Fertig"}</span>
+            <span className="hidden sm:inline">
+              {done ? t("recipes.cookMode.doneLabel") : t("recipes.cookMode.finish")}
+            </span>
           </button>
           {index < last ? (
             <button
@@ -211,7 +221,7 @@ export function CookMode({ title, steps, ingredients, checked, onClose }: CookMo
               }}
               className="tap inline-flex flex-1 items-center justify-center gap-1 rounded-full bg-brand px-4 text-base font-semibold text-brand-fg hover:bg-brand-hover"
             >
-              Weiter
+              {t("recipes.cookMode.next")}
               <ChevronRight aria-hidden="true" className="size-5" />
             </button>
           ) : (
@@ -220,7 +230,7 @@ export function CookMode({ title, steps, ingredients, checked, onClose }: CookMo
               onClick={onClose}
               className="tap inline-flex flex-1 items-center justify-center gap-1 rounded-full bg-brand px-4 text-base font-semibold text-brand-fg hover:bg-brand-hover"
             >
-              Fertig
+              {t("recipes.cookMode.finish")}
             </button>
           )}
         </div>

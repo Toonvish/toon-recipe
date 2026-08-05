@@ -34,7 +34,7 @@ import {
 } from "@/components/ui";
 import { useToast } from "@/components/ui";
 import { thumbnailUrl } from "@/lib/api";
-import { plural } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { apiFieldErrors, validate, type FieldErrors } from "@/lib/validation";
 import { useActiveGroup } from "@/lib/session";
 import { AppLink, useAppNavigate, useRouteParam } from "@/features/recipes/lib/nav";
@@ -51,6 +51,7 @@ import {
 } from "./lib/queries";
 
 export default function CollectionDetailPage() {
+  const t = useT();
   const collectionId = useRouteParam("collectionId");
   const { groupId } = useActiveGroup();
   const navigate = useAppNavigate();
@@ -72,7 +73,7 @@ export default function CollectionDetailPage() {
     if (query.data) setOrder(query.data.recipes);
   }, [query.data]);
 
-  if (query.isPending) return <LoadingBlock label="Sammlung wird geladen …" />;
+  if (query.isPending) return <LoadingBlock label={t("groups.collectionDetail.loading")} />;
 
   if (query.isError || !query.data) {
     return (
@@ -81,7 +82,7 @@ export default function CollectionDetailPage() {
         onRetry={() => void query.refetch()}
         action={
           <AppLink to="/collections" className={buttonClasses({ variant: "secondary" })}>
-            Zu den Sammlungen
+            {t("groups.collectionDetail.backToList")}
           </AppLink>
         }
       />
@@ -95,12 +96,12 @@ export default function CollectionDetailPage() {
     if (target < 0 || target >= order.length) return;
     const next = moveItem(order, index, target);
     setOrder(next);
-    setStatus(`Rezept an Position ${target + 1} verschoben.`);
+    setStatus(t("groups.collectionDetail.movedStatus", { position: target + 1 }));
     reorder.mutate(
       { collectionId: collection.id, recipeIds: next.map((recipe) => recipe.id) },
       {
         onError: (error) => {
-          toast.fromError(error, "Reihenfolge konnte nicht gespeichert werden");
+          toast.fromError(error, t("groups.collectionDetail.reorderFailedToast"));
         },
       },
     );
@@ -110,7 +111,7 @@ export default function CollectionDetailPage() {
     <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-2">
         <AppLink to="/collections" className="text-sm text-fg-muted hover:text-fg">
-          ← Alle Sammlungen
+          {t("groups.collectionDetail.backLink")}
         </AppLink>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -119,7 +120,7 @@ export default function CollectionDetailPage() {
               <p className="mt-1 text-fg-muted">{collection.description}</p>
             ) : null}
             <p className="mt-1 text-sm text-fg-subtle">
-              {plural(order.length, "Rezept", "Rezepte")}
+              {t("groups.count.recipes", { count: order.length })}
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
@@ -128,16 +129,16 @@ export default function CollectionDetailPage() {
               onClick={() => setAddOpen(true)}
               leftIcon={<ListPlus className="size-4" />}
             >
-              Rezepte hinzufügen
+              {t("groups.collectionDetail.addRecipes")}
             </Button>
             <IconButton
-              label="Sammlung bearbeiten"
+              label={t("groups.collectionDetail.editLabel")}
               icon={<Pencil />}
               variant="surface"
               onClick={() => setEditOpen(true)}
             />
             <IconButton
-              label="Sammlung löschen"
+              label={t("groups.collectionDetail.deleteLabel")}
               icon={<Trash2 />}
               variant="danger"
               onClick={() => setConfirmDelete(true)}
@@ -153,11 +154,11 @@ export default function CollectionDetailPage() {
       {order.length === 0 ? (
         <EmptyState
           icon={<UtensilsCrossed />}
-          title="Diese Sammlung ist leer"
-          description="Füge Rezepte hinzu, um sie hier in deiner gewünschten Reihenfolge zu sehen."
+          title={t("groups.collectionDetail.emptyTitle")}
+          description={t("groups.collectionDetail.emptyDescription")}
           action={
             <Button onClick={() => setAddOpen(true)} fullWidth leftIcon={<ListPlus className="size-4" />}>
-              Rezepte hinzufügen
+              {t("groups.collectionDetail.addRecipes")}
             </Button>
           }
         />
@@ -174,10 +175,10 @@ export default function CollectionDetailPage() {
               <li key={recipe.id}>
                 {/*
                   Below `sm` the three reorder controls take 116px of a 390px phone and
-                  the title was left with ~100px — every recipe read "Schwäbisc…". So the
-                  phone layout is a grid whose action row sits UNDERNEATH, and only from
-                  `sm` does everything share one line. `minmax(0,1fr)` for the text track,
-                  never a bare `1fr`.
+                  the title was left with ~100px, truncating after a handful of letters.
+                  So the phone layout is a grid whose action row sits UNDERNEATH, and only
+                  from `sm` does everything share one line. `minmax(0,1fr)` for the text
+                  track, never a bare `1fr`.
                 */}
                 <Card
                   padding="sm"
@@ -210,21 +211,21 @@ export default function CollectionDetailPage() {
                   </div>
                   <div className="col-span-3 flex shrink-0 items-center justify-end gap-1 sm:col-span-1">
                     <IconButton
-                      label={`${recipe.title} nach oben`}
+                      label={t("groups.collectionDetail.moveUpLabel", { title: recipe.title })}
                       icon={<ArrowUp />}
                       size="sm"
                       onClick={() => move(index, -1)}
                       disabled={index === 0 || reorder.isPending}
                     />
                     <IconButton
-                      label={`${recipe.title} nach unten`}
+                      label={t("groups.collectionDetail.moveDownLabel", { title: recipe.title })}
                       icon={<ArrowDown />}
                       size="sm"
                       onClick={() => move(index, 1)}
                       disabled={index === order.length - 1 || reorder.isPending}
                     />
                     <IconButton
-                      label={`${recipe.title} aus Sammlung entfernen`}
+                      label={t("groups.collectionDetail.removeLabel", { title: recipe.title })}
                       icon={<X />}
                       size="sm"
                       variant="danger"
@@ -234,9 +235,9 @@ export default function CollectionDetailPage() {
                             collectionId: collection.id,
                             recipeId: recipe.id,
                           });
-                          setStatus(`${recipe.title} entfernt.`);
+                          setStatus(t("groups.collectionDetail.removedStatus", { title: recipe.title }));
                         } catch (error) {
-                          toast.fromError(error, "Entfernen fehlgeschlagen");
+                          toast.fromError(error, t("groups.collectionDetail.removeFailedToast"));
                         }
                       }}
                     />
@@ -267,16 +268,18 @@ export default function CollectionDetailPage() {
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
         destructive
-        title="Sammlung löschen?"
-        description={`„${collection.name}“ wird gelöscht. Die Rezepte selbst bleiben erhalten.`}
-        confirmLabel="Löschen"
+        title={t("groups.collectionDetail.deleteConfirmTitle")}
+        description={t("groups.collectionDetail.deleteConfirmDescription", {
+          name: collection.name,
+        })}
+        confirmLabel={t("groups.common.delete")}
         onConfirm={async () => {
           try {
             await deleteCollection.mutateAsync(collection.id);
-            toast.success("Sammlung gelöscht");
+            toast.success(t("groups.collectionDetail.deletedToast"));
             navigate({ to: "/collections", replace: true });
           } catch (error) {
-            toast.fromError(error, "Löschen fehlgeschlagen");
+            toast.fromError(error, t("groups.collectionDetail.deleteFailedToast"));
             throw error;
           }
         }}
@@ -298,6 +301,7 @@ function EditCollectionDialog({
   name: string;
   description: string;
 }) {
+  const t = useT();
   const { groupId } = useActiveGroup();
   const updateCollection = useUpdateCollection(groupId);
   const toast = useToast();
@@ -322,7 +326,7 @@ function EditCollectionDialog({
     }
     try {
       await updateCollection.mutateAsync({ collectionId, ...result.data });
-      toast.success("Sammlung gespeichert");
+      toast.success(t("groups.collectionDetail.savedToast"));
       setErrors({});
       onClose();
     } catch (error) {
@@ -331,7 +335,7 @@ function EditCollectionDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Sammlung bearbeiten" size="sm">
+    <Dialog open={open} onClose={onClose} title={t("groups.collectionDetail.editTitle")} size="sm">
       <form onSubmit={submit} noValidate className="flex flex-col gap-3">
         {errors._form ? (
           <p role="alert" className="text-sm font-medium text-danger">
@@ -339,7 +343,7 @@ function EditCollectionDialog({
           </p>
         ) : null}
         <Input
-          label="Name"
+          label={t("groups.common.name")}
           required
           value={name}
           onChange={(event) => setName(event.target.value)}
@@ -347,7 +351,7 @@ function EditCollectionDialog({
           disabled={updateCollection.isPending}
         />
         <Textarea
-          label="Beschreibung"
+          label={t("groups.common.description")}
           optional
           rows={3}
           value={description}
@@ -357,7 +361,7 @@ function EditCollectionDialog({
         />
         <div className="mt-1 flex gap-2">
           <Button type="button" variant="secondary" onClick={onClose} fullWidth>
-            Abbrechen
+            {t("groups.common.cancel")}
           </Button>
           <Button
             type="submit"
@@ -365,7 +369,7 @@ function EditCollectionDialog({
             fullWidth
             leftIcon={<Save className="size-4" />}
           >
-            Speichern
+            {t("groups.common.save")}
           </Button>
         </div>
       </form>
@@ -384,6 +388,7 @@ function AddRecipesDialog({
   collectionId: string;
   existingIds: readonly string[];
 }) {
+  const t = useT();
   const { groupId } = useActiveGroup();
   const addRecipe = useAddRecipeToCollection(groupId);
   const toast = useToast();
@@ -397,26 +402,28 @@ function AddRecipesDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Rezepte hinzufügen"
-      description="Suche ein Rezept und tippe darauf, um es an das Ende der Sammlung zu setzen."
+      title={t("groups.collectionDetail.addDialogTitle")}
+      description={t("groups.collectionDetail.addDialogDescription")}
       size="lg"
     >
       <div className="flex flex-col gap-3">
         <Input
           type="search"
-          label="Suche"
+          label={t("groups.collectionDetail.searchLabel")}
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Titel oder Zutat …"
+          placeholder={t("groups.collectionDetail.searchPlaceholder")}
           autoComplete="off"
         />
 
         {list.isPending ? (
-          <LoadingBlock label="Rezepte werden geladen …" />
+          <LoadingBlock label={t("groups.collectionDetail.loadingRecipes")} />
         ) : list.isError ? (
           <ErrorState inline error={list.error} onRetry={() => void list.refetch()} />
         ) : recipes.length === 0 ? (
-          <p className="py-6 text-center text-sm text-fg-muted">Keine Rezepte gefunden.</p>
+          <p className="py-6 text-center text-sm text-fg-muted">
+            {t("groups.collectionDetail.noRecipesFound")}
+          </p>
         ) : (
           <ul className="flex max-h-[50vh] flex-col divide-y divide-line overflow-y-auto">
             {recipes.map((recipe) => {
@@ -429,9 +436,9 @@ function AddRecipesDialog({
                     onClick={async () => {
                       try {
                         await addRecipe.mutateAsync({ collectionId, recipeId: recipe.id });
-                        toast.success("Hinzugefügt", recipe.title);
+                        toast.success(t("groups.collectionDetail.addedToast"), recipe.title);
                       } catch (error) {
-                        toast.fromError(error, "Hinzufügen fehlgeschlagen");
+                        toast.fromError(error, t("groups.collectionDetail.addFailedToast"));
                       }
                     }}
                     className="flex min-h-11 w-full items-center gap-2 px-1 py-2 text-left hover:bg-surface-2 disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-ring"
@@ -440,7 +447,7 @@ function AddRecipesDialog({
                     {already ? (
                       <span className="inline-flex items-center gap-1 text-sm text-success">
                         <Check aria-hidden="true" className="size-4" />
-                        Enthalten
+                        {t("groups.collectionDetail.included")}
                       </span>
                     ) : (
                       <ListPlus aria-hidden="true" className="size-4 text-fg-subtle" />
@@ -453,7 +460,7 @@ function AddRecipesDialog({
         )}
 
         <Button variant="secondary" onClick={onClose} fullWidth>
-          Fertig
+          {t("groups.collectionDetail.done")}
         </Button>
       </div>
     </Dialog>

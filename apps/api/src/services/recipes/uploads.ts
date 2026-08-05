@@ -74,9 +74,9 @@ export async function storeUploadedImage(
 ): Promise<UploadResponse> {
   const file = formData.get(field);
   if (!(file instanceof File)) {
-    throw ApiError.badRequest(`Es wurde keine Datei im Feld "${field}" gesendet`);
+    throw ApiError.badRequest({ key: "server.recipes.noFileInField", values: { field } });
   }
-  if (file.size === 0) throw ApiError.badRequest("Die Datei ist leer");
+  if (file.size === 0) throw ApiError.badRequest("server.import.fileEmpty");
   if (file.size > MAX_UPLOAD_BYTES) throw ApiError.payloadTooLarge();
 
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -84,9 +84,7 @@ export async function storeUploadedImage(
 
   const sniffed = sniffImageType(bytes);
   if (!sniffed) {
-    throw ApiError.unsupportedMediaType(
-      "Nur Bilder (JPEG, PNG, WebP, HEIC/HEIF, AVIF) werden unterstützt",
-    );
+    throw ApiError.unsupportedMediaType("server.recipes.unsupportedImageType");
   }
 
   const filename = `${crypto.randomUUID()}.${sniffed.extension}`;

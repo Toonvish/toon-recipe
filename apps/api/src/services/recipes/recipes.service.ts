@@ -75,7 +75,7 @@ export async function loadRecipeRow(
     .from(recipes)
     .where(and(eq(recipes.id, recipeId), eq(recipes.groupId, groupId)))
     .limit(1);
-  if (!row) throw ApiError.notFound("Rezept nicht gefunden");
+  if (!row) throw ApiError.notFound("server.recipes.recipeNotFound");
   return row;
 }
 
@@ -208,7 +208,7 @@ export async function getRecipeDetail(
     .innerJoin(users, eq(users.id, recipes.createdBy))
     .where(and(eq(recipes.id, recipeId), eq(recipes.groupId, groupId)))
     .limit(1);
-  if (!head) throw ApiError.notFound("Rezept nicht gefunden");
+  if (!head) throw ApiError.notFound("server.recipes.recipeNotFound");
 
   const [ingredientRows, stepRows, tagMap, collectionRows] = await Promise.all([
     db
@@ -333,7 +333,7 @@ async function replaceCollections(
     .select({ id: collections.id })
     .from(collections)
     .where(and(eq(collections.groupId, groupId), inArray(collections.id, wanted)));
-  if (valid.length !== wanted.length) throw ApiError.notFound("Sammlung nicht gefunden");
+  if (valid.length !== wanted.length) throw ApiError.notFound("server.recipes.collectionNotFound");
 
   const maxRows = await tx
     .select({ collectionId: collectionRecipes.collectionId, value: sql<number>`max(${collectionRecipes.position})` })
@@ -541,10 +541,7 @@ export async function scaleRecipe(
   const row = await loadRecipeRow(db, groupId, recipeId);
   const base = row.servingsAmount;
   if (base === null || base <= 0) {
-    throw ApiError.validationFailed(
-      undefined,
-      "Dieses Rezept hat keine Portionsangabe und kann nicht skaliert werden",
-    );
+    throw ApiError.validationFailed(undefined, "server.recipes.noServingsToScale");
   }
 
   const ingredientRows = await db

@@ -47,6 +47,14 @@ export const users = sqliteTable(
      * generated migration. Readers must tolerate a stale/absent group id.
      */
     activeGroupId: text("active_group_id"),
+    /**
+     * The account's INTERFACE locale ("de" | "en"), mirrored from the device
+     * preference only because mail is delivered outside any browser. NULL
+     * means "never chosen" — `env.defaultLocale` wins for those, which is
+     * what lets a deployment's default change without a backfill. This is
+     * NOT `recipes.language` (the CONTENT axis); see CLAUDE.md.
+     */
+    locale: text("locale"),
     createdAt: integer("created_at").notNull().$defaultFn(now),
     updatedAt: integer("updated_at").notNull().$defaultFn(now),
   },

@@ -15,6 +15,7 @@
  *
  * Runs against DATABASE_URL from the root .env, like every other script here.
  */
+import { isLocale } from "@toon/shared";
 import { db } from "../src/db/client.ts";
 import { env } from "../src/env.ts";
 import { webUrl } from "../src/lib/oauth.ts";
@@ -28,10 +29,10 @@ import { isMailConfigured, passwordResetMail, trySendMail } from "../src/service
 function usage(): never {
   console.error(
     [
-      "Aufruf: bun run auth:reset-password <e-mail> [--send]",
+      "Usage: bun run auth:reset-password <email> [--send]",
       "",
-      "  <e-mail>   Konto, für das ein Reset-Link erzeugt wird",
-      "  --send     Link zusätzlich per E-Mail verschicken (braucht MAIL_TRANSPORT)",
+      "  <email>    account to mint a reset link for",
+      "  --send     also try to email the link (needs MAIL_TRANSPORT)",
     ].join("\n"),
   );
   process.exit(1);
@@ -47,7 +48,7 @@ if (!user) {
   // An operator on a terminal is not an enumeration risk — unlike the HTTP
   // endpoint, this MUST say plainly that the address is unknown, otherwise the
   // answer to "why did the link not work?" is unfindable.
-  console.error(`Kein Konto mit der Adresse ${email} gefunden (DB: ${env.databaseKind}).`);
+  console.error(`No account with the address ${email} found (DB: ${env.databaseKind}).`);
   process.exit(2);
 }
 
@@ -55,15 +56,15 @@ const { token, expiresAt } = await createPasswordResetToken(db, user.id, { reque
 const resetUrl = webUrl(`/reset-password/${token}`);
 
 console.log("");
-console.log(`Konto:    ${user.name} <${user.email}>`);
-console.log(`Gültig:   ${PASSWORD_RESET_TTL_MINUTES} Minuten (bis ${new Date(expiresAt).toISOString()})`);
+console.log(`Account:  ${user.name} <${user.email}>`);
+console.log(`Valid:    ${PASSWORD_RESET_TTL_MINUTES} minutes (until ${new Date(expiresAt).toISOString()})`);
 if (!user.passwordHash) {
-  console.log("Hinweis:  Dieses Konto hatte bisher kein Passwort (nur OAuth).");
+  console.log("Note:     This account had no password so far (OAuth only).");
 }
 console.log("");
 console.log(resetUrl);
 console.log("");
-console.log("Der Link kann genau EINMAL verwendet werden und meldet danach alle Geräte ab.");
+console.log("The link can be used exactly ONCE and signs out every device afterwards.");
 
 if (send) {
   const result = await trySendMail(
@@ -72,13 +73,14 @@ if (send) {
       name: user.name,
       resetUrl,
       expiresInMinutes: PASSWORD_RESET_TTL_MINUTES,
+      locale: isLocale(user.locale) ? user.locale : env.defaultLocale,
     }),
   );
   console.log(
     result.delivered
-      ? `Per E-Mail verschickt (${result.transport}).`
-      : `Nicht verschickt (${result.transport}${result.error ? `: ${result.error}` : ""}).${
-          isMailConfigured() ? "" : " MAIL_TRANSPORT ist nicht konfiguriert."
+      ? `Sent by email (${result.transport}).`
+      : `Not sent (${result.transport}${result.error ? `: ${result.error}` : ""}).${
+          isMailConfigured() ? "" : " MAIL_TRANSPORT is not configured."
         }`,
   );
 }

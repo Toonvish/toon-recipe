@@ -91,7 +91,7 @@ export async function trySendMail(message: MailMessage): Promise<MailSendResult>
     return { delivered: true, transport: active.name };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    console.error(`[mail] Versand an ${redactAddress(message.to)} fehlgeschlagen (${active.name}): ${reason}`);
+    console.error(`[mail] Sending to ${redactAddress(message.to)} failed (${active.name}): ${reason}`);
     return { delivered: false, transport: active.name, error: reason };
   }
 }

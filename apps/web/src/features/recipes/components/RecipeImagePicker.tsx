@@ -11,6 +11,7 @@ import { Camera, ImagePlus, Link2, Trash2 } from "lucide-react";
 import { MAX_UPLOAD_BYTES } from "@toon/shared";
 import { mediaUrl } from "@/lib/api";
 import { formatBytes } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { Button, Input, Label } from "@/components/ui";
 
 export interface RecipeImagePickerProps {
@@ -21,7 +22,7 @@ export interface RecipeImagePickerProps {
   file: File | null;
   onFileChange: (file: File | null) => void;
   disabled?: boolean;
-  /** Rendered below the preview, e.g. "Wird nach dem Speichern hochgeladen." */
+  /** Rendered below the preview, e.g. "Uploaded after saving." */
   hint?: string;
 }
 
@@ -33,6 +34,7 @@ export function RecipeImagePicker({
   disabled = false,
   hint,
 }: RecipeImagePickerProps) {
+  const t = useT();
   const [showUrlField, setShowUrlField] = useState(false);
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,11 +64,11 @@ export function RecipeImagePicker({
     event.target.value = "";
     if (!picked) return;
     if (picked.size > MAX_UPLOAD_BYTES) {
-      setError(`Das Bild ist ${formatBytes(picked.size)} groß. Maximal 15 MB sind erlaubt.`);
+      setError(t("recipes.imagePicker.tooLarge", { size: formatBytes(picked.size) }));
       return;
     }
     if (!picked.type.startsWith("image/")) {
-      setError("Bitte wähle eine Bilddatei.");
+      setError(t("recipes.imagePicker.invalidType"));
       return;
     }
     setError(null);
@@ -75,19 +77,19 @@ export function RecipeImagePicker({
 
   return (
     <div className="flex flex-col gap-2">
-      <Label optional>Bild</Label>
+      <Label optional>{t("recipes.imagePicker.label")}</Label>
 
       <div className="overflow-hidden rounded-card border border-line bg-surface-2">
         {preview ? (
           <img
             src={preview}
-            alt="Vorschau des Rezeptbildes"
+            alt={t("recipes.imagePicker.previewAlt")}
             className="aspect-4/3 w-full object-cover"
           />
         ) : (
           <div className="flex aspect-4/3 w-full flex-col items-center justify-center gap-2 text-fg-subtle">
             <ImagePlus aria-hidden="true" className="size-10" />
-            <span className="text-sm">Noch kein Bild</span>
+            <span className="text-sm">{t("recipes.imagePicker.empty")}</span>
           </div>
         )}
       </div>
@@ -123,7 +125,7 @@ export function RecipeImagePicker({
           leftIcon={<Camera className="size-4" />}
           className="sm:hidden"
         >
-          Foto aufnehmen
+          {t("recipes.imagePicker.takePhoto")}
         </Button>
         <Button
           type="button"
@@ -133,7 +135,7 @@ export function RecipeImagePicker({
           disabled={disabled}
           leftIcon={<ImagePlus className="size-4" />}
         >
-          Bild auswählen
+          {t("recipes.imagePicker.choosePhoto")}
         </Button>
         <Button
           type="button"
@@ -144,7 +146,7 @@ export function RecipeImagePicker({
           aria-expanded={showUrlField}
           leftIcon={<Link2 className="size-4" />}
         >
-          Bild-URL
+          {t("recipes.imagePicker.urlToggle")}
         </Button>
         {preview ? (
           <Button
@@ -159,14 +161,14 @@ export function RecipeImagePicker({
             disabled={disabled}
             leftIcon={<Trash2 className="size-4" />}
           >
-            Entfernen
+            {t("recipes.imagePicker.remove")}
           </Button>
         ) : null}
       </div>
 
       {showUrlField ? (
         <Input
-          label="Bild-URL"
+          label={t("recipes.imagePicker.urlToggle")}
           type="url"
           inputMode="url"
           value={url}

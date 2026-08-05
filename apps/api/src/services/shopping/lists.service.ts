@@ -51,7 +51,7 @@ export async function loadShoppingListRow(
     .from(shoppingLists)
     .where(and(eq(shoppingLists.id, listId), eq(shoppingLists.groupId, groupId)))
     .limit(1);
-  if (!row) throw ApiError.notFound("Einkaufsliste nicht gefunden");
+  if (!row) throw ApiError.notFound("server.shopping.listNotFound");
   return row;
 }
 
@@ -70,10 +70,7 @@ async function assertNameFree(
     .where(and(...conditions))
     .limit(1);
   if (clash.length > 0) {
-    throw ApiError.conflict(
-      "shopping_list_name_taken",
-      "Eine Einkaufsliste mit diesem Namen gibt es schon",
-    );
+    throw ApiError.conflict("shopping_list_name_taken", "server.shopping.listNameTaken");
   }
 }
 
@@ -88,10 +85,10 @@ export async function createShoppingList(
     .from(shoppingLists)
     .where(eq(shoppingLists.groupId, groupId));
   if (Number(existing?.value ?? 0) >= SHOPPING_LIMITS.listsPerGroup) {
-    throw ApiError.conflict(
-      "too_many_shopping_lists",
-      `Mehr als ${SHOPPING_LIMITS.listsPerGroup} Einkaufslisten pro Gruppe sind nicht möglich`,
-    );
+    throw ApiError.conflict("too_many_shopping_lists", {
+      key: "server.shopping.tooManyLists",
+      values: { max: SHOPPING_LIMITS.listsPerGroup },
+    });
   }
   await assertNameFree(db, groupId, input.name);
 

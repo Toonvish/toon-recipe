@@ -153,6 +153,7 @@ describe("templates", () => {
       invitedByName: "Maxine",
       inviteUrl: "https://app.test/invite/tok",
       expiresInDays: 14,
+      locale: "de",
     });
 
     expect(message.to).toBe("gast@beispiel.de");
@@ -168,6 +169,7 @@ describe("templates", () => {
       name: "Max",
       resetUrl: "https://app.test/reset-password/tok",
       expiresInMinutes: 60,
+      locale: "de",
     });
 
     expect(message.text).toContain("60 Minuten");
@@ -182,6 +184,7 @@ describe("templates", () => {
       name: "Max",
       verifyUrl: "https://app.test/verify-email/tok",
       expiresInHours: 24,
+      locale: "de",
     });
 
     expect(message.subject).toContain("bestätige");
@@ -196,6 +199,7 @@ describe("templates", () => {
       invitedByName: "Maxine",
       inviteUrl: "https://app.test/invite/tok",
       expiresInDays: 14,
+      locale: "de",
     });
 
     expect(message.html).not.toContain("<img src=x");

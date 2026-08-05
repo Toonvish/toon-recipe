@@ -192,8 +192,8 @@ const recipeListRoute = createRoute({
         "/src/features/recipes/pages/RecipeListPage.tsx",
       ],
       exportNames: ["RecipeListPage", "RecipesPage"],
-      title: "Rezeptliste kommt gleich",
-      description: "Die Rezeptübersicht wird von einem anderen Modul geliefert.",
+      title: "ui.routePlaceholder.recipeList.title",
+      description: "ui.routePlaceholder.recipeList.description",
     }),
   ),
 });
@@ -227,7 +227,7 @@ const recipeNewRoute = createRoute({
         "/src/features/recipes/RecipeFormPage.tsx",
       ],
       exportNames: ["RecipeNewPage", "RecipeCreatePage", "RecipeFormPage"],
-      title: "Rezept anlegen kommt gleich",
+      title: "ui.routePlaceholder.recipeNew.title",
     }),
   ),
 });
@@ -242,7 +242,7 @@ const recipeDetailRoute = createRoute({
         "/src/features/recipes/RecipePage.tsx",
       ],
       exportNames: ["RecipeDetailPage", "RecipePage"],
-      title: "Rezeptansicht kommt gleich",
+      title: "ui.routePlaceholder.recipeDetail.title",
     }),
   ),
 });
@@ -257,7 +257,7 @@ const recipeEditRoute = createRoute({
         "/src/features/recipes/RecipeFormPage.tsx",
       ],
       exportNames: ["RecipeEditPage", "RecipeFormPage"],
-      title: "Rezept bearbeiten kommt gleich",
+      title: "ui.routePlaceholder.recipeEdit.title",
     }),
   ),
 });
@@ -273,8 +273,8 @@ const importRoute = createRoute({
         "/src/features/import/ImportStartPage.tsx",
       ],
       exportNames: ["ImportPage", "ImportStartPage"],
-      title: "Import kommt gleich",
-      description: "URL-, Foto- und PDF-Import werden von einem anderen Modul geliefert.",
+      title: "ui.routePlaceholder.import.title",
+      description: "ui.routePlaceholder.import.description",
     }),
   ),
 });
@@ -290,7 +290,7 @@ const importReviewRoute = createRoute({
         "/src/features/import/DraftReviewPage.tsx",
       ],
       exportNames: ["ImportReviewPage", "DraftReviewPage"],
-      title: "Entwurf prüfen kommt gleich",
+      title: "ui.routePlaceholder.importReview.title",
     }),
   ),
 });
@@ -302,7 +302,7 @@ const collectionsRoute = createRoute({
     lazyPage({
       candidates: ["/src/features/collections/CollectionsPage.tsx"],
       exportNames: ["CollectionsPage"],
-      title: "Sammlungen kommen gleich",
+      title: "ui.routePlaceholder.collections.title",
     }),
   ),
 });
@@ -314,7 +314,7 @@ const collectionDetailRoute = createRoute({
     lazyPage({
       candidates: ["/src/features/collections/CollectionDetailPage.tsx"],
       exportNames: ["CollectionDetailPage"],
-      title: "Sammlung kommt gleich",
+      title: "ui.routePlaceholder.collectionDetail.title",
     }),
   ),
 });
@@ -331,7 +331,7 @@ const shoppingRoute = createRoute({
     lazyPage({
       candidates: ["/src/features/shopping/ShoppingListsPage.tsx"],
       exportNames: ["ShoppingListsPage"],
-      title: "Einkaufslisten kommen gleich",
+      title: "ui.routePlaceholder.shopping.title",
     }),
   ),
 });
@@ -343,7 +343,7 @@ const shoppingListRoute = createRoute({
     lazyPage({
       candidates: ["/src/features/shopping/ShoppingListDetailPage.tsx"],
       exportNames: ["ShoppingListDetailPage"],
-      title: "Einkaufsliste kommt gleich",
+      title: "ui.routePlaceholder.shoppingList.title",
     }),
   ),
 });
@@ -355,7 +355,7 @@ const tagsRoute = createRoute({
     lazyPage({
       candidates: ["/src/features/tags/TagsPage.tsx"],
       exportNames: ["TagsPage"],
-      title: "Tags kommen gleich",
+      title: "ui.routePlaceholder.tags.title",
     }),
   ),
 });
@@ -366,8 +366,8 @@ const groupsRoute = createRoute({
   component: lazyPage({
     candidates: ["/src/features/groups/GroupsPage.tsx", "/src/features/groups/GroupListPage.tsx"],
     exportNames: ["GroupsPage", "GroupListPage"],
-    title: "Gruppenverwaltung kommt gleich",
-    description: "Gruppen anlegen, Mitglieder und Einladungen verwalten.",
+    title: "ui.routePlaceholder.groups.title",
+    description: "ui.routePlaceholder.groups.description",
   }),
 });
 
@@ -380,7 +380,7 @@ const groupDetailRoute = createRoute({
       "/src/features/groups/GroupPage.tsx",
     ],
     exportNames: ["GroupDetailPage", "GroupPage"],
-    title: "Gruppendetails kommen gleich",
+    title: "ui.routePlaceholder.groupDetail.title",
   }),
 });
 
@@ -395,7 +395,7 @@ const settingsRoute = createRoute({
       "/src/features/auth/AccountSettingsPage.tsx",
     ],
     exportNames: ["SettingsPage", "AccountSettingsPage"],
-    title: "Einstellungen kommen gleich",
+    title: "ui.routePlaceholder.settings.title",
   }),
 });
 

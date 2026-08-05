@@ -9,6 +9,7 @@ import { apiFieldErrors, clearField, validate, type FieldErrors } from "@/lib/va
 import { Button } from "@/components/ui/Button";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { PasswordInput } from "@/components/ui/Input";
+import { useT } from "@/lib/i18n";
 import { AuthLayout } from "./AuthLayout";
 
 /**
@@ -23,6 +24,7 @@ import { AuthLayout } from "./AuthLayout";
  * guessing which of the three it was.
  */
 export function ResetPasswordPage() {
+  const t = useT();
   const { token } = useParams({ from: "/reset-password/$token" });
   const goTo = useGoTo();
 
@@ -45,11 +47,13 @@ export function ResetPasswordPage() {
     event.preventDefault();
     const result = validate(PasswordSchema, password);
     if (!result.ok) {
-      setErrors({ password: result.errors.password ?? result.errors._form ?? "Passwort ungültig" });
+      setErrors({
+        password: result.errors.password ?? result.errors._form ?? t("auth.resetPassword.passwordInvalid"),
+      });
       return;
     }
     if (password !== repeat) {
-      setErrors({ repeat: "Die Passwörter stimmen nicht überein" });
+      setErrors({ repeat: t("auth.resetPassword.passwordMismatch") });
       return;
     }
     setErrors({});
@@ -59,25 +63,25 @@ export function ResetPasswordPage() {
   if (tokenDead) {
     return (
       <AuthLayout
-        title="Link nicht mehr gültig"
-        description="Dieser Link wurde schon benutzt oder ist abgelaufen."
+        title={t("auth.common.linkExpiredTitle")}
+        description={t("auth.resetPassword.expired.description")}
       >
         <div className="flex flex-col gap-4">
           <ErrorState
             inline
-            title="Neuen Link anfordern"
-            description="Reset-Links gelten eine Stunde und lassen sich nur einmal verwenden. Fordere einfach einen neuen an."
+            title={t("auth.resetPassword.requestNew.action")}
+            description={t("auth.resetPassword.requestNew.description")}
           />
           <Link to="/forgot-password">
             <Button size="lg" fullWidth>
-              Neuen Link anfordern
+              {t("auth.resetPassword.requestNew.action")}
             </Button>
           </Link>
           <Link
             to="/login"
             className="text-center text-sm font-semibold text-brand underline-offset-2 hover:underline"
           >
-            Zurück zur Anmeldung
+            {t("auth.common.backToLoginLink")}
           </Link>
         </div>
       </AuthLayout>
@@ -86,11 +90,11 @@ export function ResetPasswordPage() {
 
   return (
     <AuthLayout
-      title="Neues Passwort"
-      description="Wähle ein neues Passwort für dein Konto."
+      title={t("auth.resetPassword.title")}
+      description={t("auth.resetPassword.description")}
       footer={
         <Link to="/login" className="font-semibold text-brand underline-offset-2 hover:underline">
-          Zurück zur Anmeldung
+          {t("auth.common.backToLoginLink")}
         </Link>
       }
     >
@@ -98,12 +102,12 @@ export function ResetPasswordPage() {
         {errors._form ? <ErrorState inline description={errors._form} /> : null}
 
         <PasswordInput
-          label="Neues Passwort"
+          label={t("auth.password.new.label")}
           name="password"
           autoComplete="new-password"
           required
-          placeholder="••••••••"
-          hint="Mindestens 8 Zeichen."
+          placeholder={t("auth.field.password.placeholder")}
+          hint={t("auth.password.minLengthHint")}
           value={password}
           error={errors.password}
           onChange={(event) => {
@@ -113,11 +117,11 @@ export function ResetPasswordPage() {
         />
 
         <PasswordInput
-          label="Passwort wiederholen"
+          label={t("auth.resetPassword.repeat.label")}
           name="repeat"
           autoComplete="new-password"
           required
-          placeholder="••••••••"
+          placeholder={t("auth.field.password.placeholder")}
           value={repeat}
           error={errors.repeat}
           onChange={(event) => {
@@ -127,13 +131,12 @@ export function ResetPasswordPage() {
         />
 
         <Button type="submit" size="lg" fullWidth loading={submitReset.isPending}>
-          Passwort speichern
+          {t("auth.resetPassword.submit")}
         </Button>
 
         <p className="flex items-start gap-2 text-xs text-fg-muted">
           <ShieldCheck aria-hidden className="mt-0.5 size-4 shrink-0" />
-          Aus Sicherheitsgründen wirst du danach auf allen Geräten abgemeldet und musst dich einmal
-          neu anmelden.
+          {t("auth.resetPassword.securityNote")}
         </p>
       </form>
     </AuthLayout>

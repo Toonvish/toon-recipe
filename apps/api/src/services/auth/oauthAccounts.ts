@@ -83,10 +83,7 @@ export async function loginWithOAuthProfile(
     // well the provider vouched for it — see the file header.
     const existingUser = await findUserByEmail(database, email);
     if (existingUser) {
-      throw ApiError.conflict(
-        "email_taken",
-        "Diese E-Mail-Adresse ist bereits registriert. Melde dich mit Passwort an und verknüpfe den Anbieter danach im Profil.",
-      );
+      throw ApiError.conflict("email_taken", "server.auth.oauthEmailTaken");
     }
   }
 
@@ -167,10 +164,7 @@ export async function linkOAuthAccount(
   const link = existing[0];
   if (link) {
     if (link.userId === userId) return;
-    throw ApiError.conflict(
-      "oauth_already_linked",
-      "Dieses Anbieter-Konto ist bereits mit einem anderen Nutzer verknüpft.",
-    );
+    throw ApiError.conflict("oauth_already_linked", "server.auth.oauthLinkedElsewhere");
   }
 
   const mine = await database
@@ -179,10 +173,7 @@ export async function linkOAuthAccount(
     .where(and(eq(oauthAccounts.userId, userId), eq(oauthAccounts.provider, profile.provider)))
     .limit(1);
   if (mine[0]) {
-    throw ApiError.conflict(
-      "oauth_already_linked",
-      "Für diesen Anbieter ist schon ein Konto verknüpft. Trenne es zuerst.",
-    );
+    throw ApiError.conflict("oauth_already_linked", "server.auth.oauthProviderAlreadyLinked");
   }
 
   await insertLink(database, userId, profile);
@@ -201,14 +192,11 @@ export async function unlinkOAuthAccount(
 ): Promise<void> {
   const links = await listOAuthAccounts(database, user.id);
   const target = links.find((row) => row.provider === provider);
-  if (!target) throw ApiError.notFound("Für diesen Anbieter ist nichts verknüpft.");
+  if (!target) throw ApiError.notFound("server.auth.oauthNothingLinked");
 
   const remaining = links.length - 1;
   if (remaining === 0 && !user.passwordHash) {
-    throw ApiError.conflict(
-      "last_login_method",
-      "Das ist deine einzige Anmeldemöglichkeit. Lege zuerst ein Passwort fest.",
-    );
+    throw ApiError.conflict("last_login_method", "server.auth.oauthLastLoginMethod");
   }
 
   await database.delete(oauthAccounts).where(eq(oauthAccounts.id, target.id));

@@ -29,6 +29,13 @@
       "when": 1785916303593,
       "tag": "0003_folded_search_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1785950206426,
+      "tag": "0004_daily_squirrel_girl",
+      "breakpoints": true
     }
   ]
 }

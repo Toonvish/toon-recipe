@@ -112,11 +112,11 @@ export async function resolveGroupId(c: AppContext, options: GroupRoleOptions = 
     const id = c.req.param(param);
     if (!id || id.length === 0) continue;
     const groupId = await groupIdOfResource(param, id);
-    if (!groupId) throw ApiError.notFound("Nicht gefunden");
+    if (!groupId) throw ApiError.notFound();
     return groupId;
   }
 
-  throw ApiError.badRequest("Gruppen-ID fehlt in der Anfrage");
+  throw ApiError.badRequest("server.group.groupIdMissing");
 }
 
 /**
@@ -153,15 +153,11 @@ export function requireGroupRole(
     const groupId = await resolveGroupId(c, options);
     const access = await resolveMembership(groupId, user.id);
 
-    if (!access.exists) throw ApiError.notFound("Gruppe nicht gefunden");
-    if (!access.membership) throw ApiError.forbidden("Kein Zugriff auf diese Gruppe");
+    if (!access.exists) throw ApiError.notFound("server.group.notFound");
+    if (!access.membership) throw ApiError.forbidden("server.group.noAccess");
 
     if (!roleAtLeast(access.membership.role, required)) {
-      throw ApiError.forbidden(
-        required === "owner"
-          ? "Nur die Besitzerin oder der Besitzer der Gruppe darf das"
-          : "Dafür brauchst du Administratorrechte in dieser Gruppe",
-      );
+      throw ApiError.forbidden(required === "owner" ? "server.group.ownerOnly" : "server.group.adminOnly");
     }
 
     c.set("membership", access.membership);

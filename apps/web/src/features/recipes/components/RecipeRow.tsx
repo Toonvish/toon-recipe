@@ -14,6 +14,7 @@ import { ChevronRight, Clock, Star, UtensilsCrossed } from "lucide-react";
 import type { RecipeListItem } from "@toon/shared";
 import { cn } from "@/lib/cn";
 import { thumbnailUrl } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import { AppLink } from "../lib/nav";
 import { optionalMinutes } from "../lib/format";
 
@@ -23,6 +24,7 @@ export interface RecipeRowProps {
 }
 
 export function RecipeRow({ recipe, className }: RecipeRowProps) {
+  const t = useT();
   const image = thumbnailUrl(recipe);
   const time = optionalMinutes(recipe.totalMinutes ?? recipe.cookMinutes ?? recipe.prepMinutes);
   const rating = typeof recipe.rating === "number" && recipe.rating > 0 ? recipe.rating : null;
@@ -73,7 +75,7 @@ export function RecipeRow({ recipe, className }: RecipeRowProps) {
               <span className="inline-flex shrink-0 items-center gap-1">
                 <Star aria-hidden="true" className="size-3.5 fill-current text-warning" />
                 <span className="tabular-nums">{rating}</span>
-                <span className="sr-only">von 5 Sternen</span>
+                <span className="sr-only">{t("recipes.rating.outOfFive")}</span>
               </span>
             ) : null}
           </p>

@@ -21,6 +21,7 @@ import {
   type RecipeIngredient,
   type RecipeStep,
 } from "@toon/shared";
+import { translate } from "@/lib/i18n";
 
 /* -------------------------------------------------------------------------- */
 /* limits mirrored from ParsedRecipeSchema                                     */
@@ -578,7 +579,7 @@ export function normalizeParsedRecipe(draft: ParsedRecipe): ParsedRecipe {
   const servingsUnit = clip(draft.servings?.unit, LIMITS.servingsUnit);
   const servings =
     servingsAmount !== undefined && servingsAmount > 0
-      ? { amount: servingsAmount, unit: servingsUnit ?? "Portionen" }
+      ? { amount: servingsAmount, unit: servingsUnit ?? translate("ui.servings.defaultUnit") }
       : undefined;
 
   const difficulty = DIFFICULTIES.find((value) => value === draft.difficulty);
@@ -611,7 +612,7 @@ export function isSameParsedRecipe(a: ParsedRecipe, b: ParsedRecipe): boolean {
 /** Blocking validation for "Speichern": only a title is truly required. */
 export interface DraftValidation {
   ok: boolean;
-  /** German, user-facing. */
+  /** User-facing. */
   problems: string[];
   /** Non-blocking remarks shown next to the save button. */
   warnings: string[];
@@ -621,8 +622,8 @@ export function validateForCommit(draft: ParsedRecipe): DraftValidation {
   const normalized = normalizeParsedRecipe(draft);
   const problems: string[] = [];
   const warnings: string[] = [];
-  if (normalized.title === undefined) problems.push("Bitte einen Titel eingeben.");
-  if (normalized.ingredients.length === 0) warnings.push("Das Rezept hat noch keine Zutaten.");
-  if (normalized.steps.length === 0) warnings.push("Das Rezept hat noch keine Zubereitungsschritte.");
+  if (normalized.title === undefined) problems.push(translate("import.draftEdit.needTitle"));
+  if (normalized.ingredients.length === 0) warnings.push(translate("import.draftEdit.noIngredients"));
+  if (normalized.steps.length === 0) warnings.push(translate("import.draftEdit.noSteps"));
   return { ok: problems.length === 0, problems, warnings };
 }

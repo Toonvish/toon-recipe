@@ -1,25 +1,31 @@
 /**
  * Inline error panel. Every import failure is rendered with a concrete title,
- * an actionable German explanation and — where useful — escape hatches.
- * There is deliberately no generic "Fehler" path.
+ * an actionable explanation and — where useful — escape hatches. There is
+ * deliberately no generic "Error" path.
  */
 import type { ReactNode } from "react";
 import clsx from "clsx";
 import { CircleAlert, RefreshCw } from "lucide-react";
-import { describeError } from "../lib/importApi";
+import { useT } from "@/lib/i18n";
+import { useImportError } from "../lib/importErrorText";
 
 export interface ImportErrorPanelProps {
   error: unknown;
   onRetry?: () => void;
   retryLabel?: string;
-  /** Extra buttons, e.g. "trotzdem als Foto importieren". */
+  /** Extra buttons, e.g. "import as a photo anyway". */
   actions?: ReactNode;
   className?: string;
 }
 
-export function ImportErrorPanel({ error, onRetry, retryLabel = "Erneut versuchen", actions, className }: ImportErrorPanelProps) {
+export function ImportErrorPanel({ error, onRetry, retryLabel, actions, className }: ImportErrorPanelProps) {
+  const t = useT();
+  // `useImportError` is a hook, so it runs before the early return below; it is
+  // safe with a nullish error (`describeError` handles it) and the branch below
+  // is what actually suppresses the panel.
+  const described = useImportError(error);
   if (error === undefined || error === null) return null;
-  const described = describeError(error);
+  const resolvedRetryLabel = retryLabel ?? t("import.errorPanel.retry");
   return (
     <div
       className={clsx(
@@ -42,7 +48,7 @@ export function ImportErrorPanel({ error, onRetry, retryLabel = "Erneut versuche
                   className="inline-flex items-center gap-1.5 rounded-lg border border-danger/40 bg-surface px-2.5 py-1.5 text-xs font-medium text-danger-soft-fg hover:bg-danger-soft"
                 >
                   <RefreshCw aria-hidden className="h-3.5 w-3.5" />
-                  {retryLabel}
+                  {resolvedRetryLabel}
                 </button>
               ) : null}
               {actions}

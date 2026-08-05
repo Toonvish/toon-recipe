@@ -18,6 +18,7 @@ import type {
   UploadResponse,
 } from "@toon/shared";
 import { createRecipe, deleteRecipe, fetchRecipes, updateRecipe, uploadRecipeImage } from "@/lib/api";
+import { translate } from "@/lib/i18n";
 import {
   invalidate,
   invalidateAfterRecipeMutation,
@@ -148,7 +149,10 @@ export function useUpdateRecipe(groupId: string | null, recipeId?: string) {
   return useMutation<RecipeDetail, Error, UpdateRecipeInput>({
     mutationFn: async ({ recipeId: override, ...patch }) => {
       const target = override ?? recipeId;
-      if (!target) throw new Error("useUpdateRecipe: keine recipeId übergeben.");
+      // Internal invariant, never shown as-is to a user (a real 403/404 from the
+      // API would surface first) — plain English, not a catalog key, same as
+      // other dev-facing assertions in this codebase.
+      if (!target) throw new Error("useUpdateRecipe: no recipeId provided.");
       const response = await updateRecipe(groupId ?? "", target, patch);
       return response.recipe;
     },
@@ -191,10 +195,15 @@ export function useUploadRecipeImage(groupId: string | null) {
   });
 }
 
-/** Payload for "Duplizieren" — everything except identity and timestamps. */
+/**
+ * Payload for "Duplicate" — everything except identity and timestamps.
+ * The " (Kopie)" suffix is UI copy at the moment it is produced and plain
+ * content afterwards (docs/i18n.md §0's borderline rule), so it reads the
+ * ambient locale via `translate()` — this is a plain function, not a component.
+ */
 export function duplicatePayload(recipe: RecipeDetail): CreateRecipeRequest {
   return {
-    title: `${recipe.title} (Kopie)`,
+    title: translate("recipes.duplicateSuffix", { title: recipe.title }),
     description: recipe.description ?? null,
     imageUrl: recipe.imageUrl ?? null,
     sourceUrl: recipe.sourceUrl ?? null,

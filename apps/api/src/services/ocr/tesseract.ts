@@ -152,16 +152,11 @@ export class TesseractEngine implements OcrEngine {
 }
 
 function unavailableError(error: unknown, bin: string): ApiError {
-  return new ApiError(
-    422,
-    "ocr_failed",
-    "Die Texterkennung ist auf dem Server nicht verfügbar. Bitte den Betreiber informieren.",
-    {
-      reason: "tesseract_unavailable",
-      bin,
-      cause: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
-    },
-  );
+  return new ApiError(422, "ocr_failed", "server.ocr.recognitionUnavailable", {
+    reason: "tesseract_unavailable",
+    bin,
+    cause: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
+  });
 }
 
 function failedError(stderr: string, exitCode: number, langs: string): ApiError {
@@ -173,9 +168,7 @@ function failedError(stderr: string, exitCode: number, langs: string): ApiError 
   return new ApiError(
     422,
     "ocr_failed",
-    missingLanguage
-      ? "Die Sprachdaten für die Texterkennung fehlen auf dem Server. Bitte den Betreiber informieren."
-      : "Die Texterkennung ist fehlgeschlagen.",
+    missingLanguage ? "server.ocr.languageDataMissing" : "server.ocr.recognitionFailed",
     {
       ...(missingLanguage ? { reason: "language_data_missing" } : {}),
       exitCode,

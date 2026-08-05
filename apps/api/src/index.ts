@@ -14,6 +14,7 @@ import { logger } from "hono/logger";
 import { dbReady } from "./db/client.ts";
 import { env } from "./env.ts";
 import { notFoundHandler, onErrorHandler } from "./lib/errors.ts";
+import { localeMiddleware } from "./lib/locale.ts";
 import type { AppEnv } from "./lib/types.ts";
 import {
   UPLOAD_EXP_PARAM,
@@ -48,6 +49,10 @@ app.use(
     maxAge: 86400,
   }),
 );
+
+// Negotiates the interface locale ApiError.toBody() renders in — must run
+// before every router so onErrorHandler/notFoundHandler can read it too.
+app.use("*", localeMiddleware);
 
 /**
  * Liveness/readiness probe, and the one place a client can ask what this

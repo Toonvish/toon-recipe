@@ -4,6 +4,7 @@
  */
 import { CircleCheck, CircleQuestionMark, TriangleAlert } from "lucide-react";
 import clsx from "clsx";
+import { useT } from "@/lib/i18n";
 import { confidenceLevel, formatConfidence, type ConfidenceLevel } from "../lib/confidence";
 
 export interface ConfidenceBadgeProps {
@@ -35,13 +36,14 @@ export function ConfidenceBadge({
   showWhenGood = false,
   className,
 }: ConfidenceBadgeProps) {
+  const t = useT();
   const resolved: ConfidenceLevel = level ?? confidenceLevel(value ?? undefined);
   if (resolved === "high" && !showWhenGood) return null;
 
-  const text = label ?? (resolved === "high" ? "sieht gut aus" : "bitte prüfen");
+  const text = label ?? (resolved === "high" ? t("import.confidence.good") : t("import.confidence.needsCheck"));
   const tooltipParts = [
     ...(reasons ?? []),
-    typeof value === "number" ? `Erkennungsqualität: ${formatConfidence(value)}` : undefined,
+    typeof value === "number" ? t("import.confidence.quality", { value: formatConfidence(value) }) : undefined,
   ].filter((part): part is string => typeof part === "string" && part.length > 0);
 
   const Icon = resolved === "high" ? CircleCheck : resolved === "unknown" ? CircleQuestionMark : TriangleAlert;

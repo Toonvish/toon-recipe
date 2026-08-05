@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
+import { translate } from "@/lib/i18n";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Logo } from "./Logo";
@@ -15,8 +16,11 @@ interface ErrorBoundaryState {
 }
 
 /**
- * Global crash barrier. Renders a German recovery screen instead of a white page
- * and never shows a stack trace to the user (it goes to the console).
+ * Global crash barrier. Renders a localized recovery screen instead of a white
+ * page and never shows a stack trace to the user (it goes to the console).
+ *
+ * Uses `translate()`, not `useT()`: this must not depend on the very context
+ * tree that may be what broke (see docs/i18n.md §7/§10 rule 6).
  */
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   override state: ErrorBoundaryState = { error: null };
@@ -26,7 +30,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error("[ui] Unbehandelter Fehler:", error, info.componentStack);
+    console.error("[ui] Unhandled error:", error, info.componentStack);
   }
 
   private reset = (): void => {
@@ -42,14 +46,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       <div className="flex min-h-dvh items-center justify-center bg-bg p-4">
         <Card padding="lg" className="w-full max-w-md text-center">
           <Logo className="mx-auto size-12" />
-          <h1 className="mt-4 text-xl font-semibold text-fg">Da ist etwas schiefgelaufen</h1>
-          <p className="mt-2 text-sm text-fg-muted">
-            Die App konnte diesen Bereich nicht anzeigen. Versuche es erneut – deine Rezepte sind
-            sicher gespeichert.
-          </p>
+          <h1 className="mt-4 text-xl font-semibold text-fg">{translate("ui.crash.title")}</h1>
+          <p className="mt-2 text-sm text-fg-muted">{translate("ui.crash.description")}</p>
           <div className="mt-5 flex flex-col gap-2">
             <Button onClick={this.reset} leftIcon={<RefreshCw className="size-4" />} fullWidth>
-              Erneut versuchen
+              {translate("ui.crash.retry")}
             </Button>
             <Button
               variant="secondary"
@@ -58,7 +59,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                 window.location.assign("/");
               }}
             >
-              Zur Startseite
+              {translate("ui.crash.home")}
             </Button>
           </div>
         </Card>

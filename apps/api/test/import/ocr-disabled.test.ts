@@ -113,8 +113,6 @@ describe("photo/PDF import disabled (the default)", () => {
       expect(response.status).toBe(501);
       const body = (await response.json()) as ErrorBody;
       expect(body.error.code).toBe("ocr_disabled");
-      // German, actionable, and it names the alternatives that DO work.
-      expect(body.error.message).toContain("Webadresse");
     });
   }
 

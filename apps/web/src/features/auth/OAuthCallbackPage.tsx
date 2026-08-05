@@ -5,6 +5,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { LoadingBlock } from "@/components/ui/Spinner";
 import { safeNextPath, useGoTo, useSearchParams } from "@/lib/navigation";
 import { useSession } from "@/lib/session";
+import { useT } from "@/lib/i18n";
 import { AuthLayout } from "./AuthLayout";
 
 /**
@@ -13,6 +14,7 @@ import { AuthLayout } from "./AuthLayout";
  * re-run the bootstrap query and forward the user (or explain what went wrong).
  */
 export function OAuthCallbackPage() {
+  const t = useT();
   const search = useSearchParams();
   const next = safeNextPath(search.next);
   const goTo = useGoTo();
@@ -36,17 +38,17 @@ export function OAuthCallbackPage() {
 
   if (errorCode) {
     return (
-      <AuthLayout title="Anmeldung abgebrochen">
+      <AuthLayout title={t("auth.oauthCallback.cancelledTitle")}>
         <ErrorState
-          title="Das hat nicht funktioniert"
+          title={t("auth.common.somethingWentWrong")}
           description={
             errorCode === "oauth_not_configured"
-              ? "Dieser Anmelde-Anbieter ist auf dem Server nicht konfiguriert."
-              : "Der Anbieter hat die Anmeldung nicht abgeschlossen. Bitte versuche es noch einmal."
+              ? t("auth.oauthCallback.notConfigured")
+              : t("auth.oauthCallback.incomplete")
           }
           action={
             <Link to="/login" className={buttonClasses({})}>
-              Zurück zur Anmeldung
+              {t("auth.common.backToLoginLink")}
             </Link>
           }
         />
@@ -56,16 +58,16 @@ export function OAuthCallbackPage() {
 
   if (timedOut && !isAuthenticated) {
     return (
-      <AuthLayout title="Anmeldung dauert länger">
+      <AuthLayout title={t("auth.oauthCallback.slowTitle")}>
         <ErrorState
-          title="Keine Sitzung gefunden"
-          description="Möglicherweise wurden Cookies blockiert. Bitte melde dich erneut an."
+          title={t("auth.oauthCallback.noSession.title")}
+          description={t("auth.oauthCallback.noSession.description")}
           onRetry={() => {
             void refetch();
           }}
           action={
             <Link to="/login" className={buttonClasses({ variant: "secondary" })}>
-              Zur Anmeldung
+              {t("auth.common.loginLink")}
             </Link>
           }
         />
@@ -74,8 +76,11 @@ export function OAuthCallbackPage() {
   }
 
   return (
-    <AuthLayout title="Anmeldung läuft" description="Einen Moment, wir richten alles ein …">
-      <LoadingBlock label="Sitzung wird geprüft …" />
+    <AuthLayout
+      title={t("auth.oauthCallback.inProgress.title")}
+      description={t("auth.oauthCallback.inProgress.description")}
+    >
+      <LoadingBlock label={t("auth.oauthCallback.checkingSession")} />
     </AuthLayout>
   );
 }

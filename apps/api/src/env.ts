@@ -6,6 +6,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
+import { LOCALES } from "@toon/shared";
 import { z } from "zod";
 
 /** Monorepo root (apps/api/src/env.ts -> ../../..). */
@@ -66,6 +67,13 @@ const EnvSchema = z
     DATABASE_AUTH_TOKEN: z.string().optional(),
 
     API_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
+    /**
+     * The interface locale a request/mail falls back to when nothing more
+     * specific is known: an unrecognised/absent `Accept-Language`, or a
+     * recipient whose `users.locale` is null. NOT the CONTENT language of a
+     * recipe (`recipes.language`) — see CLAUDE.md's interface/content gotcha.
+     */
+    DEFAULT_LOCALE: z.enum(LOCALES).default("de"),
     /** Comma-separated list of allowed browser origins (CORS, credentials: true). */
     WEB_ORIGIN: z.string().min(1).default("http://localhost:5173"),
     SESSION_SECRET: z.string().min(16, "SESSION_SECRET muss mindestens 16 Zeichen haben"),
@@ -223,26 +231,28 @@ const EnvSchema = z
       /** Absolute path of the built web app, or null when the API serves no UI. */
       webDistDir:
         value.WEB_DIST_DIR === undefined ? null : resolve(REPO_ROOT, value.WEB_DIST_DIR),
+      /** The locale `requestLocale(c)` and mail fall back to. See DEFAULT_LOCALE above. */
+      defaultLocale: value.DEFAULT_LOCALE,
     };
   })
   .refine(
     (value) => value.databaseKind === "file" || (value.DATABASE_AUTH_TOKEN ?? "").length > 0,
-    "DATABASE_AUTH_TOKEN ist für eine remote libsql:// Datenbank erforderlich",
+    "DATABASE_AUTH_TOKEN is required for a remote libsql:// database",
   )
   // Fail at boot rather than at the first invite: a deployment that asked for a
   // real transport but forgot the key would otherwise look fine and silently
   // never deliver anything.
   .refine(
     (value) => value.mailTransport !== "resend" || (value.MAIL_API_KEY ?? "").length > 0,
-    "MAIL_API_KEY ist für MAIL_TRANSPORT=resend erforderlich",
+    "MAIL_API_KEY is required for MAIL_TRANSPORT=resend",
   )
   .refine(
     (value) => value.mailTransport === "console" || (value.MAIL_FROM ?? "").length > 0,
-    "MAIL_FROM ist für einen echten MAIL_TRANSPORT erforderlich (verifizierte Absenderdomain)",
+    "MAIL_FROM is required for a real MAIL_TRANSPORT (a verified sender domain)",
   )
   .refine(
     (value) => value.mailTransport !== "smtp" || (value.MAIL_HOST ?? "").length > 0,
-    'MAIL_HOST ist für MAIL_TRANSPORT=smtp erforderlich (im Docker-Stack: "mailpit")',
+    'MAIL_HOST is required for MAIL_TRANSPORT=smtp (in the Docker stack: "mailpit")',
   )
   // Credentials over an unencrypted session would be readable by anything on the
   // path. The only setup that legitimately uses MAIL_SECURITY=none is a relay in
@@ -253,7 +263,7 @@ const EnvSchema = z
       value.mailTransport !== "smtp" ||
       (value.MAIL_SECURITY ?? "starttls") !== "none" ||
       (value.MAIL_USER ?? "").length === 0,
-    "MAIL_USER/MAIL_PASSWORD dürfen nicht mit MAIL_SECURITY=none kombiniert werden — Zugangsdaten gingen im Klartext über das Netz (MAIL_SECURITY=starttls oder =tls verwenden)",
+    "MAIL_USER/MAIL_PASSWORD must not be combined with MAIL_SECURITY=none — the credentials would cross the network in cleartext (use MAIL_SECURITY=starttls or =tls)",
   );
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -287,7 +297,7 @@ function loadEnv(): Env {
       return `  - ${key}: ${issue.message}`;
     });
     const message = [
-      "Ungültige Umgebungsvariablen — bitte .env prüfen (Vorlage: .env.example):",
+      "Invalid environment variables — check your .env (template: .env.example):",
       ...lines,
     ].join("\n");
     // Fail fast, no stack trace noise.

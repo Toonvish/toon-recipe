@@ -244,12 +244,10 @@ export async function importFromUrl(rawUrl: string, options: ImportFromUrlOption
 
   const parsed = extraction.parsed;
   if (parsed.ingredients.length === 0 && parsed.steps.length === 0) {
-    throw new ApiError(
-      422,
-      "parse_failed",
-      "Auf dieser Seite wurde kein Rezept gefunden. Bitte den direkten Link zum Rezept verwenden oder ein Foto hochladen.",
-      { host: extraction.host, layers: extraction.layers },
-    );
+    throw new ApiError(422, "parse_failed", "server.import.noRecipeFound", {
+      host: extraction.host,
+      layers: extraction.layers,
+    });
   }
 
   // Store the hero image locally so the recipe keeps working if the site changes.

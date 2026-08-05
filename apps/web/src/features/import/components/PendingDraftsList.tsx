@@ -1,13 +1,15 @@
 /**
- * Offene Import-Entwürfe. An interrupted import (phone call during OCR, closed
+ * Open import drafts. An interrupted import (phone call during OCR, closed
  * tab) is never lost: the draft already exists server-side, so it can be resumed
  * from here.
  */
 import clsx from "clsx";
 import { Camera, FileText, Globe, PenLine, Trash2 } from "lucide-react";
 import type { ImportDraft } from "@toon/shared";
+import { formatRelative } from "@/lib/format";
+import { translate, useT } from "@/lib/i18n";
 import { ConfidenceBadge } from "./ConfidenceBadge";
-import { describeError } from "../lib/importApi";
+import { resolveDescribedError } from "../lib/importErrorText";
 
 export interface PendingDraftsListProps {
   drafts: readonly ImportDraft[];
@@ -19,26 +21,26 @@ export interface PendingDraftsListProps {
   className?: string;
 }
 
+/**
+ * A plain function, called from render (not a hook), so it resolves copy via
+ * the ambient `translate()` rather than `useT()` — same convention as
+ * `lib/confidence.ts` (docs/i18n.md §7/§10 rule 6: the accepted limitation is
+ * that it renders the locale current at CALL time, picked up on the caller's
+ * next re-render after a switch).
+ */
 export function describeDraftSource(draft: ImportDraft): { label: string; icon: typeof Camera } {
   const method = draft.sourceMeta?.method;
-  if (draft.sourceType === "url") return { label: draft.sourceMeta?.host ?? "Webseite", icon: Globe };
-  if (method === "pdf-text") return { label: "PDF (Textebene)", icon: FileText };
+  if (draft.sourceType === "url") return { label: draft.sourceMeta?.host ?? translate("import.pendingDrafts.source.website"), icon: Globe };
+  if (method === "pdf-text") return { label: translate("import.pendingDrafts.source.pdfText"), icon: FileText };
   if (method === "ocr") {
     const isPdf = typeof draft.sourceMeta?.mimeType === "string" && draft.sourceMeta.mimeType.includes("pdf");
-    return { label: isPdf ? "PDF (Texterkennung)" : "Foto (Texterkennung)", icon: isPdf ? FileText : Camera };
+    return {
+      label: isPdf ? translate("import.pendingDrafts.source.pdfOcr") : translate("import.pendingDrafts.source.photoOcr"),
+      icon: isPdf ? FileText : Camera,
+    };
   }
-  if (draft.sourceType === "manual") return { label: "Eingefügter Text", icon: PenLine };
-  return { label: "Import", icon: FileText };
-}
-
-function formatDate(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  const diffMinutes = Math.round((Date.now() - date.getTime()) / 60000);
-  if (diffMinutes < 1) return "gerade eben";
-  if (diffMinutes < 60) return `vor ${diffMinutes} Min.`;
-  if (diffMinutes < 24 * 60) return `vor ${Math.round(diffMinutes / 60)} Std.`;
-  return date.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+  if (draft.sourceType === "manual") return { label: translate("import.pendingDrafts.source.manualText"), icon: PenLine };
+  return { label: translate("import.pendingDrafts.source.fallback"), icon: FileText };
 }
 
 export function PendingDraftsList({
@@ -50,6 +52,7 @@ export function PendingDraftsList({
   deletingDraftId,
   className,
 }: PendingDraftsListProps) {
+  const t = useT();
   if (isLoading) {
     return (
       <ul className={clsx("space-y-2", className)} aria-busy="true">
@@ -61,7 +64,7 @@ export function PendingDraftsList({
   }
 
   if (error !== undefined && error !== null) {
-    const described = describeError(error);
+    const described = resolveDescribedError(t, error);
     return (
       <div
         className={clsx(
@@ -70,7 +73,7 @@ export function PendingDraftsList({
         )}
       >
         <p className="font-medium text-warning-soft-fg">
-          Offene Entwürfe konnten nicht geladen werden: {described.title}
+          {t("import.pendingDrafts.loadError", { title: described.title })}
         </p>
         <p className="mt-1 text-xs text-warning-soft-fg">{described.hint}</p>
       </div>
@@ -96,25 +99,31 @@ export function PendingDraftsList({
               type="button"
               onClick={() => onOpen(draft.id)}
               className="min-w-0 flex-1 text-left"
-              aria-label={`Entwurf ${title.length > 0 ? title : "ohne Titel"} weiter bearbeiten`}
+              aria-label={t("import.pendingDrafts.openLabel", {
+                title: title.length > 0 ? title : t("import.pendingDrafts.untitledLower"),
+              })}
             >
               <span className="flex flex-wrap items-center gap-2">
                 <span className="truncate text-sm font-medium text-fg">
-                  {title.length > 0 ? title : "Ohne Titel"}
+                  {title.length > 0 ? title : t("import.pendingDrafts.untitled")}
                 </span>
                 <ConfidenceBadge value={draft.confidence ?? draft.parsed.confidence.overall} />
               </span>
               <span className="mt-0.5 block truncate text-xs text-fg-muted">
-                {source.label} · {draft.parsed.ingredients.length} Zutaten · {draft.parsed.steps.length} Schritte ·{" "}
-                {formatDate(draft.updatedAt)}
+                {t("import.pendingDrafts.summary", {
+                  source: source.label,
+                  ingredients: draft.parsed.ingredients.length,
+                  steps: draft.parsed.steps.length,
+                  date: formatRelative(draft.updatedAt),
+                })}
               </span>
             </button>
             <button
               type="button"
               onClick={() => onDelete(draft.id)}
               disabled={isDeleting}
-              aria-label="Entwurf verwerfen"
-              title="Entwurf verwerfen"
+              aria-label={t("import.pendingDrafts.deleteLabel")}
+              title={t("import.pendingDrafts.deleteLabel")}
               className="shrink-0 rounded-md p-2 text-fg-subtle transition hover:bg-danger-soft hover:text-danger disabled:opacity-40"
             >
               <Trash2 aria-hidden className="h-4 w-4" />

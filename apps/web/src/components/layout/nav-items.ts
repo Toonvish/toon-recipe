@@ -8,10 +8,16 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
+import type { MessageKey } from "@/lib/i18n";
 
 export interface NavItem {
   to: "/" | "/import" | "/groups" | "/settings" | "/collections" | "/tags" | "/shopping";
-  label: string;
+  /**
+   * A catalog key, not a translated string (§10 rule 8): resolving it at
+   * IMPORT time would freeze the label at whatever locale was active on
+   * first load, in both the tab bar and the sidebar.
+   */
+  labelKey: MessageKey;
   icon: LucideIcon;
   /** Only the recipe list must match exactly; the rest match their subtree. */
   exact: boolean;
@@ -33,10 +39,10 @@ export interface NavItem {
  * Four labels also means "Importieren" fits again.
  */
 export const NAV_ITEMS: readonly NavItem[] = [
-  { to: "/", label: "Rezepte", icon: BookOpen, exact: true },
-  { to: "/shopping", label: "Einkauf", icon: ShoppingBasket, exact: false },
-  { to: "/import", label: "Importieren", icon: ScanText, exact: false },
-  { to: "/settings", label: "Profil", icon: Settings, exact: false },
+  { to: "/", labelKey: "ui.nav.recipes", icon: BookOpen, exact: true },
+  { to: "/shopping", labelKey: "ui.nav.shopping", icon: ShoppingBasket, exact: false },
+  { to: "/import", labelKey: "ui.nav.import", icon: ScanText, exact: false },
+  { to: "/settings", labelKey: "ui.nav.profile", icon: Settings, exact: false },
 ];
 
 /**
@@ -45,7 +51,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
  * Gruppen from Profil, Sammlungen and Tags from the recipe-list filters.
  */
 export const SECONDARY_NAV_ITEMS: readonly NavItem[] = [
-  { to: "/groups", label: "Gruppen", icon: Users, exact: false },
-  { to: "/collections", label: "Sammlungen", icon: FolderHeart, exact: false },
-  { to: "/tags", label: "Tags", icon: Tag, exact: false },
+  { to: "/groups", labelKey: "ui.nav.groups", icon: Users, exact: false },
+  { to: "/collections", labelKey: "ui.nav.collections", icon: FolderHeart, exact: false },
+  { to: "/tags", labelKey: "ui.nav.tags", icon: Tag, exact: false },
 ];

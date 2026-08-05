@@ -11,6 +11,7 @@
 import { ChefHat, Plus, ScanText } from "lucide-react";
 import { Button, EmptyState, ErrorState, SkeletonList, Spinner } from "@/components/ui";
 import { buttonClasses } from "@/components/ui";
+import { useT } from "@/lib/i18n";
 import { useActiveGroup } from "@/lib/session";
 import { useIsWideViewport } from "@/lib/viewport";
 import { useTags } from "@/features/tags/lib/queries";
@@ -23,6 +24,7 @@ import { RecipeRow } from "./components/RecipeRow";
 import { RecipeFilters } from "./components/RecipeFilters";
 
 export default function RecipeListPage() {
+  const t = useT();
   const { groupId, group } = useActiveGroup();
   /** Cards need width; a phone gets compact rows instead. */
   const wide = useIsWideViewport();
@@ -40,21 +42,21 @@ export default function RecipeListPage() {
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="font-display text-2xl font-semibold text-fg">Rezepte</h1>
+          <h1 className="font-display text-2xl font-semibold text-fg">{t("recipes.list.title")}</h1>
           {group ? (
             <p className="truncate text-sm text-fg-muted">
-              {group.name} · {group.recipeCount} {group.recipeCount === 1 ? "Rezept" : "Rezepte"}
+              {t("recipes.list.groupSummary", { name: group.name, count: group.recipeCount })}
             </p>
           ) : null}
         </div>
         <div className="flex shrink-0 gap-2">
           <AppLink to="/import" className={buttonClasses({ variant: "outline", size: "md" })}>
             <ScanText aria-hidden="true" className="size-4" />
-            Importieren
+            {t("recipes.list.importAction")}
           </AppLink>
           <AppLink to="/recipes/new" className={buttonClasses({ variant: "primary", size: "md" })}>
             <Plus aria-hidden="true" className="size-4" />
-            Neu
+            {t("recipes.list.newAction")}
           </AppLink>
         </div>
       </header>
@@ -79,32 +81,32 @@ export default function RecipeListPage() {
         hasFilters ? (
           <EmptyState
             icon={<ChefHat />}
-            title="Keine Treffer"
-            description="Für diese Suche und Filter gibt es kein Rezept. Setze die Filter zurück oder suche anders."
+            title={t("recipes.list.empty.filtered.title")}
+            description={t("recipes.list.empty.filtered.description")}
             action={
               <Button variant="secondary" onClick={reset} fullWidth>
-                Filter zurücksetzen
+                {t("recipes.filters.reset")}
               </Button>
             }
           />
         ) : (
           <EmptyState
             icon={<ChefHat />}
-            title="Noch keine Rezepte"
-            description="Lege dein erstes Rezept an oder importiere es aus einer Website, einem Foto oder einem PDF."
+            title={t("recipes.list.empty.none.title")}
+            description={t("recipes.list.empty.none.description")}
             action={
               <AppLink
                 to="/recipes/new"
                 className={buttonClasses({ variant: "primary", fullWidth: true })}
               >
                 <Plus aria-hidden="true" className="size-4" />
-                Rezept anlegen
+                {t("recipes.list.empty.createAction")}
               </AppLink>
             }
             secondaryAction={
               <AppLink to="/import" className={buttonClasses({ variant: "ghost", size: "sm" })}>
                 <ScanText aria-hidden="true" className="size-4" />
-                Rezept importieren
+                {t("recipes.list.empty.importAction")}
               </AppLink>
             }
           />
@@ -135,7 +137,7 @@ export default function RecipeListPage() {
           )}
 
           <p aria-live="polite" className="text-center text-sm text-fg-muted">
-            {recipes.length} von {total} {total === 1 ? "Rezept" : "Rezepten"}
+            {t("recipes.list.resultsCount", { shown: recipes.length, count: total })}
           </p>
 
           {list.hasNextPage ? (
@@ -147,13 +149,13 @@ export default function RecipeListPage() {
               fullWidth
               className="sm:mx-auto sm:w-64"
             >
-              Mehr laden
+              {t("recipes.list.loadMore")}
             </Button>
           ) : null}
 
           {list.isFetching && !list.isFetchingNextPage ? (
             <div className="flex justify-center">
-              <Spinner label="Liste wird aktualisiert" />
+              <Spinner label={t("recipes.list.refreshing")} />
             </div>
           ) : null}
         </>

@@ -4,6 +4,7 @@ import {
   BadgeCheck,
   Check,
   ChevronRight,
+  Languages,
   Link2,
   Link2Off,
   LogOut,
@@ -44,8 +45,8 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Input, PasswordInput } from "@/components/ui/Input";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { plural } from "@/lib/format";
 import { useToast } from "@/components/ui/Toast";
+import { useLocalePreference, useT, type LocalePreference, type MessageKey } from "@/lib/i18n";
 
 /**
  * `/settings` — profile, groups, password, appearance and active sessions.
@@ -59,6 +60,7 @@ import { useToast } from "@/components/ui/Toast";
  * management becomes unreachable on mobile.
  */
 export function AccountSettingsPage() {
+  const t = useT();
   const user = useCurrentUser();
   const { refetch, groups } = useSession();
   // `useActiveGroup()` resolves the persisted choice; `groups` is only the count.
@@ -74,26 +76,24 @@ export function AccountSettingsPage() {
   const saveProfile = useMutation({
     mutationFn: (nextName: string) => {
       const result = validate(UpdateProfileRequestSchema, { name: nextName });
-      if (!result.ok) return Promise.reject(new Error(result.errors.name ?? "Name ungültig"));
+      if (!result.ok)
+        return Promise.reject(new Error(result.errors.name ?? t("auth.settings.account.nameInvalid")));
       return updateProfile(result.data);
     },
     onSuccess: async () => {
       setProfileErrors({});
       await Promise.all([invalidate.me(queryClient), refetch()]);
-      toast.success("Profil gespeichert");
+      toast.success(t("auth.settings.account.saved"));
     },
     onError: (error) => setProfileErrors(apiFieldErrors(error)),
   });
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader
-        title="Profil"
-        description="Konto, Gruppen, Aussehen und angemeldete Geräte."
-      />
+      <PageHeader title={t("auth.settings.title")} description={t("auth.settings.description")} />
 
       <Card padding="lg">
-        <CardHeader title="Dein Konto" description={user.email} />
+        <CardHeader title={t("auth.settings.account.title")} description={user.email} />
         <form
           className="flex flex-col gap-4"
           onSubmit={(event: FormEvent<HTMLFormElement>) => {
@@ -102,7 +102,7 @@ export function AccountSettingsPage() {
           }}
         >
           <Input
-            label="Name"
+            label={t("auth.field.name.label")}
             value={name}
             autoComplete="name"
             error={profileErrors.name ?? profileErrors._form}
@@ -110,7 +110,7 @@ export function AccountSettingsPage() {
           />
           <div className="flex justify-end">
             <Button type="submit" loading={saveProfile.isPending} disabled={name.trim() === user.name}>
-              Speichern
+              {t("auth.settings.save")}
             </Button>
           </div>
         </form>
@@ -126,6 +126,8 @@ export function AccountSettingsPage() {
 
       <AppearanceCard preference={theme.preference} onChange={theme.setPreference} />
 
+      <LanguageCard />
+
       <PasswordCard hasPassword={user.hasPassword} />
 
       <ConnectedAccountsCard hasPassword={user.hasPassword} />
@@ -133,14 +135,14 @@ export function AccountSettingsPage() {
       <SessionsCard />
 
       <Card padding="lg">
-        <CardHeader title="Abmelden" description="Beendet die Sitzung auf diesem Gerät." />
+        <CardHeader title={t("auth.common.signOut")} description={t("auth.settings.logout.description")} />
         <Button
           variant="secondary"
           leftIcon={<LogOut className="size-4" />}
           loading={logout.isPending}
           onClick={() => logout.mutate()}
         >
-          Abmelden
+          {t("auth.common.signOut")}
         </Button>
       </Card>
     </div>
@@ -148,7 +150,7 @@ export function AccountSettingsPage() {
 }
 
 /**
- * "E-Mail bestätigen".
+ * "Confirm e-mail address".
  *
  * Confirming is worth something concrete — it is what makes a mailed password reset
  * trustworthy — but it is NOT a switch that re-enables OAuth auto-linking. The API
@@ -171,26 +173,24 @@ function GroupsCard({
   count: number;
   activeGroupName: string | null;
 }) {
+  const t = useT();
+  const description =
+    count === 0
+      ? t("auth.settings.groups.none")
+      : activeGroupName
+        ? t("auth.settings.groups.countWithActive", { count, groupName: activeGroupName })
+        : t("auth.settings.groups.count", { count });
   return (
     <Card padding="lg">
-      <CardHeader
-        title="Gruppen"
-        description={
-          count === 0
-            ? "Du bist noch in keiner Gruppe."
-            : `${plural(count, "Gruppe", "Gruppen")}${activeGroupName ? ` · aktiv: ${activeGroupName}` : ""}`
-        }
-      />
+      <CardHeader title={t("auth.settings.groups.title")} description={description} />
       <AppLink
         to="/groups"
         className="flex min-h-11 items-center gap-3 rounded-xl border border-line px-3 text-fg transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       >
         <Users aria-hidden="true" className="size-5 shrink-0 text-fg-muted" />
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="text-sm font-medium">Gruppen verwalten</span>
-          <span className="text-xs text-fg-muted">
-            Mitglieder, Einladungen und Rollen
-          </span>
+          <span className="text-sm font-medium">{t("auth.settings.groups.manage")}</span>
+          <span className="text-xs text-fg-muted">{t("auth.settings.groups.manageHint")}</span>
         </span>
         <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-fg-subtle" />
       </AppLink>
@@ -207,6 +207,7 @@ function EmailVerificationCard({
   verified: boolean;
   verifiedAt: string | null;
 }) {
+  const t = useT();
   const toast = useToast();
   const [sent, setSent] = useState(false);
 
@@ -222,22 +223,28 @@ function EmailVerificationCard({
     onSuccess: (result) => {
       if (result.mailDelivery === "sent") {
         setSent(true);
-        toast.success("E-Mail unterwegs", `Wir haben einen Bestätigungslink an ${email} geschickt.`);
+        toast.success(
+          t("auth.common.emailOnTheWay"),
+          t("auth.settings.email.sentToast.description", { email }),
+        );
         return;
       }
       setSent(false);
       toast.toast({
-        title: "Keine E-Mail verschickt",
+        title: t("auth.settings.email.notSentToast.title"),
         description:
           result.mailDelivery === "not_configured"
-            ? "Auf diesem Server ist kein Mailversand eingerichtet. Der Bestätigungslink steht im Server-Log."
-            : "Die Zustellung ist fehlgeschlagen. Bitte später erneut versuchen — Details stehen im Server-Log.",
+            ? t("auth.settings.email.notConfigured")
+            : t("auth.settings.email.deliveryFailed"),
         variant: result.mailDelivery === "not_configured" ? "warning" : "error",
       });
     },
     onError: (error) => {
       const errors = apiFieldErrors(error);
-      toast.error("Konnte nicht verschickt werden", errors._form ?? "Bitte später erneut versuchen.");
+      toast.error(
+        t("auth.settings.email.sendFailedTitle"),
+        errors._form ?? t("auth.settings.email.sendFailedFallback"),
+      );
     },
   });
 
@@ -245,11 +252,11 @@ function EmailVerificationCard({
     return (
       <Card padding="lg">
         <CardHeader
-          title="E-Mail-Adresse"
+          title={t("auth.settings.email.title")}
           description={
             verifiedAt === null
-              ? "Bestätigt."
-              : `Bestätigt am ${formatDateTime(verifiedAt)}.`
+              ? t("auth.settings.email.confirmed")
+              : t("auth.settings.email.confirmedAt", { date: formatDateTime(verifiedAt) })
           }
         />
         <p className="flex items-center gap-2 text-sm text-success-soft-fg">
@@ -263,8 +270,8 @@ function EmailVerificationCard({
   return (
     <Card padding="lg">
       <CardHeader
-        title="E-Mail-Adresse bestätigen"
-        description="Noch nicht bestätigt."
+        title={t("auth.settings.email.confirmTitle")}
+        description={t("auth.settings.email.notConfirmed")}
       />
       <div className="flex flex-col gap-3">
         {/*
@@ -275,10 +282,7 @@ function EmailVerificationCard({
         */}
         <p className="flex items-start gap-2 text-sm text-fg-muted">
           <MailWarning aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />
-          <span>
-            Bestätige <strong className="font-medium break-words text-fg">{email}</strong>, damit du
-            dein Passwort per E-Mail zurücksetzen kannst.
-          </span>
+          <span>{t("auth.settings.email.confirmHint", { email })}</span>
         </p>
         <div className="flex justify-start">
           <Button
@@ -286,7 +290,7 @@ function EmailVerificationCard({
             loading={requestLink.isPending}
             onClick={() => requestLink.mutate()}
           >
-            {sent ? "Erneut senden" : "Bestätigungslink senden"}
+            {sent ? t("auth.settings.email.resend") : t("auth.settings.email.sendLink")}
           </Button>
         </div>
       </div>
@@ -294,10 +298,14 @@ function EmailVerificationCard({
   );
 }
 
-const themeOptions: ReadonlyArray<{ value: ThemePreference; label: string; icon: typeof Sun }> = [
-  { value: "system", label: "System", icon: Monitor },
-  { value: "light", label: "Hell", icon: Sun },
-  { value: "dark", label: "Dunkel", icon: Moon },
+const themeOptions: ReadonlyArray<{
+  value: ThemePreference;
+  labelKey: MessageKey;
+  icon: typeof Sun;
+}> = [
+  { value: "system", labelKey: "auth.settings.theme.system", icon: Monitor },
+  { value: "light", labelKey: "auth.settings.theme.light", icon: Sun },
+  { value: "dark", labelKey: "auth.settings.theme.dark", icon: Moon },
 ];
 
 function AppearanceCard({
@@ -307,9 +315,13 @@ function AppearanceCard({
   preference: ThemePreference;
   onChange: (value: ThemePreference) => void;
 }) {
+  const t = useT();
   return (
     <Card padding="lg">
-      <CardHeader title="Aussehen" description="Folgt standardmäßig deinem Systemdesign." />
+      <CardHeader
+        title={t("auth.settings.appearance.title")}
+        description={t("auth.settings.appearance.description")}
+      />
       <div className="grid grid-cols-3 gap-2">
         {themeOptions.map((option) => {
           const active = option.value === preference;
@@ -326,7 +338,7 @@ function AppearanceCard({
               }
             >
               <option.icon className="size-5" aria-hidden="true" />
-              {option.label}
+              {t(option.labelKey)}
             </button>
           );
         })}
@@ -335,7 +347,74 @@ function AppearanceCard({
   );
 }
 
+const languageOptions: ReadonlyArray<{
+  value: LocalePreference;
+  labelKey: MessageKey;
+  icon: typeof Monitor;
+}> = [
+  { value: "system", labelKey: "auth.settings.language.system", icon: Monitor },
+  { value: "de", labelKey: "auth.settings.language.de", icon: Languages },
+  { value: "en", labelKey: "auth.settings.language.en", icon: Languages },
+];
+
+/**
+ * Interface-language picker — the INTERFACE axis only.
+ *
+ * It must never be mistaken for the recipe's own `language` field: the German
+ * unit vocabulary, the ingredient parser and `recipes.language` are the CONTENT
+ * axis and are not affected by anything here (see CLAUDE.md's interface-vs-content
+ * gotcha). Hence the card's description says so out loud.
+ *
+ * "System" is a real third state, not a synonym for German: it removes the stored
+ * preference so the app keeps following `navigator.languages`, which is what a
+ * fresh install does. The hint names the locale that currently resolves to, or a
+ * user cannot tell what "System" is actually giving them.
+ */
+function LanguageCard() {
+  const t = useT();
+  const { preference, locale, setPreference } = useLocalePreference();
+  return (
+    <Card padding="lg">
+      <CardHeader
+        title={t("auth.settings.language.title")}
+        description={t("auth.settings.language.description")}
+      />
+      <div className="flex flex-col gap-2">
+        <div className="grid grid-cols-3 gap-2">
+          {languageOptions.map((option) => {
+            const active = option.value === preference;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setPreference(option.value)}
+                className={
+                  active
+                    ? "flex min-h-20 min-w-0 flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-brand bg-brand-soft text-sm font-medium text-brand-soft-fg"
+                    : "flex min-h-20 min-w-0 flex-col items-center justify-center gap-1.5 rounded-xl border border-line bg-surface text-sm text-fg-muted hover:bg-surface-2"
+                }
+              >
+                <option.icon className="size-5" aria-hidden="true" />
+                {t(option.labelKey)}
+              </button>
+            );
+          })}
+        </div>
+        {preference === "system" ? (
+          <p className="text-xs text-fg-muted">
+            {t("auth.settings.language.systemHint", {
+              locale: t(locale === "de" ? "auth.settings.language.de" : "auth.settings.language.en"),
+            })}
+          </p>
+        ) : null}
+      </div>
+    </Card>
+  );
+}
+
 function PasswordCard({ hasPassword }: { hasPassword: boolean }) {
+  const t = useT();
   const toast = useToast();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -350,7 +429,9 @@ function PasswordCard({ hasPassword }: { hasPassword: boolean }) {
       const result = validate(ChangePasswordRequestSchema, payload);
       if (!result.ok) {
         setErrors(result.errors);
-        return Promise.reject(new Error(result.errors.newPassword ?? "Eingaben prüfen"));
+        return Promise.reject(
+          new Error(result.errors.newPassword ?? t("auth.settings.password.checkInputs")),
+        );
       }
       return changePassword(result.data);
     },
@@ -358,19 +439,21 @@ function PasswordCard({ hasPassword }: { hasPassword: boolean }) {
       setErrors({});
       setCurrentPassword("");
       setNewPassword("");
-      toast.success("Passwort aktualisiert");
+      toast.success(t("auth.settings.password.updated"));
     },
     onError: (error) => setErrors(apiFieldErrors(error)),
   });
 
+  const titleKey = hasPassword ? "auth.settings.password.changeTitle" : "auth.settings.password.setTitle";
+
   return (
     <Card padding="lg">
       <CardHeader
-        title={hasPassword ? "Passwort ändern" : "Passwort festlegen"}
+        title={t(titleKey)}
         description={
           hasPassword
-            ? "Mindestens 8 Zeichen."
-            : "Dein Konto nutzt bisher nur die Anmeldung über Google/GitHub."
+            ? t("auth.password.minLengthHint")
+            : t("auth.settings.password.oauthOnlyHint")
         }
       />
       <form
@@ -383,7 +466,7 @@ function PasswordCard({ hasPassword }: { hasPassword: boolean }) {
         {errors._form ? <ErrorState inline description={errors._form} /> : null}
         {hasPassword ? (
           <PasswordInput
-            label="Aktuelles Passwort"
+            label={t("auth.settings.password.current.label")}
             autoComplete="current-password"
             value={currentPassword}
             error={errors.currentPassword}
@@ -391,7 +474,7 @@ function PasswordCard({ hasPassword }: { hasPassword: boolean }) {
           />
         ) : null}
         <PasswordInput
-          label="Neues Passwort"
+          label={t("auth.password.new.label")}
           autoComplete="new-password"
           value={newPassword}
           error={errors.newPassword}
@@ -399,7 +482,7 @@ function PasswordCard({ hasPassword }: { hasPassword: boolean }) {
         />
         <div className="flex justify-end">
           <Button type="submit" loading={save.isPending} disabled={newPassword.length === 0}>
-            {hasPassword ? "Passwort ändern" : "Passwort festlegen"}
+            {t(titleKey)}
           </Button>
         </div>
       </form>
@@ -408,7 +491,7 @@ function PasswordCard({ hasPassword }: { hasPassword: boolean }) {
 }
 
 /**
- * "Google/GitHub verknüpfen".
+ * "Link Google/GitHub".
  *
  * This is the ONLY way a password account and an OAuth identity end up on one
  * user: the API deliberately no longer links them automatically when the
@@ -417,6 +500,7 @@ function PasswordCard({ hasPassword }: { hasPassword: boolean }) {
  * takeover. See services/auth/oauthAccounts.ts.
  */
 function ConnectedAccountsCard({ hasPassword }: { hasPassword: boolean }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const toast = useToast();
   const search = useSearchParams();
@@ -428,10 +512,10 @@ function ConnectedAccountsCard({ hasPassword }: { hasPassword: boolean }) {
   const linkError = search.error;
   useEffect(() => {
     if (linked) {
-      toast.success(`${PROVIDER_LABELS[linked] ?? linked} verknüpft`);
+      toast.success(t("auth.settings.oauth.linkedToast", { provider: PROVIDER_LABELS[linked] ?? linked }));
       void invalidate.oauthProviders(queryClient);
     } else if (linkError) {
-      toast.error(oauthLinkErrorMessage(linkError));
+      toast.error(oauthLinkErrorMessage(t, linkError));
     }
     // Only react to the query string, not to the freshly created callbacks.
   }, [linked, linkError]);
@@ -440,9 +524,9 @@ function ConnectedAccountsCard({ hasPassword }: { hasPassword: boolean }) {
     mutationFn: (provider: OAuthProvider) => unlinkOAuthProvider(provider),
     onSuccess: async () => {
       await invalidate.oauthProviders(queryClient);
-      toast.success("Verknüpfung getrennt");
+      toast.success(t("auth.settings.oauth.unlinked"));
     },
-    onError: (error) => toast.fromError(error, "Trennen fehlgeschlagen"),
+    onError: (error) => toast.fromError(error, t("auth.settings.oauth.unlinkFailed")),
   });
 
   const configured = (providers.data?.providers ?? []).filter((entry) => entry.configured);
@@ -451,8 +535,8 @@ function ConnectedAccountsCard({ hasPassword }: { hasPassword: boolean }) {
     return (
       <Card padding="lg">
         <CardHeader
-          title="Verknüpfte Konten"
-          description="Auf diesem Server ist keine Anmeldung über Google oder GitHub konfiguriert."
+          title={t("auth.settings.oauth.title")}
+          description={t("auth.settings.oauth.noneConfigured")}
         />
       </Card>
     );
@@ -463,8 +547,8 @@ function ConnectedAccountsCard({ hasPassword }: { hasPassword: boolean }) {
   return (
     <Card padding="lg">
       <CardHeader
-        title="Verknüpfte Konten"
-        description="Verknüpfe einen Anbieter, um dich künftig auch damit anzumelden."
+        title={t("auth.settings.oauth.title")}
+        description={t("auth.settings.oauth.description")}
       />
       <ul className="flex flex-col divide-y divide-line">
         {configured.map((entry) => {
@@ -476,8 +560,8 @@ function ConnectedAccountsCard({ hasPassword }: { hasPassword: boolean }) {
                 <p className="font-medium text-fg">{PROVIDER_LABELS[entry.provider]}</p>
                 <p className="truncate text-fg-muted">
                   {entry.linked
-                    ? (entry.linkedEmail ?? "verknüpft")
-                    : "nicht verknüpft"}
+                    ? (entry.linkedEmail ?? t("auth.settings.oauth.linkedFallback"))
+                    : t("auth.settings.oauth.notLinked")}
                 </p>
               </div>
               {entry.linked ? (
@@ -485,13 +569,11 @@ function ConnectedAccountsCard({ hasPassword }: { hasPassword: boolean }) {
                   variant="ghost"
                   size="sm"
                   disabled={isLastMethod}
-                  title={
-                    isLastMethod ? "Lege zuerst ein Passwort fest." : undefined
-                  }
+                  title={isLastMethod ? t("auth.settings.oauth.setPasswordFirst") : undefined}
                   leftIcon={<Link2Off className="size-4" />}
                   onClick={() => setPendingUnlink(entry)}
                 >
-                  Trennen
+                  {t("auth.settings.oauth.unlink")}
                 </Button>
               ) : (
                 <Button
@@ -500,7 +582,7 @@ function ConnectedAccountsCard({ hasPassword }: { hasPassword: boolean }) {
                   leftIcon={<Link2 className="size-4" />}
                   onClick={() => startOAuthLink(entry.provider)}
                 >
-                  Verknüpfen
+                  {t("auth.settings.oauth.link")}
                 </Button>
               )}
             </li>
@@ -511,9 +593,9 @@ function ConnectedAccountsCard({ hasPassword }: { hasPassword: boolean }) {
       <ConfirmDialog
         open={pendingUnlink !== null}
         onClose={() => setPendingUnlink(null)}
-        title="Verknüpfung trennen?"
-        description="Du kannst dich danach nicht mehr über diesen Anbieter anmelden."
-        confirmLabel="Trennen"
+        title={t("auth.settings.oauth.unlinkConfirm.title")}
+        description={t("auth.settings.oauth.unlinkConfirm.description")}
+        confirmLabel={t("auth.settings.oauth.unlink")}
         destructive
         onConfirm={async () => {
           if (pendingUnlink) await unlink.mutateAsync(pendingUnlink.provider);
@@ -525,17 +607,18 @@ function ConnectedAccountsCard({ hasPassword }: { hasPassword: boolean }) {
 
 const PROVIDER_LABELS: Record<string, string> = { google: "Google", github: "GitHub" };
 
-function oauthLinkErrorMessage(code: string): string {
+function oauthLinkErrorMessage(t: ReturnType<typeof useT>, code: string): string {
   if (code === "oauth_already_linked") {
-    return "Dieses Anbieter-Konto ist bereits mit einem anderen Nutzer verknüpft.";
+    return t("auth.settings.oauth.error.alreadyLinked");
   }
   if (code === "oauth_not_configured") {
-    return "Dieser Anbieter ist auf dem Server nicht konfiguriert.";
+    return t("auth.settings.oauth.error.notConfigured");
   }
-  return "Die Verknüpfung ist fehlgeschlagen. Bitte erneut versuchen.";
+  return t("auth.settings.oauth.error.generic");
 }
 
 function SessionsCard() {
+  const t = useT();
   const queryClient = useQueryClient();
   const toast = useToast();
   const sessions = useQuery(sessionsQuery());
@@ -545,16 +628,16 @@ function SessionsCard() {
     mutationFn: (sessionId: string) => revokeSession(sessionId),
     onSuccess: async () => {
       await invalidate.sessions(queryClient);
-      toast.success("Gerät abgemeldet");
+      toast.success(t("auth.settings.sessions.revoked"));
     },
-    onError: (error) => toast.fromError(error, "Abmelden fehlgeschlagen"),
+    onError: (error) => toast.fromError(error, t("auth.settings.sessions.revokeFailed")),
   });
 
   return (
     <Card padding="lg">
       <CardHeader
-        title="Angemeldete Geräte"
-        description="Sitzungen laufen nach 30 Tagen Inaktivität automatisch ab."
+        title={t("auth.settings.sessions.title")}
+        description={t("auth.settings.sessions.description")}
       />
       {sessions.isPending ? (
         <Skeleton lines={3} />
@@ -578,17 +661,19 @@ function SessionsCard() {
               </span>
               <div className="min-w-0 flex-1 text-sm">
                 <p className="flex items-center gap-2 font-medium text-fg">
-                  {truncate(session.userAgent ?? "Unbekanntes Gerät", 42)}
+                  {truncate(session.userAgent ?? t("auth.settings.sessions.unknownDevice"), 42)}
                   {session.current ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 text-xs font-semibold text-success-soft-fg">
                       <Check className="size-3" aria-hidden="true" />
-                      Dieses Gerät
+                      {t("auth.settings.sessions.thisDevice")}
                     </span>
                   ) : null}
                 </p>
                 <p className="text-fg-muted">
-                  Zuletzt aktiv {formatRelative(session.lastUsedAt)} · angemeldet am{" "}
-                  {formatDateTime(session.createdAt)}
+                  {t("auth.settings.sessions.lastActive", {
+                    relative: formatRelative(session.lastUsedAt),
+                    date: formatDateTime(session.createdAt),
+                  })}
                 </p>
               </div>
               {!session.current ? (
@@ -598,7 +683,7 @@ function SessionsCard() {
                   leftIcon={<Trash2 className="size-4" />}
                   onClick={() => setPendingRevoke(session)}
                 >
-                  Abmelden
+                  {t("auth.common.signOut")}
                 </Button>
               ) : null}
             </li>
@@ -609,9 +694,9 @@ function SessionsCard() {
       <ConfirmDialog
         open={pendingRevoke !== null}
         onClose={() => setPendingRevoke(null)}
-        title="Gerät abmelden?"
-        description="Die Sitzung wird sofort beendet."
-        confirmLabel="Abmelden"
+        title={t("auth.settings.sessions.revokeConfirm.title")}
+        description={t("auth.settings.sessions.revokeConfirm.description")}
+        confirmLabel={t("auth.common.signOut")}
         destructive
         onConfirm={async () => {
           if (pendingRevoke) await revoke.mutateAsync(pendingRevoke.id);

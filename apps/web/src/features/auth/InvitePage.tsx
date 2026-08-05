@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleAlert, Users } from "lucide-react";
 import type { AcceptInviteResponse } from "@toon/shared";
 import { acceptInvite } from "@/lib/api";
-import { formatDate, roleLabels } from "@/lib/format";
+import { formatDate } from "@/lib/format";
+import { ROLE_LABEL_KEYS } from "@/features/groups/lib/roleLabels";
 import { invalidate, invitePreviewQuery } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 import { useGoTo } from "@/lib/navigation";
@@ -11,6 +12,7 @@ import { Button, buttonClasses } from "@/components/ui/Button";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { LoadingBlock } from "@/components/ui/Spinner";
 import { useToast } from "@/components/ui/Toast";
+import { useT } from "@/lib/i18n";
 import { AuthLayout } from "./AuthLayout";
 
 /**
@@ -19,6 +21,7 @@ import { AuthLayout } from "./AuthLayout";
  * Logged out: register (e-mail is pre-filled) or sign in first.
  */
 export function InvitePage() {
+  const t = useT();
   const params = useParams({ strict: false }) as { token?: string };
   const token = params.token ?? "";
   const queryClient = useQueryClient();
@@ -33,38 +36,44 @@ export function InvitePage() {
     onSuccess: async (data) => {
       await Promise.all([invalidate.me(queryClient), invalidate.groups(queryClient)]);
       setActiveGroup(data.group.id);
-      toast.success("Willkommen!", `Du bist jetzt Mitglied von „${data.group.name}“.`);
+      toast.success(
+        t("auth.invite.joined.title"),
+        t("auth.invite.joined.description", { groupName: data.group.name }),
+      );
       goTo("/", { replace: true });
     },
-    onError: (error) => toast.fromError(error, "Beitreten fehlgeschlagen"),
+    onError: (error) => toast.fromError(error, t("auth.invite.joinFailed")),
   });
 
   if (token.length === 0) {
     return (
-      <AuthLayout title="Einladung">
-        <ErrorState title="Ungültiger Link" description="In diesem Link fehlt der Einladungscode." />
+      <AuthLayout title={t("auth.invite.title")}>
+        <ErrorState
+          title={t("auth.invite.missingToken.title")}
+          description={t("auth.invite.missingToken.description")}
+        />
       </AuthLayout>
     );
   }
 
   if (preview.isPending || isLoading) {
     return (
-      <AuthLayout title="Einladung">
-        <LoadingBlock label="Einladung wird geprüft …" />
+      <AuthLayout title={t("auth.invite.title")}>
+        <LoadingBlock label={t("auth.invite.checking")} />
       </AuthLayout>
     );
   }
 
   if (preview.isError || !preview.data) {
     return (
-      <AuthLayout title="Einladung">
+      <AuthLayout title={t("auth.invite.title")}>
         <ErrorState
           error={preview.error}
-          title="Einladung nicht gültig"
-          description="Der Link ist abgelaufen oder wurde zurückgezogen. Bitte lass dir eine neue Einladung schicken."
+          title={t("auth.invite.invalid.title")}
+          description={t("auth.invite.invalid.description")}
           action={
             <Link to="/login" className={buttonClasses({ variant: "secondary" })}>
-              Zur Anmeldung
+              {t("auth.common.loginLink")}
             </Link>
           }
         />
@@ -77,8 +86,11 @@ export function InvitePage() {
 
   return (
     <AuthLayout
-      title="Du wurdest eingeladen"
-      description={`${invite.invitedByName} lädt dich zu „${invite.groupName}“ ein.`}
+      title={t("auth.invite.readyTitle")}
+      description={t("auth.invite.invitedBy", {
+        name: invite.invitedByName,
+        groupName: invite.groupName,
+      })}
     >
       <div className="flex flex-col gap-4">
         <div className="flex items-start gap-3 rounded-xl border border-line bg-surface-2 p-3">
@@ -91,9 +103,14 @@ export function InvitePage() {
           <div className="min-w-0 text-sm">
             <p className="font-semibold text-fg">{invite.groupName}</p>
             <p className="text-fg-muted">
-              Rolle: {roleLabels[invite.role]} · Einladung für {invite.email}
+              {t("auth.invite.roleAndEmail", {
+                role: t(ROLE_LABEL_KEYS[invite.role]),
+                email: invite.email,
+              })}
             </p>
-            <p className="text-fg-muted">Gültig bis {formatDate(invite.expiresAt)}</p>
+            <p className="text-fg-muted">
+              {t("auth.invite.validUntil", { date: formatDate(invite.expiresAt) })}
+            </p>
           </div>
         </div>
 
@@ -105,10 +122,10 @@ export function InvitePage() {
             <CircleAlert className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
             <p>
               {invite.status === "accepted"
-                ? "Diese Einladung wurde bereits angenommen."
+                ? t("auth.invite.status.accepted")
                 : invite.status === "expired"
-                  ? "Diese Einladung ist abgelaufen."
-                  : "Diese Einladung wurde zurückgezogen."}
+                  ? t("auth.invite.status.expired")
+                  : t("auth.invite.status.revoked")}
             </p>
           </div>
         ) : null}
@@ -121,7 +138,7 @@ export function InvitePage() {
             loading={join.isPending}
             onClick={() => join.mutate()}
           >
-            Gruppe beitreten
+            {t("auth.invite.join")}
           </Button>
         ) : (
           <div className="flex flex-col gap-2">
@@ -130,14 +147,14 @@ export function InvitePage() {
               search={{ invite: token }}
               className={buttonClasses({ size: "lg", fullWidth: true })}
             >
-              Konto anlegen und beitreten
+              {t("auth.invite.registerAndJoin")}
             </Link>
             <Link
               to="/login"
               search={{ next: `/invite/${token}` }}
               className={buttonClasses({ variant: "secondary", size: "lg", fullWidth: true })}
             >
-              Ich habe schon ein Konto
+              {t("auth.invite.haveAccount")}
             </Link>
           </div>
         )}

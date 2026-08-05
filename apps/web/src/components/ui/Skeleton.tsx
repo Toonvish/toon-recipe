@@ -1,4 +1,5 @@
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 
 export interface SkeletonProps {
   className?: string;
@@ -47,7 +48,8 @@ export function SkeletonList({
   count?: number;
   variant?: "cards" | "rows";
 }) {
-  const common = { "aria-busy": true as const, "aria-label": "Rezepte werden geladen" };
+  const t = useT();
+  const common = { "aria-busy": true as const, "aria-label": t("ui.skeletonList.loadingRecipes") };
 
   if (variant === "rows") {
     return (

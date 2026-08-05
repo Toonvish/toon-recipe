@@ -116,7 +116,7 @@ export async function getDraftOr404(db: Database, groupId: string, draftId: stri
     .where(and(eq(importDrafts.id, draftId), eq(importDrafts.groupId, groupId)))
     .limit(1);
   const row = rows[0];
-  if (!row) throw ApiError.notFound("Dieser Import-Entwurf existiert nicht (mehr).");
+  if (!row) throw ApiError.notFound("server.import.draftNotFound");
   return row;
 }
 

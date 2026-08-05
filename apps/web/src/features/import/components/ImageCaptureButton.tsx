@@ -9,6 +9,7 @@
 import { useId, useRef, type ChangeEvent } from "react";
 import clsx from "clsx";
 import { Camera, Images } from "lucide-react";
+import { useT } from "@/lib/i18n";
 
 export interface ImageCaptureButtonProps {
   onFiles: (files: File[]) => void;
@@ -24,11 +25,14 @@ export interface ImageCaptureButtonProps {
 export function ImageCaptureButton({
   onFiles,
   disabled = false,
-  captureLabel = "Foto aufnehmen",
-  galleryLabel = "Aus Galerie wählen",
+  captureLabel,
+  galleryLabel,
   multiple = true,
   className,
 }: ImageCaptureButtonProps) {
+  const t = useT();
+  const resolvedCaptureLabel = captureLabel ?? t("import.imageCapture.captureLabel");
+  const resolvedGalleryLabel = galleryLabel ?? t("import.imageCapture.galleryLabel");
   const cameraRef = useRef<HTMLInputElement | null>(null);
   const galleryRef = useRef<HTMLInputElement | null>(null);
   const cameraId = useId();
@@ -71,7 +75,7 @@ export function ImageCaptureButton({
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-4 text-base font-semibold text-brand-fg shadow-sm transition hover:bg-brand-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
       >
         <Camera aria-hidden className="h-5 w-5" />
-        {captureLabel}
+        {resolvedCaptureLabel}
       </button>
 
       <button
@@ -81,7 +85,7 @@ export function ImageCaptureButton({
         className="flex w-full items-center justify-center gap-2 rounded-xl border border-line-strong bg-surface px-4 py-3 text-sm font-medium text-fg transition hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50"
       >
         <Images aria-hidden className="h-4 w-4" />
-        {galleryLabel}
+        {resolvedGalleryLabel}
       </button>
     </div>
   );

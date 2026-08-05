@@ -163,11 +163,10 @@ export function enforceRateLimit(
   const result = checkRateLimit(key, rule);
   if (!result.allowed) {
     c.header("Retry-After", String(result.retryAfterSeconds));
-    throw new ApiError(
-      429,
-      "rate_limited",
-      `Zu viele Versuche. Bitte in ${result.retryAfterSeconds} Sekunden erneut probieren.`,
-    );
+    throw new ApiError(429, "rate_limited", {
+      key: "server.error.tooManyAttempts",
+      values: { seconds: result.retryAfterSeconds },
+    });
   }
   return key;
 }

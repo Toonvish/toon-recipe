@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { refineKey } from "../i18n/zod.ts";
 import { HttpUrlSchema, IdSchema, IsoDateSchema, listResponse } from "./common.ts";
 import { PublicUserSchema } from "./user.ts";
 
@@ -132,7 +133,7 @@ export const RecipeStepInputSchema = RecipeStepSchema.partial({ position: true }
 export type RecipeStepInput = z.infer<typeof RecipeStepInputSchema>;
 
 export const CreateRecipeRequestSchema = z.object({
-  title: z.string().trim().min(1, "Titel fehlt").max(300),
+  title: z.string().trim().min(1).max(300),
   description: z.string().trim().max(5000).nullish(),
   imageUrl: z.string().max(1000).nullish(),
   sourceUrl: HttpUrlSchema.nullish(),
@@ -182,14 +183,14 @@ export const CreateTagRequestSchema = z.object({
   name: z.string().trim().min(1).max(60),
   color: z
     .string()
-    .regex(/^#[0-9a-fA-F]{6}$/, "Farbe muss ein Hex-Wert wie #e11d48 sein")
+    .regex(/^#[0-9a-fA-F]{6}$/)
     .optional(),
 });
 export type CreateTagRequest = z.infer<typeof CreateTagRequestSchema>;
 
 export const UpdateTagRequestSchema = CreateTagRequestSchema.partial().refine(
   (value) => Object.keys(value).length > 0,
-  "Keine Änderungen übergeben",
+  refineKey("server.validation.noChanges"),
 );
 export type UpdateTagRequest = z.infer<typeof UpdateTagRequestSchema>;
 
@@ -203,7 +204,7 @@ export type CreateCollectionRequest = z.infer<typeof CreateCollectionRequestSche
 
 export const UpdateCollectionRequestSchema = CreateCollectionRequestSchema.partial().refine(
   (value) => Object.keys(value).length > 0,
-  "Keine Änderungen übergeben",
+  refineKey("server.validation.noChanges"),
 );
 export type UpdateCollectionRequest = z.infer<typeof UpdateCollectionRequestSchema>;
 

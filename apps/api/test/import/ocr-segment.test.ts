@@ -517,7 +517,6 @@ describe("PDF text handling", () => {
     const error = await expectApiError(pdfToText(notAPdf, engine, { maxPages: 1 }));
     expect(error.status).toBe(422);
     expect(error.code).toBe("pdf_no_text_layer");
-    expect(error.message).toContain("bitte ein Foto der Seite hochladen");
   });
 
   test("importFromPdf surfaces the same 422 for an unreadable PDF", async () => {

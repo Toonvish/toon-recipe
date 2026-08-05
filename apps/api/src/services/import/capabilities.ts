@@ -53,11 +53,7 @@ export function setOcrImportEnabled(value: boolean | null): void {
  */
 export function assertOcrImportEnabled(): void {
   if (isOcrImportEnabled()) return;
-  throw new ApiError(
-    501,
-    "ocr_disabled",
-    "Import per Foto oder PDF ist auf diesem Server nicht aktiviert. Rezepte lassen sich über eine Webadresse oder als eingefügter Text importieren.",
-  );
+  throw new ApiError(501, "ocr_disabled", "server.import.ocrDisabled");
 }
 
 /** The capability block `/api/health` reports, so the UI can hide what is off. */

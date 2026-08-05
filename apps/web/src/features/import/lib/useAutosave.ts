@@ -6,17 +6,19 @@
  * to the background (`visibilitychange` / `pagehide`).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ParsedRecipe } from "@toon/shared";
+import { INTL_LOCALE, type ParsedRecipe } from "@toon/shared";
+import { useLocale, useT } from "@/lib/i18n";
 import { useUnsavedWork } from "@/lib/unsavedWork";
 import { isSameParsedRecipe, normalizeParsedRecipe } from "./draftEdit";
-import { describeError } from "./importApi";
+import { describeError, type ImportErrorText } from "./importApi";
+import { resolveImportErrorText } from "./importErrorText";
 import { useSaveDraft } from "./queries";
 
 export type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 
 export interface AutosaveResult {
   state: SaveState;
-  /** German label for the indicator next to the title. */
+  /** Localised label for the indicator next to the title. */
   label: string;
   errorHint?: string;
   lastSavedAt?: Date;
@@ -36,13 +38,21 @@ export interface AutosaveOptions {
 
 export function useDraftAutosave(options: AutosaveOptions): AutosaveResult {
   const { groupId, draftId, value, baseline, enabled = true, delayMs = 1000 } = options;
+  const t = useT();
+  const locale = useLocale();
   const save = useSaveDraft();
   // useMutation returns a fresh object every render; keeping it in a ref stops the
   // debounce timer from being reset by unrelated re-renders.
   const saveRef = useRef(save);
   saveRef.current = save;
   const [state, setState] = useState<SaveState>("idle");
-  const [errorHint, setErrorHint] = useState<string | undefined>(undefined);
+  /*
+    The UNRENDERED hint, not a string: a save error can sit on screen for as long
+    as the review page is open, so storing translated copy here would leave a
+    stale sentence behind after a language switch. It is rendered on the way out,
+    below, where `t` is current.
+  */
+  const [errorText, setErrorText] = useState<ImportErrorText | undefined>(undefined);
   const [lastSavedAt, setLastSavedAt] = useState<Date | undefined>(undefined);
 
   const savedRef = useRef<ParsedRecipe | undefined>(baseline);
@@ -69,7 +79,7 @@ export function useDraftAutosave(options: AutosaveOptions): AutosaveResult {
     if (inFlightRef.current !== undefined) return inFlightRef.current;
 
     setState("saving");
-    setErrorHint(undefined);
+    setErrorText(undefined);
     const promise = (async () => {
       try {
         const draft = await saveRef.current.mutateAsync({ groupId, draftId, parsed: normalized });
@@ -78,7 +88,7 @@ export function useDraftAutosave(options: AutosaveOptions): AutosaveResult {
         setState("saved");
         return true;
       } catch (error) {
-        setErrorHint(describeError(error).hint);
+        setErrorText(describeError(error).hint);
         setState("error");
         return false;
       } finally {
@@ -130,16 +140,22 @@ export function useDraftAutosave(options: AutosaveOptions): AutosaveResult {
 
   const label =
     state === "saving"
-      ? "Speichert…"
+      ? t("import.autosave.saving")
       : state === "dirty"
-        ? "Änderungen noch nicht gespeichert"
+        ? t("import.autosave.dirty")
         : state === "saved"
           ? lastSavedAt === undefined
-            ? "Gespeichert"
-            : `Gespeichert um ${lastSavedAt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`
+            ? t("import.autosave.saved")
+            : t("import.autosave.savedAt", {
+                time: new Intl.DateTimeFormat(INTL_LOCALE[locale], { hour: "2-digit", minute: "2-digit" }).format(
+                  lastSavedAt,
+                ),
+              })
           : state === "error"
-            ? "Speichern fehlgeschlagen"
-            : "Automatisch gespeichert";
+            ? t("import.autosave.error")
+            : t("import.autosave.idle");
+
+  const errorHint = errorText === undefined ? undefined : resolveImportErrorText(t, errorText);
 
   return { state, label, errorHint, lastSavedAt, saveNow: runSave };
 }

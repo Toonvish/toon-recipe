@@ -20,6 +20,7 @@ import {
   parseNumberToken,
   parseStepBlock,
 } from "@toon/shared";
+import { translate } from "@/lib/i18n";
 import { localId } from "./hooks";
 
 export interface IngredientRow {
@@ -79,7 +80,13 @@ export function emptyStepRow(section = ""): StepRow {
   return { key: localId(), section, text: "" };
 }
 
-/** Blank form for RecipeNewPage. */
+/**
+ * Blank form for RecipeNewPage. `servingsUnit` seeds the field with the ambient
+ * locale's word for "servings" — UI copy at the moment it is produced, plain
+ * content afterwards once the user edits or saves it (docs/i18n.md §0's
+ * borderline rule), so this reads the CURRENT locale via `translate()` rather
+ * than a hook (this is a plain function, not a component).
+ */
 export function emptyRecipeForm(): RecipeFormValues {
   return {
     title: "",
@@ -88,7 +95,7 @@ export function emptyRecipeForm(): RecipeFormValues {
     sourceUrl: "",
     sourceName: "",
     servingsAmount: "4",
-    servingsUnit: "Portionen",
+    servingsUnit: translate("ui.servings.defaultUnit"),
     prepMinutes: "",
     cookMinutes: "",
     totalMinutes: "",
@@ -280,7 +287,7 @@ export function rowsFromPastedSteps(text: string): StepRow[] {
   }));
 }
 
-/** Sum of prep + cook, used to prefill "Gesamt" when the user leaves it empty. */
+/** Sum of prep + cook, used to prefill "Total" when the user leaves it empty. */
 export function derivedTotalMinutes(values: RecipeFormValues): number | undefined {
   const prep = parseIntInput(values.prepMinutes);
   const cook = parseIntInput(values.cookMinutes);

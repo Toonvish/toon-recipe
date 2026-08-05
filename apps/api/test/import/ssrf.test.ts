@@ -262,18 +262,25 @@ describe("fetchHtml", () => {
     const scripted = createScriptedFetch({
       "https://loop.example/x": { redirectTo: "https://loop.example/x" },
     });
-    await expect(
+    const error = await expectApiError(
       fetchHtml("https://loop.example/x", { fetchImpl: scripted.fetch, resolve: publicResolver, maxRedirects: 2 }),
-    ).rejects.toThrow(/leitet zu oft weiter/);
+    );
+    expect(error.code).toBe("fetch_failed");
+    expect(error.text).toBe("server.import.tooManyRedirects");
   });
 
   test("rejects a non-HTML content type", async () => {
     const scripted = createScriptedFetch({
       "https://ok.example/file.pdf": { body: "%PDF-1.4", headers: { "content-type": "application/pdf" } },
     });
-    await expect(
+    const error = await expectApiError(
       fetchHtml("https://ok.example/file.pdf", { fetchImpl: scripted.fetch, resolve: publicResolver }),
-    ).rejects.toThrow(/kein HTML/);
+    );
+    expect(error.code).toBe("fetch_failed");
+    expect(error.text).toEqual({
+      key: "server.import.pageNotHtml",
+      values: { contentType: "application/pdf" },
+    });
   });
 
   test("maps a non-2xx response to fetch_failed", async () => {
@@ -290,17 +297,21 @@ describe("fetchHtml", () => {
     const scripted = createScriptedFetch({
       "https://big.example/r": { body: "x".repeat(100), headers: { "content-length": "9999999" } },
     });
-    await expect(
+    const error = await expectApiError(
       fetchHtml("https://big.example/r", { fetchImpl: scripted.fetch, resolve: publicResolver, maxBytes: 1000 }),
-    ).rejects.toThrow(/zu groß/);
+    );
+    expect(error.code).toBe("fetch_failed");
+    expect(error.text).toBe("server.import.pageTooLarge");
   });
 
   test("enforces the body size cap while STREAMING (no Content-Length)", async () => {
     const impl = (async () =>
       new Response("y".repeat(5000), { headers: { "content-type": "text/html" } })) as unknown as typeof fetch;
-    await expect(
+    const error = await expectApiError(
       fetchHtml("https://big.example/r", { fetchImpl: impl, resolve: publicResolver, maxBytes: 1000 }),
-    ).rejects.toThrow(/zu groß/);
+    );
+    expect(error.code).toBe("fetch_failed");
+    expect(error.text).toBe("server.import.pageTooLarge");
   });
 
   test("decodes ISO-8859-1 via the charset header", async () => {

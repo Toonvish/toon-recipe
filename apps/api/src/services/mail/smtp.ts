@@ -91,7 +91,7 @@ export class SmtpMailer implements Mailer {
         this.deliver(message),
         new Promise<never>((_resolve, reject) => {
           deadline = setTimeout(
-            () => reject(new Error(`SMTP-Zeitüberschreitung nach ${timeout} ms`)),
+            () => reject(new Error(`SMTP timeout after ${timeout} ms`)),
             timeout,
           );
         }),
@@ -102,8 +102,8 @@ export class SmtpMailer implements Mailer {
   }
 
   private async deliver(message: MailMessage): Promise<void> {
-    const to = requireHeaderSafe(message.to, "Empfängeradresse");
-    const from = requireHeaderSafe(this.config.from, "Absenderadresse");
+    const to = requireHeaderSafe(message.to, "recipient address");
+    const from = requireHeaderSafe(this.config.from, "sender address");
     const payload = buildMessage({ ...message, to }, from);
 
     const wire = await Wire.open(this.config);
@@ -117,7 +117,7 @@ export class SmtpMailer implements Mailer {
         // Carrying on in plaintext is how the credentials leak.
         if (!advertises(greeting, "STARTTLS")) {
           throw new Error(
-            `${this.config.host}:${this.config.port} bietet kein STARTTLS an — MAIL_SECURITY=tls (Port 465) oder =none (nur im privaten Netz) verwenden`,
+            `${this.config.host}:${this.config.port} does not offer STARTTLS — use MAIL_SECURITY=tls (port 465) or =none (private network only)`,
           );
         }
         await wire.command("STARTTLS", 220);
@@ -147,7 +147,7 @@ export class SmtpMailer implements Mailer {
 
     if (mechanisms.length > 0 && !mechanisms.includes("PLAIN") && !mechanisms.includes("LOGIN")) {
       throw new Error(
-        `${this.config.host} unterstützt nur AUTH ${mechanisms.join("/")} — PLAIN oder LOGIN wird benötigt`,
+        `${this.config.host} only supports AUTH ${mechanisms.join("/")} — PLAIN or LOGIN is required`,
       );
     }
 
@@ -204,7 +204,7 @@ class Wire {
         // destroy the socket instead, so it is replaced rather than stacked.
         pending.removeAllListeners("timeout");
         pending.setTimeout(timeout, () =>
-          pending.destroy(new Error(`SMTP-Zeitüberschreitung (${config.host}:${config.port})`)),
+          pending.destroy(new Error(`SMTP timeout (${config.host}:${config.port})`)),
         );
         resolve(pending);
       };
@@ -224,7 +224,7 @@ class Wire {
       pending.once("error", onError);
       pending.setTimeout(timeout, () => {
         pending.destroy();
-        reject(new Error(`Verbindung zu ${config.host}:${config.port} hat nicht geantwortet`));
+        reject(new Error(`Connection to ${config.host}:${config.port} did not respond`));
       });
     });
     return new Wire(socket);
@@ -236,7 +236,7 @@ class Wire {
     socket.on("error", (error: Error) => this.fail(error));
     socket.on("close", () => {
       this.closed = true;
-      this.fail(new Error("Verbindung wurde vom SMTP-Server geschlossen"));
+      this.fail(new Error("Connection was closed by the SMTP server"));
     });
   }
 
@@ -305,7 +305,7 @@ class Wire {
 
   /** Writes one command (CRLF appended) and returns its reply. */
   async command(line: string, codes: number | number[]): Promise<SmtpReply> {
-    if (this.closed) throw this.failure ?? new Error("SMTP-Verbindung ist geschlossen");
+    if (this.closed) throw this.failure ?? new Error("SMTP connection is closed");
     await new Promise<void>((resolve, reject) => {
       this.socket.write(`${line}\r\n`, "utf8", (error) => (error ? reject(error) : resolve()));
     });
@@ -406,7 +406,7 @@ function authMechanisms(greeting: SmtpReply): string[] {
  */
 function requireHeaderSafe(value: string, label: string): string {
   // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting them is the point
-  if (/[\r\n\u0000]/.test(value)) throw new Error(`${label} enthält unerlaubte Zeichen`);
+  if (/[\r\n\u0000]/.test(value)) throw new Error(`${label} contains illegal characters`);
   return value.trim();
 }
 
@@ -512,7 +512,7 @@ export function buildMessage(
   now: Date = new Date(),
   id: string = randomUUID(),
 ): string {
-  const subject = encodeHeaderValue(requireHeaderSafe(message.subject, "Betreff"));
+  const subject = encodeHeaderValue(requireHeaderSafe(message.subject, "subject"));
   const domain = addressOf(from).split("@")[1] ?? "localhost";
   const headers = [
     `From: ${encodeAddressHeader(from)}`,

@@ -65,7 +65,6 @@ describe("importFromUrl", () => {
     );
     expect(error.status).toBe(422);
     expect(error.code).toBe("parse_failed");
-    expect(error.message).toContain("kein Rezept gefunden");
   });
 
   test("400 fetch_failed for a private target, without issuing a request", async () => {

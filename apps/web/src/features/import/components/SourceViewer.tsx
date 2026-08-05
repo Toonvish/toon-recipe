@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import type { ImportDraft } from "@toon/shared";
 import { safeHttpUrl } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { fetchDraftSource } from "../lib/importApi";
 
 export interface SourceViewerProps {
@@ -136,6 +137,7 @@ function useDraftSourceObjectUrl(draft: ImportDraft): {
 }
 
 export function SourceViewer({ draft, onLineToIngredient, onLineToStep, className }: SourceViewerProps) {
+  const t = useT();
   const pdf = isPdfSource(draft);
   const source = useDraftSourceObjectUrl(draft);
   // Photo/scan -> the fetched blob; URL import -> the parsed hero image.
@@ -170,7 +172,7 @@ export function SourceViewer({ draft, onLineToIngredient, onLineToStep, classNam
         )}
       >
         <ScanText aria-hidden className="mx-auto mb-2 h-6 w-6" />
-        Für diesen Entwurf gibt es keine Quellansicht. Du kannst die Felder rechts direkt bearbeiten.
+        {t("import.source.empty")}
       </div>
     );
   }
@@ -178,7 +180,7 @@ export function SourceViewer({ draft, onLineToIngredient, onLineToStep, classNam
   return (
     <div className={clsx("flex min-h-0 flex-col gap-3", className)}>
       {availableTabs.length > 1 ? (
-        <div className="flex gap-1 rounded-lg bg-surface-2 p-1" role="tablist" aria-label="Quelle">
+        <div className="flex gap-1 rounded-lg bg-surface-2 p-1" role="tablist" aria-label={t("import.source.tabsAriaLabel")}>
           {availableTabs.map((value) => (
             <button
               key={value}
@@ -196,7 +198,11 @@ export function SourceViewer({ draft, onLineToIngredient, onLineToStep, classNam
               {value === "image" ? <ImageIcon aria-hidden className="h-3.5 w-3.5" /> : null}
               {value === "text" ? <FileText aria-hidden className="h-3.5 w-3.5" /> : null}
               {value === "link" ? <Globe aria-hidden className="h-3.5 w-3.5" /> : null}
-              {value === "image" ? "Bild" : value === "text" ? "Rohtext" : "Quelle"}
+              {value === "image"
+                ? t("import.source.tab.image")
+                : value === "text"
+                  ? t("import.source.tab.text")
+                  : t("import.source.tab.link")}
             </button>
           ))}
         </div>
@@ -207,8 +213,7 @@ export function SourceViewer({ draft, onLineToIngredient, onLineToStep, classNam
           <ZoomableImage src={imageUrl} />
         ) : source.failed ? (
           <p className="rounded-xl border border-dashed border-line-strong p-4 text-sm text-fg-muted">
-            Das Quellbild konnte nicht geladen werden. Vielleicht bist du kein Mitglied dieser
-            Gruppe mehr, oder die Datei wurde gelöscht.
+            {t("import.source.imageFailed")}
           </p>
         ) : (
           <div
@@ -241,6 +246,7 @@ export function SourceViewer({ draft, onLineToIngredient, onLineToStep, classNam
 /* -------------------------------------------------------------------------- */
 
 function ZoomableImage({ src }: { src: string }) {
+  const t = useT();
   const [scale, setScale] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -308,9 +314,9 @@ function ZoomableImage({ src }: { src: string }) {
   if (failed) {
     return (
       <div className="rounded-xl border border-dashed border-line-strong p-6 text-center text-sm text-fg-muted">
-        Das Quellbild konnte nicht geladen werden.{" "}
+        {t("import.source.imageLoadFailed")}{" "}
         <a className="underline" href={src} target="_blank" rel="noreferrer">
-          Direkt öffnen
+          {t("import.source.openDirect")}
         </a>
       </div>
     );
@@ -319,13 +325,13 @@ function ZoomableImage({ src }: { src: string }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex items-center gap-1">
-        <IconAction label="Verkleinern" onClick={() => zoomBy(1 / 1.25)}>
+        <IconAction label={t("import.source.zoom.out")} onClick={() => zoomBy(1 / 1.25)}>
           <ZoomOut aria-hidden className="h-4 w-4" />
         </IconAction>
-        <IconAction label="Vergrößern" onClick={() => zoomBy(1.25)}>
+        <IconAction label={t("import.source.zoom.in")} onClick={() => zoomBy(1.25)}>
           <ZoomIn aria-hidden className="h-4 w-4" />
         </IconAction>
-        <IconAction label="Drehen" onClick={() => setRotation((value) => (value + 90) % 360)}>
+        <IconAction label={t("import.source.zoom.rotate")} onClick={() => setRotation((value) => (value + 90) % 360)}>
           <RotateCw aria-hidden className="h-4 w-4" />
         </IconAction>
         <button
@@ -333,7 +339,7 @@ function ZoomableImage({ src }: { src: string }) {
           onClick={reset}
           className="rounded-md px-2 py-1 text-xs font-medium text-fg-muted hover:bg-surface-2"
         >
-          Zurücksetzen
+          {t("import.source.zoom.reset")}
         </button>
         <span className="ml-auto tabular-nums text-xs text-fg-muted">{Math.round(scale * 100)} %</span>
         <a
@@ -341,8 +347,8 @@ function ZoomableImage({ src }: { src: string }) {
           target="_blank"
           rel="noreferrer"
           className="rounded-md p-1.5 text-fg-muted hover:bg-surface-2"
-          aria-label="Bild in neuem Tab öffnen"
-          title="Bild in neuem Tab öffnen"
+          aria-label={t("import.source.zoom.openNewTab")}
+          title={t("import.source.zoom.openNewTab")}
         >
           <ExternalLink aria-hidden className="h-4 w-4" />
         </a>
@@ -360,7 +366,7 @@ function ZoomableImage({ src }: { src: string }) {
       >
         <img
           src={src}
-          alt="Quellbild des Rezepts"
+          alt={t("import.source.alt")}
           draggable={false}
           onError={() => setFailed(true)}
           className="absolute inset-0 m-auto max-h-full max-w-full select-none object-contain"
@@ -371,9 +377,7 @@ function ZoomableImage({ src }: { src: string }) {
           }}
         />
       </div>
-      <p className="text-[11px] text-fg-muted">
-        Zwei Finger zum Zoomen, ziehen zum Verschieben. Am Desktop: Strg + Mausrad.
-      </p>
+      <p className="text-[11px] text-fg-muted">{t("import.source.zoom.hint")}</p>
     </div>
   );
 }
@@ -420,6 +424,7 @@ function RawTextPane({
   onLineToIngredient?: (line: string) => void;
   onLineToStep?: (line: string) => void;
 }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const [showPdf, setShowPdf] = useState(false);
   const lines = useMemo(
@@ -444,7 +449,7 @@ function RawTextPane({
   if (lines.length === 0) {
     return (
       <p className="rounded-xl border border-dashed border-line-strong p-4 text-sm text-fg-muted">
-        Es wurde kein Text erkannt.
+        {t("import.source.text.empty")}
       </p>
     );
   }
@@ -452,19 +457,17 @@ function RawTextPane({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-fg-muted">
-          {lines.length} erkannte Zeile{lines.length === 1 ? "" : "n"}
-        </span>
+        <span className="text-xs text-fg-muted">{t("import.source.text.lineCount", { count: lines.length })}</span>
         <button
           type="button"
           onClick={() => void copyAll()}
           className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-fg-muted hover:bg-surface-2"
         >
           {copied ? <Check aria-hidden className="h-3.5 w-3.5" /> : <Clipboard aria-hidden className="h-3.5 w-3.5" />}
-          {copied ? "Kopiert" : "Alles kopieren"}
+          {copied ? t("import.source.text.copied") : t("import.source.text.copyAll")}
         </button>
         {pdf && fileLoading ? (
-          <span className="text-xs text-fg-subtle">PDF wird geladen …</span>
+          <span className="text-xs text-fg-subtle">{t("import.source.text.pdfLoading")}</span>
         ) : null}
         {pdf && fileUrl !== undefined ? (
           <>
@@ -475,7 +478,7 @@ function RawTextPane({
               className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-fg-muted hover:bg-surface-2"
             >
               <ExternalLink aria-hidden className="h-3.5 w-3.5" />
-              PDF öffnen
+              {t("import.source.text.pdfOpen")}
             </a>
             <button
               type="button"
@@ -484,7 +487,7 @@ function RawTextPane({
               className="hidden items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-fg-muted hover:bg-surface-2 lg:inline-flex"
             >
               <FileText aria-hidden className="h-3.5 w-3.5" />
-              {showPdf ? "Vorschau aus" : "PDF-Vorschau"}
+              {showPdf ? t("import.source.text.pdfPreviewOff") : t("import.source.text.pdfPreviewOn")}
             </button>
           </>
         ) : null}
@@ -510,8 +513,8 @@ function RawTextPane({
                 <button
                   type="button"
                   onClick={() => onLineToIngredient(line)}
-                  title="Zeile in Zutat umwandeln"
-                  aria-label={`Zeile ${index + 1} in Zutat umwandeln`}
+                  title={t("import.source.line.toIngredientTitle")}
+                  aria-label={t("import.source.line.toIngredientAria", { index: index + 1 })}
                   className="rounded-md p-1 text-brand-soft-fg hover:bg-brand-soft"
                 >
                   <ListPlus aria-hidden className="h-4 w-4" />
@@ -521,8 +524,8 @@ function RawTextPane({
                 <button
                   type="button"
                   onClick={() => onLineToStep(line)}
-                  title="Zeile in Schritt umwandeln"
-                  aria-label={`Zeile ${index + 1} in Schritt umwandeln`}
+                  title={t("import.source.line.toStepTitle")}
+                  aria-label={t("import.source.line.toStepAria", { index: index + 1 })}
                   className="rounded-md p-1 text-[11px] font-semibold text-fg-muted hover:bg-surface-2"
                 >
                   1.
@@ -541,6 +544,7 @@ function RawTextPane({
 /* -------------------------------------------------------------------------- */
 
 function SourceLinkPane({ url, name }: { url: string; name?: string }) {
+  const t = useT();
   let host = name;
   try {
     host = name ?? new URL(url).hostname.replace(/^www\./, "");
@@ -554,7 +558,7 @@ function SourceLinkPane({ url, name }: { url: string; name?: string }) {
     <div className="space-y-3 rounded-xl border border-line bg-surface p-4">
       <div className="flex items-center gap-2">
         <Globe aria-hidden className="h-4 w-4 text-fg-muted" />
-        <span className="text-sm font-medium text-fg">{host ?? "Quelle"}</span>
+        <span className="text-sm font-medium text-fg">{host ?? t("import.source.link.fallbackName")}</span>
       </div>
       <p className="break-all text-xs text-fg-muted">{url}</p>
       {href ? (
@@ -565,16 +569,12 @@ function SourceLinkPane({ url, name }: { url: string; name?: string }) {
           className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-3 py-2 text-sm font-medium text-fg hover:bg-surface-2"
         >
           <ExternalLink aria-hidden className="h-4 w-4" />
-          Originalseite öffnen
+          {t("import.source.link.openOriginal")}
         </a>
       ) : (
-        <p className="text-xs text-warning-soft-fg">
-          Diese Quelle ist kein http(s)-Link und wird nicht verlinkt.
-        </p>
+        <p className="text-xs text-warning-soft-fg">{t("import.source.link.notHttp")}</p>
       )}
-      <p className="text-[11px] text-fg-muted">
-        Vergleiche die Angaben rechts mit der Originalseite und korrigiere, was der Importer nicht sauber erkannt hat.
-      </p>
+      <p className="text-[11px] text-fg-muted">{t("import.source.link.compareHint")}</p>
     </div>
   );
 }

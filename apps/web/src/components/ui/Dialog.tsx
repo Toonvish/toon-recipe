@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import { IconButton } from "./IconButton";
 
 export interface DialogProps {
@@ -37,6 +38,7 @@ export function Dialog({
   className,
   children,
 }: DialogProps) {
+  const t = useT();
   const panelRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
   const titleId = useId();
@@ -145,7 +147,12 @@ export function Dialog({
               ) : null}
             </div>
             {dismissable ? (
-              <IconButton label="Schließen" icon={<X />} onClick={onClose} className="-mt-1 -mr-2" />
+              <IconButton
+                label={t("ui.dialog.close")}
+                icon={<X />}
+                onClick={onClose}
+                className="-mt-1 -mr-2"
+              />
             ) : null}
           </div>
         ) : null}

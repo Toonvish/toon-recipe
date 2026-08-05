@@ -10,6 +10,7 @@ import {
 import { createPortal } from "react-dom";
 import { Check, CircleAlert, Info, TriangleAlert, X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import { errorMessage } from "@/lib/api";
 
 export type ToastVariant = "info" | "success" | "warning" | "error";
@@ -28,11 +29,11 @@ interface ToastEntry extends Required<Omit<ToastOptions, "description">> {
 }
 
 export interface ToastApi {
-  /** `toast({ title: "Gespeichert" })` */
+  /** `toast({ title: "Saved" })` */
   toast: (options: ToastOptions) => number;
   success: (title: string, description?: string) => number;
   error: (title: string, description?: string) => number;
-  /** Shows the German message of any thrown value (ApiError aware). */
+  /** Shows the localized message of any thrown value (ApiError aware). */
   fromError: (error: unknown, title?: string) => number;
   dismiss: (id: number) => void;
   dismissAll: () => void;
@@ -58,6 +59,7 @@ const variantStyles: Record<ToastVariant, { wrapper: string; icon: ReactNode }> 
 
 /** Wrap the app once; then use {@link useToast} anywhere below it. */
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const t = useT();
   const [entries, setEntries] = useState<ToastEntry[]>([]);
   const nextId = useRef(1);
   const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
@@ -100,7 +102,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         toast({ title, variant: "success", ...(description ? { description } : {}) }),
       error: (title, description) =>
         toast({ title, variant: "error", ...(description ? { description } : {}) }),
-      fromError: (error, title = "Das hat nicht funktioniert") =>
+      fromError: (error, title = t("ui.toast.defaultErrorTitle")) =>
         toast({ title, description: errorMessage(error), variant: "error" }),
       dismiss,
       dismissAll: () => {
@@ -109,7 +111,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         setEntries([]);
       },
     }),
-    [toast, dismiss],
+    [toast, dismiss, t],
   );
 
   return (
@@ -129,6 +131,7 @@ function ToastViewport({
   entries: readonly ToastEntry[];
   onDismiss: (id: number) => void;
 }) {
+  const t = useT();
   return (
     <div
       aria-live="polite"
@@ -158,7 +161,7 @@ function ToastViewport({
             <button
               type="button"
               onClick={() => onDismiss(entry.id)}
-              aria-label="Meldung schließen"
+              aria-label={t("ui.toast.dismissLabel")}
               className="-m-1 flex size-9 shrink-0 items-center justify-center rounded-lg opacity-70 hover:opacity-100 focus-visible:outline-2 focus-visible:outline-ring"
             >
               <X className="size-4" aria-hidden="true" />
@@ -173,6 +176,6 @@ function ToastViewport({
 /** Throws when used outside <ToastProvider> — that is a wiring bug, not a runtime state. */
 export function useToast(): ToastApi {
   const context = useContext(ToastContext);
-  if (!context) throw new Error("useToast muss innerhalb von <ToastProvider> verwendet werden.");
+  if (!context) throw new Error("useToast must be used inside <ToastProvider>.");
   return context;
 }

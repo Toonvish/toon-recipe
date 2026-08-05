@@ -15,6 +15,7 @@ import { Pencil, Trash2 } from "lucide-react";
 import { formatQuantity, formatShoppingAmount, isVagueAmount, type ShoppingItem } from "@toon/shared";
 import { IconButton } from "@/components/ui";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 import { isPendingItemId } from "../lib/offline";
 
 export interface ShoppingItemCardProps {
@@ -33,6 +34,7 @@ export function ShoppingItemCard({
   onRemove,
   canMutate,
 }: ShoppingItemCardProps) {
+  const t = useT();
   /**
    * Purely visual: the row leaves the list as soon as the optimistic update lands, so
    * without a beat of "ticked" feedback the item would simply vanish under the thumb.
@@ -57,7 +59,7 @@ export function ShoppingItemCard({
         type="button"
         onClick={check}
         disabled={!canMutate}
-        aria-label={`${item.name} abhaken`}
+        aria-label={t("shopping.item.checkAriaLabel", { name: item.name })}
         className={cn(
           "flex w-full items-center gap-3 rounded-card border border-line bg-surface px-3 py-3 text-left",
           "min-h-[4.5rem] transition-[background-color,border-color,opacity] duration-150",
@@ -105,7 +107,9 @@ export function ShoppingItemCard({
 
           {item.sources.length > 0 ? (
             <span className="truncate text-xs text-fg-muted">
-              aus {item.sources.map((source) => source.title).join(", ")}
+              {t("shopping.item.sources", {
+                sources: item.sources.map((source) => source.title).join(", "),
+              })}
             </span>
           ) : null}
         </span>
@@ -114,13 +118,13 @@ export function ShoppingItemCard({
       {canMutate && !pending ? (
         <span className="absolute inset-y-0 right-2 flex items-center gap-1">
           <IconButton
-            label="Bearbeiten"
+            label={t("shopping.item.edit")}
             variant="ghost"
             onClick={() => onEdit(item)}
             icon={<Pencil />}
           />
           <IconButton
-            label="Von der Liste entfernen"
+            label={t("shopping.item.remove")}
             variant="ghost"
             onClick={() => onRemove(item.id)}
             icon={<Trash2 />}

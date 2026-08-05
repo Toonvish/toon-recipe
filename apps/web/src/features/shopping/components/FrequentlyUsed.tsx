@@ -13,6 +13,7 @@
 import { Plus, X } from "lucide-react";
 import type { ShoppingCatalogEntry } from "@toon/shared";
 import { cn } from "@/lib/cn";
+import { useT } from "@/lib/i18n";
 
 export interface FrequentlyUsedProps {
   entries: ShoppingCatalogEntry[];
@@ -22,6 +23,7 @@ export interface FrequentlyUsedProps {
 }
 
 export function FrequentlyUsed({ entries, onAdd, onDismiss, canMutate }: FrequentlyUsedProps) {
+  const t = useT();
   if (entries.length === 0) return null;
 
   return (
@@ -30,7 +32,7 @@ export function FrequentlyUsed({ entries, onAdd, onDismiss, canMutate }: Frequen
         id="frequently-used-heading"
         className="mb-2 text-sm font-semibold tracking-wide text-fg-muted uppercase"
       >
-        Häufig gekauft
+        {t("shopping.frequentlyUsed.heading")}
       </h2>
       <ul className="flex flex-wrap gap-2">
         {entries.map((entry) => (
@@ -54,8 +56,8 @@ export function FrequentlyUsed({ entries, onAdd, onDismiss, canMutate }: Frequen
               <button
                 type="button"
                 onClick={() => onDismiss(entry.id)}
-                aria-label={`${entry.name} nicht mehr vorschlagen`}
-                title="Nicht mehr vorschlagen"
+                aria-label={t("shopping.frequentlyUsed.dismissAriaLabel", { name: entry.name })}
+                title={t("shopping.frequentlyUsed.dismissTitle")}
                 className="absolute inset-y-0 right-0 flex w-9 items-center justify-center rounded-r-full text-fg-muted transition-colors duration-150 hover:text-danger focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
                 <X aria-hidden="true" className="size-3.5" />

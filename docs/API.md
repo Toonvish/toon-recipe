@@ -12,7 +12,17 @@ Base URL: `PUBLIC_API_URL` (default `http://localhost:3001`). Everything below `
 - **Content type**: `application/json` (exception: the three upload endpoints use
   `multipart/form-data` with a single `file` field, `ImportFileFieldName`).
 - **Errors**: always `ApiError` = `{ error: { code, message, details? } }`. `code` values come from
-  `ERROR_CODES`. Stack traces are never returned.
+  `ERROR_CODES` and are a stable wire contract — they are never renamed or localised. `message` is
+  human-readable prose rendered in the request's negotiated locale, so **branch on `code`, never on
+  `message`**. Stack traces are never returned.
+- **Interface locale**: every response's prose (`error.message`, a `validation_failed` issue's
+  `message`, mailed copy) is rendered in the locale negotiated from the request's `Accept-Language`
+  header, falling back to the deployment's `DEFAULT_LOCALE` (`de`). Supported: `de`, `en`.
+  `Accept-Language` is CORS-safelisted, so this costs no preflight. A `validation_failed` issue also
+  carries `i18n: { key, values }` alongside its rendered `message`, so a client may re-render the
+  issue in its OWN active locale; unknown keys mean a version skew, and the client must then fall
+  back to `message`. This is the INTERFACE language only — it never affects `recipes.language`, the
+  German recipe parsers, or the importer's own outbound `Accept-Language`.
 - **Auth**: opaque session id in an `HttpOnly; SameSite=Lax; Secure(prod); Path=/` cookie named
   `toon_session`, 30-day sliding expiry. Browsers must send `credentials: "include"`.
 - **Auth levels**:
@@ -238,7 +248,7 @@ Notes
   `parseServings`, ingredient lines via `parseIngredientLine`.
 - PDF pipeline: text layer first (`unpdf`), rasterize + OCR only as fallback (`pdftoppm` →
   `sharp` → `tesseract`). If rasterization is unavailable, answer
-  `422 { code: "pdf_no_text_layer" }` with the actionable German message
+  `422 { code: "pdf_no_text_layer" }` with an actionable message in the request's locale
   "Das PDF enthält keine Textebene. Bitte lade ein Foto der Seite hoch."
   BOTH OCR STEPS ARE NATIVE SUBPROCESSES, not libraries: `tesseract` and poppler's `pdftoppm` must be
   installed on the host (the image installs `tesseract-ocr`, `tesseract-ocr-deu`, `tesseract-ocr-eng`

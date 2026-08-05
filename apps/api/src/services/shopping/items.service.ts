@@ -155,10 +155,10 @@ async function applyAdditions(
       existing.set(key, merged);
     } else {
       if (existing.size >= SHOPPING_LIMITS.itemsPerList) {
-        throw ApiError.conflict(
-          "shopping_list_full",
-          `Diese Einkaufsliste ist voll (max. ${SHOPPING_LIMITS.itemsPerList} Positionen)`,
-        );
+        throw ApiError.conflict("shopping_list_full", {
+          key: "server.shopping.listFull",
+          values: { max: SHOPPING_LIMITS.itemsPerList },
+        });
       }
       position += 1;
       const row: ShoppingListItemRow = {
@@ -359,7 +359,7 @@ async function loadItemRow(
     .from(shoppingListItems)
     .where(and(eq(shoppingListItems.id, itemId), eq(shoppingListItems.listId, listId)))
     .limit(1);
-  if (!row) throw ApiError.notFound("Position nicht gefunden");
+  if (!row) throw ApiError.notFound("server.shopping.itemNotFound");
   return row;
 }
 
@@ -514,7 +514,7 @@ export async function addCatalogEntryToList(
     .from(shoppingListCatalog)
     .where(and(eq(shoppingListCatalog.id, entryId), eq(shoppingListCatalog.listId, listId)))
     .limit(1);
-  if (!entry) throw ApiError.notFound("Vorschlag nicht gefunden");
+  if (!entry) throw ApiError.notFound("server.shopping.suggestionNotFound");
 
   await withTransaction(db, async (tx) => {
     if (!(await claimMutation(tx, listId, mutationId))) return;

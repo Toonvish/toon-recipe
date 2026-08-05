@@ -1,7 +1,12 @@
 # toon-recipe
 
 Rezeptverwaltung für Familien und WGs: Rezepte sammeln, aus dem Web/Foto/PDF importieren, in
-Gruppen teilen, am Handy kochen. German-first UI, mobile-first installable PWA.
+Gruppen teilen, am Handy kochen. **German-first content, bilingual (de/en) interface**, mobile-first
+installable PWA.
+
+Those are two separate axes: the recipe parsers only understand German recipe text, while the UI,
+error messages and mail render in German or English. `docs/i18n.md` is the reference; CLAUDE.md's
+interface-vs-content gotcha is the short version.
 
 ## Locked product decisions
 
@@ -46,7 +51,14 @@ These are **fixed** — do not redesign them.
    This is the only screen that is also **editable offline** — see "Offline".
 8. **Content language is German-first**: German units (`g, kg, ml, l, EL, TL, Prise, Bund, Pck.,
    Stück, Dose …`), unicode fractions (`½ ¼ ⅓ ¾`), ranges (`2-3 Eier`), ISO-8601 durations
-   (`PT30M`, `PT1H15M`). UI copy in German.
+   (`PT30M`, `PT1H15M`). This is the language a recipe is *written in* — it never varies with who is
+   looking, and `recipes.language` records it per recipe.
+9. **Interface language is German or English**, defaulting to German. A small typed catalog layer
+   (no i18n dependency) in `packages/shared/src/i18n` + `apps/web/src/lib/i18n` holds the copy; the
+   browser picks a locale from `navigator.languages`, the API negotiates `Accept-Language` per
+   request, and mail renders in the recipient's `users.locale`. Two caveats today: **there is no
+   in-app language picker yet** (so the device's language decides), and the import review editor
+   plus the import error panel are still German-only. See `docs/i18n.md`.
 
 ## Stack
 
@@ -234,8 +246,8 @@ comfortable on a very small VPS.
 
 With it off, end to end:
 
-- `POST /imports/{image,pdf,file}` answer **`501 ocr_disabled`** with a German message naming the
-  alternatives. The check runs before the rate limiter and before the body is read, so a rejected
+- `POST /imports/{image,pdf,file}` answer **`501 ocr_disabled`** with a message naming the
+  alternatives, in the locale the request negotiated. The check runs before the rate limiter and before the body is read, so a rejected
   upload costs neither a bucket slot nor 15 MB of buffering.
 - `/api/health` reports `features.ocrImport: false`, and the web app **hides the photo and document
   sections** on `/import` (and the "Trotzdem als Foto importieren" fallback) instead of offering a
@@ -463,7 +475,8 @@ Honest list of what is **not** finished. Nothing here blocks the flows above.
   `pdftoppm`. The Docker image installs both; for a local checkout,
   `sudo apt install tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng poppler-utils` (or set
   `TESSERACT_BIN`/`PDFTOPPM_BIN`). Where they are missing, a photo import answers `422 ocr_failed`
-  and a PDF without a text layer `422 pdf_no_text_layer`, each with a German hint — never a crash.
+  and a PDF without a text layer `422 pdf_no_text_layer`, each with an actionable hint in the
+  request's locale — never a crash.
   Nothing is downloaded at runtime, so an air-gapped install works on the first import.
 - Each language in `TESSERACT_LANGS` needs its own `tesseract-ocr-<lang>` package. Adding one to the
   variable without adding the package fails at recognise time, not at boot.
