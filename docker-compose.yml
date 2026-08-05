@@ -68,6 +68,13 @@ services:
       MAIL_USER: ${MAIL_USER:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-Rezepte <rezepte@localhost>}
+      # Read ONLY for MAIL_TRANSPORT=resend, and then required — env.ts refuses to
+      # boot without it. It has to be passed through even though the default stack
+      # does not use it: without this line `MAIL_TRANSPORT=resend` in the `.env`
+      # produces a container that cannot start, and the missing value is in a file
+      # the operator did fill in. Empty is correct for every SMTP setup, including
+      # Resend's own smtp.resend.com (there the key is MAIL_PASSWORD).
+      MAIL_API_KEY: ${MAIL_API_KEY:-}
 
       # Photo/PDF import. Off by default, matching an image built WITHOUT the
       # `WITH_OCR=1` build arg: the binaries are not installed, so there is nothing

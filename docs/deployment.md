@@ -175,8 +175,39 @@ Es ist derselbe Adapter wie für Mailpit, nur ein anderes Ziel. Vier Dinge dazu:
 - **Einen eigenen Mailserver auf demselben Server zu betreiben, ist keine gute Idee.** Frische
   VPS-IP-Bereiche stehen praktisch überall auf Blocklisten, und Port 25 ausgehend ist bei vielen
   Anbietern gesperrt. Der SMTP-Zugang eines normalen Mailanbieters ist der pragmatische Weg — und
-  es ist immer noch kein proprietärer API-Key. (`MAIL_TRANSPORT=resend` gibt es auch, dann mit
-  `MAIL_API_KEY`.)
+  es ist immer noch kein proprietärer API-Key.
+
+#### Resend
+
+Der bequemste Anbieter für einen frischen Server, weil kein Postfach dazugehört: eine verifizierte
+Domain und ein API-Key sind das ganze Setup. Im Dashboard *Domains → Add Domain*, die angezeigten
+`MX`-/`TXT`-Records (Return-Path und DKIM) in die DNS-Zone der Domain legen, verifizieren — **DMARC
+kommt nicht von Resend**, den Record (`_dmarc TXT "v=DMARC1; p=none; rua=mailto:…"`) selbst dazu.
+Dann *API Keys → Create API Key* mit dem Recht *Sending access*; der `re_…`-Wert ist nur einmal
+sichtbar.
+
+Von da an gibt es zwei Wege, und **der SMTP-Weg ist der empfohlene**:
+
+```bash
+# (a) SMTP — derselbe Adapter wie für jeden anderen Relay.
+#     MAIL_USER ist wörtlich "resend", der API-Key ist das Passwort.
+MAIL_HOST=smtp.resend.com
+MAIL_PORT=465
+MAIL_SECURITY=tls
+MAIL_USER=resend
+MAIL_PASSWORD=re_…
+
+# (b) HTTP-Adapter (services/mail/resend.ts) — dann ohne MAIL_HOST/USER/PASSWORD.
+MAIL_TRANSPORT=resend
+MAIL_API_KEY=re_…
+```
+
+`MAIL_FROM` muss in beiden Fällen auf der verifizierten Domain liegen. (a) benutzt genau die
+Variablen, die auch für jeden anderen Anbieter gelten, ein Anbieterwechsel ist damit eine Zeile;
+(b) spart den SMTP-Handshake, verlangt aber `MAIL_API_KEY` — **fehlt der Wert, startet der Container
+nicht**, `env.ts` verweigert den Start lieber als Mails still zu verschlucken. Die
+`docker-compose.yml` gibt `MAIL_API_KEY` durch; eine Kopie auf dem Server, die älter ist als diese
+Zeile, tut das nicht und muss vorher neu geholt werden.
 
 Prüfen, ob es wirklich rausgeht: eine Passwort-Reset-Mail an eine eigene, externe Adresse anfordern
 und in `docker compose logs app` nach `[mail]` sehen — ein fehlgeschlagener Versand steht dort mit

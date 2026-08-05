@@ -246,6 +246,50 @@ docker compose up -d
 - **SPF, DKIM und DMARC** beim Anbieter einrichten, sonst landen Reset- und Einladungsmails im Spam.
 - Prüfen: Passwort-Reset an eine externe Adresse anfordern, dann `docker compose logs app | grep mail`.
 
+### Variante Resend
+
+Bequem, weil kein Postfach dazugehört: verifizierte Domain plus API-Key, sonst nichts. Beide Wege
+unten brauchen dieselbe Vorbereitung im Resend-Dashboard:
+
+1. *Domains → Add Domain* mit der eigenen Domain. Resend zeigt einen `MX`- und zwei
+   `TXT`-Records (Return-Path und DKIM) — die in **dieselbe DNS-Zone** wie den A-Record aus
+   [Schritt 6](#6--dns-eintragen-und-prüfen) legen, dann *Verify*.
+2. DMARC kommt **nicht** von Resend, den Record selbst dazu:
+   `_dmarc TXT "v=DMARC1; p=none; rua=mailto:du@example.org"`.
+3. *API Keys → Create API Key*, Recht *Sending access*. Der `re_…`-Wert ist nur einmal sichtbar.
+
+Dann entweder **über SMTP** — derselbe Adapter wie oben, `MAIL_USER` ist wörtlich `resend` und der
+API-Key das Passwort:
+
+```bash
+cat >> .env <<'EOF'
+MAIL_HOST=smtp.resend.com
+MAIL_PORT=465
+MAIL_SECURITY=tls
+MAIL_USER=resend
+MAIL_PASSWORD=re_…
+EOF
+docker compose up -d
+```
+
+oder **über den HTTP-Adapter**, dann ohne SMTP-Werte:
+
+```bash
+cat >> .env <<'EOF'
+MAIL_TRANSPORT=resend
+MAIL_API_KEY=re_…
+EOF
+docker compose up -d
+```
+
+`MAIL_FROM` muss in beiden Fällen auf der verifizierten Domain liegen. Der SMTP-Weg ist der
+unauffälligere: er benutzt genau die Variablen, die auch für jeden anderen Anbieter gelten, und ein
+Wechsel des Anbieters ist eine Zeile. `MAIL_TRANSPORT=resend` setzt dagegen `MAIL_API_KEY` voraus —
+**fehlt der Wert, startet der Container nicht** (die API verweigert den Start absichtlich, statt
+Mails still zu verschlucken). Ist die `docker-compose.yml` auf dem Server älter als diese Zeile im
+Repo, muss sie neu geholt werden, sonst erreicht `MAIL_API_KEY` den Container nicht (die
+`curl`-Zeilen aus [Schritt 7](#7--verzeichnis-env-compose-dateien)).
+
 Mailpit-UI (zeigt jede Mail inkl. Reset- und Einladungslinks, daher nur über Loopback erreichbar) —
 **vom Laptop**:
 
