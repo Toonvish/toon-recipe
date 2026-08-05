@@ -39,7 +39,7 @@ import {
 import { useImportNavigation } from "./lib/navigation";
 import { importFromText, importFromUrl, importImage, importPdf } from "./lib/importApi";
 import { checkFileSize, formatBytes, isImageFile, isPdfFile, prepareImageForUpload, stitchImagesForUpload } from "./lib/image";
-import { useDeleteDraft, useDraftList } from "./lib/queries";
+import { useDeleteDraft, useDraftList, useOcrImportAvailable } from "./lib/queries";
 import ImageCaptureButton from "./components/ImageCaptureButton";
 import OcrProgressPanel, { type ImportPhase } from "./components/OcrProgressPanel";
 import UploadProgress from "./components/UploadProgress";
@@ -129,6 +129,12 @@ export default function ImportPage() {
 
   /* ----------------------------- pending drafts --------------------------- */
   const draftsQuery = useDraftList(effectiveGroupId, "pending", 20);
+  /**
+   * False on a lean deployment (no tesseract/poppler, IMPORT_OCR_ENABLED unset) and
+   * while the capability is still unknown, so the photo and document sections are
+   * simply not offered rather than failing with a 501 after an upload.
+   */
+  const ocrAvailable = useOcrImportAvailable();
   const deleteDraft = useDeleteDraft();
   const [deletingDraftId, setDeletingDraftId] = useState<string | undefined>(undefined);
 
@@ -341,7 +347,9 @@ export default function ImportPage() {
       <header className="space-y-1">
         <h1 className="text-xl font-semibold text-fg">Rezept importieren</h1>
         <p className="text-sm text-fg-muted">
-          Aus dem Netz, vom Kochbuch-Foto oder aus einem PDF. Vor dem Speichern kannst du alles prüfen und korrigieren.
+          {ocrAvailable
+            ? "Aus dem Netz, vom Kochbuch-Foto oder aus einem PDF. Vor dem Speichern kannst du alles prüfen und korrigieren."
+            : "Aus dem Netz oder als eingefügter Text. Vor dem Speichern kannst du alles prüfen und korrigieren."}
         </p>
       </header>
 
@@ -351,8 +359,11 @@ export default function ImportPage() {
           className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning-soft p-3 text-sm text-warning-soft-fg"
         >
           <WifiOff aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
-          Offline — Importieren braucht eine Verbindung, weil die Texterkennung auf dem Server
-          läuft. Gespeicherte Rezepte kannst du weiterhin ansehen und nachkochen.
+          <span>
+            Offline — Importieren braucht eine Verbindung, weil{" "}
+            {ocrAvailable ? "die Texterkennung auf dem Server läuft" : "der Server die Seite abrufen muss"}.
+            Gespeicherte Rezepte kannst du weiterhin ansehen und nachkochen.
+          </span>
         </p>
       )}
 
@@ -458,6 +469,7 @@ export default function ImportPage() {
               onRetry={() => void runUrlImport()}
               actions={
                 <>
+                  {ocrAvailable ? (
                   <button
                     type="button"
                     onClick={jumpToPhoto}
@@ -466,6 +478,7 @@ export default function ImportPage() {
                     <Camera aria-hidden className="h-3.5 w-3.5" />
                     Trotzdem als Foto importieren
                   </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={jumpToText}
@@ -481,7 +494,9 @@ export default function ImportPage() {
         </div>
       </section>
 
-      {/* ----------------------------- b) FOTO ----------------------------- */}
+      {/* ----------------------------- b) FOTO -----------------------------
+          Only when the server can actually do OCR (see useOcrImportAvailable). */}
+      {ocrAvailable ? (
       <section
         ref={photoSectionRef}
         className={clsx(
@@ -562,8 +577,10 @@ export default function ImportPage() {
           <ImportErrorPanel className="mt-3" error={error.error} onRetry={() => void runPhotoImport()} />
         ) : null}
       </section>
+      ) : null}
 
       {/* --------------------------- c) DOKUMENT --------------------------- */}
+      {ocrAvailable ? (
       <section className="rounded-xl border border-line bg-surface p-4">
         <div className="mb-3 flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-soft text-brand-soft-fg">
@@ -672,6 +689,7 @@ export default function ImportPage() {
           />
         ) : null}
       </section>
+      ) : null}
 
       {/* ------------------------------ +) TEXT ---------------------------- */}
       <section ref={textSectionRef} className="rounded-xl border border-line bg-surface p-4">

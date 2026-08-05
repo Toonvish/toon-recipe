@@ -11,6 +11,7 @@ import type {
   ParsedRecipe,
   Tag,
 } from "@toon/shared";
+import { healthQuery } from "@/lib/queries";
 import {
   commitDraft,
   deleteDraft,
@@ -33,6 +34,23 @@ export const importKeys = {
 function retryPolicy(failureCount: number, error: unknown): boolean {
   if (isImportApiError(error) && !error.retryable) return false;
   return failureCount < 2;
+}
+
+/**
+ * Whether THIS server offers photo/PDF import (`features.ocrImport` on
+ * `/api/health`). A deployment can be built without tesseract/poppler to stay
+ * small — see IMPORT_OCR_ENABLED — and then those uploads answer 501, so the UI
+ * must not offer them.
+ *
+ * UNKNOWN COUNTS AS UNAVAILABLE, deliberately. While the probe is in flight, or
+ * when it failed (offline, or a server predating the field), this returns false:
+ * briefly not showing a button that does work is self-correcting, whereas showing
+ * one that cannot work sends the user through an upload to a 501. The answer only
+ * changes on redeploy, so it is cached like a list and refetched rarely.
+ */
+export function useOcrImportAvailable(): boolean {
+  const { data } = useQuery(healthQuery());
+  return data?.features?.ocrImport === true;
 }
 
 export function useDraftList(

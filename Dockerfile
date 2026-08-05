@@ -16,7 +16,12 @@
 #     on musl it would be rebuilt from source on the Pi, which takes the better
 #     part of an hour when it works. Debian also has `tesseract-ocr` and
 #     `poppler-utils` as ordinary packages, which is what the OCR and PDF
-#     pipelines now shell out to.
+#     pipelines shell out to — installed only for `--build-arg WITH_OCR=1`.
+#
+# PHOTO/PDF IMPORT IS OPT-IN. The default build omits tesseract and poppler
+# entirely, so the image stays small enough for a low-spec VPS and photo/PDF
+# import is switched off end to end (501 + hidden in the UI). Build with
+# `--build-arg WITH_OCR=1` to include them; see docs/deployment.md.
 #  3. THE WEB BUNDLE IS BUILT ON THE BUILD PLATFORM ($BUILDPLATFORM), not the
 #     target. Its output is architecture-independent JavaScript, so building it
 #     natively on the amd64 CI runner instead of under QEMU emulation is the
@@ -84,10 +89,10 @@ RUN bun install --frozen-lockfile --production
 FROM oven/bun:${BUN_VERSION}-debian AS runtime
 WORKDIR /app
 
-# --- native OCR + PDF rasterization -----------------------------------------
-# THE APP SHELLS OUT TO BOTH OF THESE; without them every photo and scanned-PDF
-# import answers 422. They replaced tesseract.js and pdf-to-img, which is where
-# most of this deployment's memory footprint used to go.
+# --- optional: native OCR + PDF rasterization -------------------------------
+# PHOTO/PDF IMPORT IS OPT-IN AT BUILD TIME. `--build-arg WITH_OCR=1` installs the
+# binaries the pipelines shell out to; the default build leaves them out, which is
+# what lets the image run on a small VPS. URL and text import need none of this.
 #
 #   tesseract-ocr          the engine (services/ocr/tesseract.ts)
 #   tesseract-ocr-deu/-eng one package PER language in TESSERACT_LANGS. Adding a
@@ -95,21 +100,33 @@ WORKDIR /app
 #                          here fails at recognise time, not at boot.
 #   poppler-utils          pdftoppm, the PDF rasterizer (services/ocr/pdf.ts)
 #
-# tini reaps zombies and forwards signals. It matters more now, not less: every
-# recognition is a CHILD PROCESS, and PID 1 without an init leaves a killed
-# tesseract as a zombie on every aborted or timed-out import.
+# The runtime flag DEFAULTS TO THE BUILD ARG, so the image is self-consistent: a
+# slim image advertises `features.ocrImport: false` and its upload endpoints answer
+# 501, and the web UI stops offering them. Overriding IMPORT_OCR_ENABLED=1 on a slim
+# image is not a crash — the pipeline answers the documented 422 naming the missing
+# binary — but there is no reason to do it.
+#
+# tini reaps zombies and forwards signals. Keep it even without OCR: it is PID 1 for
+# the whole container, and with OCR every recognition is a CHILD PROCESS that would
+# otherwise be left a zombie on an aborted or timed-out import.
+ARG WITH_OCR=0
 RUN apt-get update \
  && apt-get install --no-install-recommends -y \
       tini \
       ca-certificates \
-      tesseract-ocr \
-      tesseract-ocr-deu \
-      tesseract-ocr-eng \
-      poppler-utils \
- && rm -rf /var/lib/apt/lists/* \
- && tesseract --version \
- && tesseract --list-langs \
- && pdftoppm -v
+ && if [ "$WITH_OCR" = "1" ]; then \
+      apt-get install --no-install-recommends -y \
+        tesseract-ocr \
+        tesseract-ocr-deu \
+        tesseract-ocr-eng \
+        poppler-utils \
+      && tesseract --version \
+      && tesseract --list-langs \
+      && pdftoppm -v; \
+    else \
+      echo "[build] OCR weggelassen (WITH_OCR=$WITH_OCR) — Import per Foto/PDF ist deaktiviert."; \
+    fi \
+ && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production \
     API_PORT=3001 \
@@ -117,6 +134,9 @@ ENV NODE_ENV=production \
     WEB_DIST_DIR=/app/apps/web/dist \
     DATABASE_URL="file:/app/data/local.db" \
     UPLOAD_DIR=/app/data/uploads \
+    # Matches what was actually installed above; override only to turn OCR OFF on
+    # an image built with it.
+    IMPORT_OCR_ENABLED=${WITH_OCR} \
     TESSERACT_LANGS="deu+eng"
 
 COPY --from=manifests /app/package.json ./package.json

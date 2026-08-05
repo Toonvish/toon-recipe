@@ -66,6 +66,13 @@ export const ERROR_CODES = [
   "parse_failed",
   "ocr_failed",
   "pdf_no_text_layer",
+  /**
+   * Photo/PDF import is switched off on this deployment (IMPORT_OCR_ENABLED).
+   * 501, not 503: it is a property of how the server was configured/built, not a
+   * temporary outage, and retrying will not help. Distinct from `ocr_failed`,
+   * which means OCR ran (or tried to) and could not deliver.
+   */
+  "ocr_disabled",
   "oauth_failed",
   "oauth_not_configured",
   /** The provider identity is already attached to another account. */
@@ -103,12 +110,38 @@ export const PaginationQuerySchema = z.object({
 });
 export type PaginationQuery = z.infer<typeof PaginationQuerySchema>;
 
+/**
+ * Optional parts of the app a deployment can be built or configured without.
+ *
+ * This is what lets the UI stop offering something the server cannot do, instead
+ * of showing a button that answers 501. It rides on `/api/health` because that is
+ * already the "what is this server" probe, needs no session, and is never cached
+ * by the service worker — so the answer is always the running server's, and a
+ * self-hoster debugging a missing button finds it in the same place ops does.
+ */
+export const ServerFeaturesSchema = z.object({
+  /**
+   * `POST /imports/{image,pdf,file}` are available. False on a lean deployment
+   * (IMPORT_OCR_ENABLED unset), where URL and text import still work.
+   */
+  ocrImport: z.boolean(),
+});
+export type ServerFeatures = z.infer<typeof ServerFeaturesSchema>;
+
 /** GET /api/health */
 export const HealthResponseSchema = z.object({
   status: z.literal("ok"),
   version: z.string(),
   time: IsoDateSchema,
   database: z.enum(["file", "remote"]),
+  /**
+   * Optional so an OLD client can still read a NEW server's health, and — more
+   * to the point — so a new client treats a server that predates the field as
+   * "feature unknown" rather than crashing. The web app resolves unknown to
+   * "hide it": briefly hiding an available button is self-correcting, offering a
+   * missing one is not.
+   */
+  features: ServerFeaturesSchema.optional(),
 });
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
 

@@ -33,6 +33,8 @@ These are **fixed** — do not redesign them.
    (schema.org JSON-LD incl. `@graph`, microdata fallback, then site selectors — must work for
    chefkoch.de and biancazapatka.com/WP Recipe Maker), image (server-side OCR), PDF (embedded text
    layer first, rasterize + OCR as fallback, clear actionable error if rasterization is unavailable).
+   **Photo and PDF import are OPT-IN** (`IMPORT_OCR_ENABLED`, off by default) so a small VPS can run
+   the app on URL + text import alone; see "Photo/PDF import is optional" below.
 6. **OCR runs server-side** by spawning the NATIVE `tesseract` binary (`deu+eng`, German first),
    preprocessed with `sharp` (grayscale, normalize, ~2000px wide), behind a swappable `OcrEngine`
    interface. PDFs are rasterized by poppler's `pdftoppm`. Both are OS packages, not npm ones —
@@ -102,8 +104,8 @@ docs/API.md               authoritative endpoint contract
 Verified end to end on Bun 1.3.14 / Linux:
 
 ```bash
-# Native binaries the import pipeline spawns. Everything else works without them;
-# photo and scanned-PDF imports answer a clear 422 until they are installed.
+# OPTIONAL — only for photo/PDF import, which is off by default (IMPORT_OCR_ENABLED).
+# Skip this entirely to run on URL + text import; nothing else needs these.
 sudo apt install tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng poppler-utils
 
 bun install
@@ -219,6 +221,38 @@ logs a warning when it is used.
 
 The `.env` lives in the **repo root**. The API loads it itself (Bun only auto-loads from the cwd);
 the Vite config must therefore set `envDir: "../../"` and `envPrefix: ["VITE_", "PUBLIC_"]`.
+
+## Photo/PDF import is optional
+
+`IMPORT_OCR_ENABLED` is a feature flag, **off unless set to `1`**. URL and text import are pure
+fetch-and-parse; OCR is the one part of this app with a real appetite — the `tesseract` and
+`pdftoppm` binaries are ~120 MB with language data, and a running job holds `sharp`, a decoded
+~2000 px bitmap and, for a PDF, `unpdf`'s whole parsed document. Leaving it off is what makes the app
+comfortable on a very small VPS.
+
+With it off, end to end:
+
+- `POST /imports/{image,pdf,file}` answer **`501 ocr_disabled`** with a German message naming the
+  alternatives. The check runs before the rate limiter and before the body is read, so a rejected
+  upload costs neither a bucket slot nor 15 MB of buffering.
+- `/api/health` reports `features.ocrImport: false`, and the web app **hides the photo and document
+  sections** on `/import` (and the "Trotzdem als Foto importieren" fallback) instead of offering a
+  button that cannot work.
+- Everything else is untouched: URL import, pasted text, the draft review screen, commit — and any
+  draft an earlier photo import created stays reviewable and committable.
+
+To turn it on you need **both** the binaries and the flag:
+
+```bash
+sudo apt install tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng poppler-utils
+IMPORT_OCR_ENABLED=1          # in .env
+```
+
+In Docker the image only contains the binaries when built with `--build-arg WITH_OCR=1`, and that
+build arg becomes the image's default for `IMPORT_OCR_ENABLED` — so a slim image cannot accidentally
+advertise a feature it does not have. Setting the flag on a slim image is not a crash either: the
+pipeline answers the documented 422 naming the missing binary (`tesseract_unavailable` /
+`rasterization_unavailable`).
 
 ## Scripts
 
@@ -452,8 +486,11 @@ Honest list of what is **not** finished. Nothing here blocks the flows above.
 - libSQL 0.17.4 discards a `file::memory:` database on transaction commit. `withTransaction()`
   (`src/services/groups/support.ts`) uses real transactions on file/Turso DBs and sequential
   statements on memory DBs; tests that need a transaction use a temp file DB.
-- Search is `LIKE`-based over title/description/ingredient names. FTS5 is out of scope; the upgrade
-  path is documented above the `recipes` table in `schema.ts`.
+- Search is `LIKE`-based over PRE-FOLDED columns (`recipes.title_fold`, `description_fold`,
+  `recipe_ingredients.name_fold`), written by the app with `foldText()` and backfilled by
+  `backfillFoldedColumns()`. FTS5 is still out of scope — storing the fold was enough (a search at
+  2000 recipes went from 36 ms to 4.5 ms, a no-match one from 91 ms to 7 ms). The reasoning, and why
+  a GENERATED column cannot be used, is above the `recipes` table in `schema.ts`.
 
 **Web**
 - No component/E2E tests. Only pure logic is unit-tested (`src/features/import/lib/*.test.ts` plus

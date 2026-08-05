@@ -45,7 +45,7 @@ GitHub-Secrets, und der SSH-Port muss nicht aus dem Internet erreichbar sein.
 | --- | --- |
 | Resend (`MAIL_API_KEY`) | `mailpit` im Stack, per SMTP ohne Zugangsdaten. Alle Mails im Web-UI lesbar. |
 | Turso (`DATABASE_AUTH_TOKEN`) | war schon optional — eine libSQL-Datei im Volume |
-| OCR | lief schon serverseitig; die Sprachpakete stecken im Image |
+| OCR | lief schon serverseitig; **jetzt optional** — nur mit `--build-arg WITH_OCR=1` im Image (siehe unten) |
 | Google-/GitHub-Login | **bleibt extern und ist bewusst aus.** E-Mail + Passwort ist der selbstgehostete Weg. |
 
 Es gibt keinen selbstgehosteten Ersatz für Google-/GitHub-OAuth — dafür wäre ein eigener
@@ -59,13 +59,15 @@ Passwort-Reset funktionieren vollständig.
 
 - **Raspberry Pi 4 oder 5 mit einem 64-Bit-Betriebssystem.** `uname -m` muss `aarch64`
   ausgeben. Für 32-Bit-ARM gibt es kein Bun, das Image lässt sich dort nicht starten.
-- **Mindestens 2 GB RAM** — mit Reserve, nicht als harte Grenze. Die Texterkennung ist
-  weiterhin der Speicherfresser, ruft aber inzwischen das native `tesseract`-Binary in
-  einem eigenen Prozess auf statt tesseract.js (WASM) im API-Prozess, braucht also
-  deutlich weniger als früher und ist schneller. Die Werte in `docker/env.example`
-  (`TOON_MEM_LIMIT`, 2 GB → `1200m`) stammen noch aus der WASM-Zeit und sind seitdem
-  konservativ: wer kleiner fahren will, misst mit `docker stats` bei zwei parallelen
-  Foto-Importen (`MAX_CONCURRENT_OCR=2`) statt zu raten.
+- **RAM: hängt am Foto-/PDF-Import.** Ohne ihn — dem Standard, siehe „Import per Foto/PDF
+  ist optional“ — bleibt nur Bun, die libSQL-Datei und das Ausliefern der PWA übrig; das
+  läuft bequem auf einem kleinen VPS mit **512 MB bis 1 GB**. Mit OCR gilt weiter
+  **mindestens 2 GB mit Reserve**: die Texterkennung ist der Speicherfresser, ruft aber
+  inzwischen das native `tesseract`-Binary in einem eigenen Prozess auf statt tesseract.js
+  (WASM) im API-Prozess, braucht also deutlich weniger als früher und ist schneller. Die
+  Werte in `docker/env.example` (`TOON_MEM_LIMIT`, 2 GB → `1200m`) stammen noch aus der
+  WASM-Zeit und sind seitdem konservativ: wer kleiner fahren will, misst mit `docker stats`
+  bei zwei parallelen Foto-Importen (`MAX_CONCURRENT_OCR=2`) statt zu raten.
 - **SSD oder gute SD-Karte.** SQLite auf einer billigen SD-Karte ist der häufigste Grund
   für „die App ist langsam“.
 - Docker inkl. Compose-Plugin:
@@ -376,6 +378,45 @@ docker compose exec app bun apps/api/scripts/reset-password.ts <email>
 
 ---
 
+## Import per Foto/PDF ist optional
+
+Standardmäßig **aus**. Import per Webadresse und per eingefügtem Text ist reines Abrufen und
+Parsen; OCR ist der einzige Teil dieser App mit echtem Appetit: die Binaries `tesseract` und
+`pdftoppm` sind mit Sprachdaten ~120 MB, und ein laufender Job hält `sharp`, ein dekodiertes
+~2000-px-Bild und bei einem PDF das komplette geparste Dokument von `unpdf` im Speicher. Genau
+deshalb ist es abschaltbar — so passt die App bequem auf einen kleinen VPS.
+
+**Es sind zwei Schalter, und beide gehören zusammen:**
+
+| | wo | Wirkung |
+| --- | --- | --- |
+| `--build-arg WITH_OCR=1` | `docker build` | installiert `tesseract-ocr`, `tesseract-ocr-deu`, `tesseract-ocr-eng`, `poppler-utils` ins Image |
+| `IMPORT_OCR_ENABLED=1` | Laufzeit (`.env`) | schaltet die Endpunkte frei. **Standard ist der Wert des Build-Args**, das Image ist also von sich aus konsistent. |
+
+```bash
+# schlank (Standard): kein tesseract, kein poppler
+docker build -t toon-recipe:local .
+
+# mit Foto-/PDF-Import
+docker build --build-arg WITH_OCR=1 -t toon-recipe:local .
+```
+
+Ist es aus, verhält sich die App durchgehend so:
+
+- `POST /imports/{image,pdf,file}` antworten **`501 ocr_disabled`** mit einer deutschen Meldung,
+  die auf Webadresse und Text verweist. Die Prüfung läuft **vor** dem Rate-Limit und **vor** dem
+  Lesen des Bodys — eine abgelehnte 15-MB-Datei wird also nie gepuffert.
+- `/api/health` meldet `features.ocrImport: false`, und die Weboberfläche **blendet die Abschnitte
+  „Foto vom Rezept“ und „PDF oder Bilddatei“ aus** statt einen Knopf anzubieten, der nicht kann.
+- Alles andere bleibt: Webadresse, Text, Entwurfsprüfung, Speichern — und ein Entwurf, den ein
+  früherer Foto-Import erzeugt hat, bleibt prüf- und speicherbar.
+
+`IMPORT_OCR_ENABLED=1` auf einem schlanken Image ist kein Absturz, sondern der dokumentierte 422,
+der das fehlende Binary nennt (`tesseract_unavailable` bzw. `rasterization_unavailable`). Sinnvoll
+ist es trotzdem nicht — dann lieber neu bauen.
+
+---
+
 ## Fehlersuche
 
 | Symptom | Ursache / Behebung |
@@ -399,7 +440,8 @@ docker compose exec app bun apps/api/scripts/reset-password.ts <email>
 Der Stack läuft auch auf einem Laptop, mit `rezepte.test` als Hostname:
 
 ```bash
-docker build -t toon-recipe:local .
+docker build -t toon-recipe:local .          # ohne OCR (Standard)
+# mit Foto-/PDF-Import:  docker build --build-arg WITH_OCR=1 -t toon-recipe:local .
 echo "127.0.0.1 rezepte.test" | sudo tee -a /etc/hosts
 
 cat > .env.local-stack <<'EOF'

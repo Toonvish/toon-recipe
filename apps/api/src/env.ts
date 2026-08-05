@@ -80,6 +80,23 @@ const EnvSchema = z
     OAUTH_REDIRECT_BASE: z.string().default("http://localhost:3001"),
 
     UPLOAD_DIR: z.string().default("./data/uploads"),
+
+    /**
+     * FEATURE FLAG for photo/PDF import. **Off unless set**, which is the whole
+     * point: URL import is pure fetch-and-parse, while OCR needs the `tesseract`
+     * and `pdftoppm` binaries (~120 MB of packages and language data) plus `sharp`
+     * and `unpdf` resident whenever a job runs. A small VPS runs the app
+     * comfortably without them; turning this on is an explicit decision to pay for
+     * them. See services/import/capabilities.ts for what it gates.
+     *
+     * Enabling it on an image built WITHOUT those binaries is not a crash: the
+     * pipeline answers the documented 422 (`ocr_failed` /
+     * `reason: "tesseract_unavailable"`, `pdf_no_text_layer` /
+     * `"rasterization_unavailable"`). The Docker image derives its default from
+     * the `WITH_OCR` build arg, so a slim image ships with this off.
+     */
+    IMPORT_OCR_ENABLED: BooleanishSchema,
+
     TESSERACT_LANGS: z.string().default("deu+eng"),
     /**
      * OCR and PDF rasterization run as NATIVE SUBPROCESSES, so both binaries have
@@ -186,6 +203,12 @@ const EnvSchema = z
       /** SSRF guard escape hatch — can never be enabled in production. */
       allowPrivateImportHosts:
         value.IMPORT_ALLOW_PRIVATE_HOSTS === true && value.NODE_ENV !== "production",
+      /**
+       * Whether photo/PDF import is offered at all (see IMPORT_OCR_ENABLED).
+       * Read through `isOcrImportEnabled()` in services/import/capabilities.ts,
+       * never directly, so tests can flip it.
+       */
+      ocrImportEnabled: value.IMPORT_OCR_ENABLED === true,
       /** Which mail adapter services/mail/index.ts builds. Always "console" in tests. */
       mailTransport: (value.NODE_ENV === "test" ? "console" : value.MAIL_TRANSPORT ?? "console") as
         | "console"

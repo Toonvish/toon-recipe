@@ -7,6 +7,7 @@
  * created by inserting a `sessions` row and sending the documented
  * `toon_session` cookie — no dependency on the auth routes.
  */
+import { foldText } from "@toon/shared";
 import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { db } from "../src/db/client.ts";
@@ -129,7 +130,14 @@ describe("GET /api/groups", () => {
     const groupId = await createGroup(owner, "Meine Rezepte");
     await db
       .insert(recipes)
-      .values({ id: crypto.randomUUID(), groupId, title: "Pfannkuchen", createdBy: owner.id });
+      .values({
+        id: crypto.randomUUID(),
+        groupId,
+        title: "Pfannkuchen",
+        titleFold: foldText("Pfannkuchen"),
+        descriptionFold: "",
+        createdBy: owner.id,
+      });
 
     const mine = await body<{ items: GroupPayload["group"][] }>(
       await call("/api/groups", { cookie: owner.cookie }),
@@ -471,7 +479,14 @@ describe("update and delete a group", () => {
       .values({ id: crypto.randomUUID(), groupId, userId: admin.id, role: "admin" });
     await db
       .insert(recipes)
-      .values({ id: crypto.randomUUID(), groupId, title: "Suppe", createdBy: owner.id });
+      .values({
+        id: crypto.randomUUID(),
+        groupId,
+        title: "Suppe",
+        titleFold: foldText("Suppe"),
+        descriptionFold: "",
+        createdBy: owner.id,
+      });
 
     expect(
       (await call(`/api/groups/${groupId}`, { method: "DELETE", cookie: admin.cookie })).status,

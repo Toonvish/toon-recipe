@@ -17,6 +17,7 @@ import {
   type RecipeIngredientRecord,
   type RecipeStepRecord,
   type Tag,
+  foldText,
 } from "@toon/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "../../db/client.ts";
@@ -87,6 +88,9 @@ export async function commitDraft(db: Database, input: CommitDraftInput): Promis
     quantityMax: ingredient.quantityMax ?? null,
     unit: ingredient.unit ?? null,
     name: ingredient.name,
+    // Pre-folded for search; see src/db/schema.ts. A committed import that skipped
+    // this would be a recipe nobody can find by its ingredients.
+    nameFold: foldText(ingredient.name),
     note: ingredient.note ?? null,
     raw: ingredient.raw,
   }));
@@ -104,7 +108,9 @@ export async function commitDraft(db: Database, input: CommitDraftInput): Promis
       id: recipeId,
       groupId: input.groupId,
       title,
+      titleFold: foldText(title),
       description: parsed.description ?? null,
+      descriptionFold: foldText(parsed.description ?? ""),
       // The review screen PATCHes back the signed hero-image URL it was served,
       // so reduce it to the bare `/uploads/<file>` before it becomes a column.
       imageUrl: normalizeStoredUploadUrl(parsed.imageUrl) ?? null,

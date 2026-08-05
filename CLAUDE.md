@@ -36,7 +36,11 @@ recipes, import from URL / photo / PDF, mobile-first installable PWA. Bun worksp
    `422 pdf_no_text_layer` when rasterization is unavailable).
 6. **OCR is server-side** (NATIVE `tesseract` in a subprocess, `deu+eng`, German first, `sharp`
    preprocessing; PDFs rasterized by poppler's `pdftoppm`) behind the
-   swappable `OcrEngine` interface in `src/services/ocr/`. **Mail uses the same shape**: `Mailer`
+   swappable `OcrEngine` interface in `src/services/ocr/`, and **photo/PDF import is OPT-IN**:
+   `IMPORT_OCR_ENABLED` is off by default and the Docker image only carries the binaries for
+   `--build-arg WITH_OCR=1`, so the app fits a small VPS on URL + text import alone. See
+   `services/import/capabilities.ts` and the gotcha below.
+   **Mail uses the same shape**: `Mailer`
    interface in `src/services/mail/`, `ConsoleMailer` as the no-config default, then `SmtpMailer`
    (dependency-free, `node:net`/`node:tls`) and `ResendMailer`. **SMTP is the self-hosted transport
    and the default in Docker** — it talks to a Mailpit container, so a deployment needs no API key.
@@ -158,6 +162,24 @@ add to that panel instead.
 
 ## Gotchas that will bite you
 
+- **THE CONNECTION PRAGMAS IN `db/client.ts` ARE LOAD-BEARING, and `synchronous` has to be re-sent on
+  every connection.** libSQL's defaults are `journal_mode=delete` + `synchronous=FULL`, i.e. a full
+  fsync per statement: a single-row INSERT measured **15.5 ms** on ext4/NVMe, 5.2 ms with WAL alone and
+  **0.04 ms** with WAL + `synchronous=NORMAL`. On the Pi's SD card the untuned figure is far worse. It
+  is paid by every shopping-list write (so by every replayed offline mutation) and by the
+  `sessions.last_used_at` refresh any request older than a minute triggers. `journal_mode` is
+  PERSISTENT in the file, but **`synchronous` is per-connection** — which is why this lives in
+  `createDatabase()` and not in a migration; a connection that skips it silently pays 5 ms a write.
+  They are skipped for `:memory:` and for remote `libsql://` (not our storage engine), a rejected
+  PRAGMA only warns, and `src/index.ts` awaits `dbReady` so an unopenable DB fails at boot.
+  `synchronous=NORMAL` under WAL can lose the last transactions to a power cut, never to a process
+  crash — the right trade for a recipe box, not for a ledger.
+- **A local libSQL file is ONE SERIALISED LANE, and a connection pool does not change that.** Measured:
+  8 parallel copies of the same query take 8× as long as one, whether they share a client or use eight
+  (292 ms vs 288 ms). It does NOT block the event loop — `/api/health` stays at 0.06 ms throughout — so
+  the symptom is only that DB-touching requests queue behind each other. The lever is therefore making
+  queries cheaper, never adding concurrency: the same fix that took search from 36 ms to 4.5 ms took 16
+  concurrent searches from 582 ms to 88 ms. Do not add a read pool expecting throughput.
 - **libSQL 0.17.4 discards a `file::memory:` DB on transaction commit.** Use a temp file DB in any
   test that touches a transaction. `withTransaction()` in `services/groups/support.ts` already
   degrades to sequential statements on memory DBs.
@@ -207,6 +229,35 @@ add to that panel instead.
   in `consider()`, i.e. BEFORE the merge.
 - **`parseDuration` / `parseServings` return the UPPER bound** of a range (`"20-25 Minuten"` → 25).
   `scaleIngredients` throws `RangeError` for factor ≤ 0 and leaves `raw` untouched (provenance).
+- **PHOTO/PDF IMPORT IS A FEATURE FLAG, AND IT IS OFF BY DEFAULT** (`IMPORT_OCR_ENABLED` →
+  `env.ocrImportEnabled`, read only through `isOcrImportEnabled()` in
+  `services/import/capabilities.ts`). URL and text import are pure fetch-and-parse; OCR needs
+  `tesseract` + `pdftoppm` (~120 MB with language data) and holds sharp, a ~2000 px bitmap and
+  `unpdf`'s parsed document per job, which is what a small VPS cannot spare. Five things hang
+  together and all five matter:
+  - **Only the three upload routes are gated** (`/imports/image`, `/pdf`, `/file` → **501
+    `ocr_disabled`**). `/url`, `/text`, drafts, review and commit stay available, so a draft an
+    earlier photo import created is still reviewable and committable. The services are NOT gated —
+    they keep their unit tests, and an unreached route never loads sharp/unpdf.
+  - **`assertOcrImportEnabled()` runs FIRST in the handler**, before `enforceRateLimit` and before
+    the multipart body is read. Otherwise a disabled endpoint would buffer 15 MB and burn a
+    rate-limit slot to produce a 501 — `test/import/ocr-disabled.test.ts` pins both.
+  - **501, not 503 or 404.** It is how the server was built, not an outage, and retrying cannot
+    help; 404 would also make a stale PWA look like a routing bug.
+  - **The UI hides it via `features.ocrImport` on `/api/health`** (`useOcrImportAvailable()`), and
+    **unknown counts as unavailable** — while the probe is in flight, offline, or against a server
+    predating the field. Briefly hiding a working button is self-correcting; offering a missing one
+    sends the user through an upload to a 501. The 501 is still the enforcement, because an
+    installed PWA can be running a bundle from before the flag was flipped.
+  - **The seam is `setOcrImportEnabled()`**, because `env` is frozen at module load. Same rule as
+    `setMailer`: a test file that sets it MUST hand it back in `afterAll`, or every later file
+    inherits it. `test/import/routes.test.ts` turns it ON; `ocr-disabled.test.ts` asserts OFF is the
+    default and sets it explicitly rather than trusting env.
+- **The Dockerfile installs the OCR binaries only for `--build-arg WITH_OCR=1`**, and
+  `IMPORT_OCR_ENABLED` DEFAULTS TO THAT ARG (`ENV IMPORT_OCR_ENABLED=${WITH_OCR}`), so a slim image
+  cannot advertise a feature it lacks. Setting the flag on a slim image is not a crash — it degrades
+  to the documented 422 naming the missing binary — but it is pointless. `tini` stays in both
+  variants: it is PID 1 for the container, not just the tesseract reaper.
 - **OCR AND PDF RASTERIZATION ARE NATIVE SUBPROCESSES, not libraries.** `services/ocr/tesseract.ts`
   spawns `tesseract`, `services/ocr/pdf.ts` spawns poppler's `pdftoppm`, and the Docker image
   installs `tesseract-ocr`, `tesseract-ocr-deu`, `tesseract-ocr-eng` and `poppler-utils`. This
@@ -300,11 +351,46 @@ add to that panel instead.
   TanStack cache — the same store the queued mutations live in. A `NetworkFirst` SW hit would hand
   TanStack a stale body that looks like a fresh success, and `onSuccess` would write it over the
   optimistic state, silently un-ticking items the user just checked off.
-- **`foldText`/`FOLD_PAIRS` live in `@toon/shared` (src/text.ts), not in the API.** Three things must
+- **`foldText`/`FOLD_PAIRS` live in `@toon/shared` (src/text.ts), not in the API.** FOUR things must
   agree: `foldSql()` in `services/groups/support.ts` builds the SAME replacements as nested SQLite
-  `replace(lower(…))` calls, the web app folds client-side for the merge preview, and the stored
-  `name_key`/`merge_key` columns hold folded values. Adding a pair changes stored keys — existing rows
-  keep their old key until rewritten.
+  `replace(lower(…))` calls, the web app folds client-side for the merge preview, the stored
+  `name_key`/`merge_key` columns hold folded values, and so do the recipe `*_fold` columns. Adding a
+  pair changes stored keys — existing rows keep their old key until rewritten.
+- **`FOLD_PAIRS` CANNOT BE COMPLETED, and it is deliberately half-finished.** SQLite's `lower()` folds
+  ASCII only, so `foldSql()` needs the UPPERCASE twin of every accent to match `foldText()` — but the
+  parser overflows at 31 nested `replace()` calls (measured against libSQL 0.17.4: 30 works, 32 is
+  `parser stack overflow`), and the full table needs 40. So only `Ä/Ö/Ü` are listed and `foldSql()`
+  genuinely disagrees with `foldText()` for an uppercase `È`/`Ç`/`ẞ`. That is survivable because
+  `foldSql()` now only runs on small tables (tag/collection/list names); everything on the recipe path
+  folds in JS. **Do not "fix" this by adding the missing uppercase pairs — it breaks `foldSql()`
+  outright**, and do not write a fold in SQL for anything new.
+- **Recipe search reads PRE-FOLDED columns; the fold is never computed per row.** `recipes.title_fold`
+  / `description_fold` and `recipe_ingredients.name_fold` are written by the app with `foldText()`
+  (`likeStoredFold()` compares against them; `likeFolded()` is the expensive per-row version, kept for
+  the small tables). It used to fold in SQL, and because the `total` half of the list envelope is a
+  `count(*)` that cannot stop early, EVERY row's title and description were folded on EVERY search:
+  36 ms at 2000 recipes, 91 ms for a term matching nothing, growing linearly with the library. Four
+  things to know before touching them:
+  - **They are `.notNull()` with NO drizzle default, on purpose.** That makes them required in
+    `$inferInsert`, so `tsc` fails on an insert site that forgets one instead of storing NULL and
+    making the recipe unfindable. There are three such sites (`recipes.service.ts`,
+    `import/commit.ts`, `scripts/seed.ts`) plus tests. The migration adds the columns with a SQL-level
+    `DEFAULT ''` because SQLite cannot add a NOT NULL column to a populated table without one — a
+    deliberate schema/DB divergence, and the reason `db:generate` offers to "fix" it. Decline.
+  - **A GENERATED column is not available.** libSQL 0.17.4 bundles **SQLite 3.45.1**, which rejects
+    `ALTER TABLE … ADD COLUMN … GENERATED ALWAYS AS (…) STORED` ("cannot add a STORED column").
+  - **The backfill is JS, not SQL** (`backfillFoldedColumns()` in `db/migrate.ts`, run by
+    `runMigrations`). It must be: reproducing `foldText()` in SQL is impossible for an uppercase accent
+    (see the FOLD_PAIRS gotcha). It is idempotent and keyed on `fold = '' AND source <> ''` — `''` is a
+    legitimate fold for a recipe with no description, so the SOURCE column has to decide. It runs
+    WITHOUT a transaction on purpose: `runMigrations` runs against `file::memory:` in every integration
+    test, and a commit there would discard the database.
+  - **`?sort=title` orders by `title_fold`** so `recipes_group_title_fold_idx` can supply the order;
+    ordering by the equivalent expression forced `USE TEMP B-TREE` over the whole group (6.7 ms → 1.1 ms).
+    That index replaced `recipes_group_title_idx` on the raw title, which no query could use.
+- **`bun:sqlite` IS A NEWER SQLite THAN THE ONE THE APP USES** — 3.53 against libSQL's 3.45.1 — so a
+  migration or query verified only through `bun:sqlite` can be accepted there and rejected in
+  production. Generated columns are exactly that trap. Verify DDL through `@libsql/client`.
 - **`shoppingItemKey`'s separator is U+001F, not a space** (`packages/shared/src/shopping.ts`).
   `nameKey` output contains spaces, so with a space an item literally named "Tomaten kind:g" and
   "Tomaten" in grams would produce keys differing only in trailing whitespace — and the UNIQUE index
@@ -491,7 +577,7 @@ All four must be clean before calling anything done:
 ```bash
 bun install
 bun run typecheck    # tsc for packages/shared, apps/api, apps/web
-bun test             # 858 tests
+bun test             # 887 tests
 bun run build        # vite build + PWA
 ```
 

@@ -4,6 +4,7 @@
  *
  * Feature agents: copy the `createTestDb` pattern below into your own test file.
  */
+import { foldText } from "@toon/shared";
 import { afterAll, describe, expect, test } from "bun:test";
 import { createDatabase } from "../src/db/client.ts";
 import { runMigrations } from "../src/db/migrate.ts";
@@ -85,7 +86,14 @@ describe("schema + migrations", () => {
     await db.insert(users).values({ id: userId, email: "a@b.de", name: "Tester" });
     await db.insert(groups).values({ id: groupId, name: "Familie", createdBy: userId });
     await db.insert(groupMembers).values({ id: crypto.randomUUID(), groupId, userId, role: "owner" });
-    await db.insert(recipes).values({ id: recipeId, groupId, title: "Pfannkuchen", createdBy: userId });
+    await db.insert(recipes).values({
+      id: recipeId,
+      groupId,
+      title: "Pfannkuchen",
+      titleFold: foldText("Pfannkuchen"),
+      descriptionFold: "",
+      createdBy: userId,
+    });
 
     expect(await db.select().from(recipes)).toHaveLength(1);
 

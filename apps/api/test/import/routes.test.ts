@@ -8,6 +8,11 @@
  *     shared `file::memory:` DB cannot survive a transaction — see
  *     src/services/import/db.ts).
  * OCR is exercised through a fake engine via `setOcrEngine`.
+ *
+ * Photo/PDF import is OPT-IN (IMPORT_OCR_ENABLED, off by default), so this file
+ * turns it on via `setOcrImportEnabled` and hands it back in `afterAll` — `bun test`
+ * shares one process, so leaving it set would silently enable it everywhere else.
+ * The disabled behaviour is covered by test/import/ocr-disabled.test.ts.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,6 +24,7 @@ import { createDatabase } from "../../src/db/client.ts";
 import { runMigrations } from "../../src/db/migrate.ts";
 import { collections, groupMembers, groups, recipeIngredients, recipes, users } from "../../src/db/schema.ts";
 import { app } from "../../src/index.ts";
+import { setOcrImportEnabled } from "../../src/services/import/capabilities.ts";
 import { setImportDbForTests } from "../../src/services/import/db.ts";
 import { setAuthMiddlewareForTests } from "../../src/services/import/middleware-bridge.ts";
 import { setOcrEngine } from "../../src/services/ocr/index.ts";
@@ -39,6 +45,7 @@ let allowMembership = true;
 
 beforeAll(async () => {
   setImportDbForTests(db);
+  setOcrImportEnabled(true);
 
   setAuthMiddlewareForTests(
     async (c, next) => {
@@ -95,6 +102,7 @@ afterAll(async () => {
   setImportDbForTests(null);
   setAuthMiddlewareForTests(null, null);
   setOcrEngine(null);
+  setOcrImportEnabled(null);
   client.close();
   rmSync(tempDir, { recursive: true, force: true });
 

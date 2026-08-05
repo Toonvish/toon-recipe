@@ -85,13 +85,31 @@ function escapeLike(value: string): string {
 }
 
 /**
- * `<folded column> LIKE '%<folded term>%' ESCAPE '\'` — the LIKE-based search
- * documented in src/db/schema.ts (FTS5 is deliberately out of scope).
+ * `<folded column> LIKE '%<folded term>%' ESCAPE '\'` — folds the COLUMN in SQL.
+ *
+ * Correct but expensive: the 23 `replace()` calls run per row, so this only
+ * belongs on a small table (tag and collection names). For recipe search, where a
+ * `count(*)` visits every row, use {@link likeStoredFold} against a pre-folded
+ * column instead — see the `recipes` comment in src/db/schema.ts.
  */
 export function likeFolded(expression: unknown, term: string): SQL<unknown> {
   const pattern = `%${escapeLike(foldText(term))}%`;
   // The doubled backslash is the TS escape: SQLite sees ESCAPE '\'.
   return sql`${foldSql(expression)} like ${pattern} escape '\\'`;
+}
+
+/**
+ * Same comparison as {@link likeFolded}, but against a column that ALREADY holds a
+ * folded value (`recipes.title_fold`, `recipe_ingredients.name_fold`, …). Only the
+ * search term is folded here, in JS, once per query instead of once per row.
+ *
+ * Pass the column itself — wrapping it in `foldSql()` would fold twice. That is
+ * harmless for the pairs we have (folding is idempotent: 'a' does not map to
+ * anything) but it would silently reintroduce the per-row cost this exists to remove.
+ */
+export function likeStoredFold(column: unknown, term: string): SQL<unknown> {
+  const pattern = `%${escapeLike(foldText(term))}%`;
+  return sql`${column} like ${pattern} escape '\\'`;
 }
 
 /** Case-insensitive equality (German folded) for names, e.g. tag names. */

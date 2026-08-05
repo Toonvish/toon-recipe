@@ -11,6 +11,7 @@ import { join, normalize } from "node:path";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { dbReady } from "./db/client.ts";
 import { env } from "./env.ts";
 import { notFoundHandler, onErrorHandler } from "./lib/errors.ts";
 import type { AppEnv } from "./lib/types.ts";
@@ -25,6 +26,7 @@ import { groupRoutes } from "./routes/groups.ts";
 import { importRoutes } from "./routes/imports.ts";
 import { recipeRoutes } from "./routes/recipes.ts";
 import { shoppingRoutes } from "./routes/shopping.ts";
+import { serverFeatures } from "./services/import/capabilities.ts";
 import { resolveThumbnail } from "./services/media/thumbnails.ts";
 import { shutdownOcr } from "./services/ocr/index.ts";
 
@@ -47,13 +49,20 @@ app.use(
   }),
 );
 
-/** Liveness/readiness probe. */
+/**
+ * Liveness/readiness probe, and the one place a client can ask what this
+ * deployment can actually do. `features` is how the web app knows not to offer
+ * photo/PDF import on a server built without OCR (see
+ * services/import/capabilities.ts); it needs no session and the service worker
+ * never caches `/api`, so the answer is always the running server's.
+ */
 app.get("/api/health", (c) =>
   c.json({
     status: "ok" as const,
     version: process.env.npm_package_version ?? "0.1.0",
     time: new Date().toISOString(),
     database: env.databaseKind,
+    features: serverFeatures(),
   }),
 );
 
@@ -165,6 +174,12 @@ if (!env.isTest) {
 }
 
 if (!env.isTest) {
+  // The connection PRAGMAs (WAL etc., see db/client.ts) are queued before the first
+  // query either way; awaiting them here means a database that cannot be opened at
+  // all fails at BOOT with a readable message instead of on the first request. Not
+  // done under `bun test`, where this module is imported for `app.fetch` and a
+  // top-level await would serialise every test file behind it.
+  await dbReady;
   console.log(
     `[api] toon-recipe API on http://localhost:${env.API_PORT} (db: ${env.databaseKind}, origins: ${env.webOrigins.join(", ")}, mail: ${env.mailTransport}, web: ${env.webDistDir ?? "extern"})`,
   );

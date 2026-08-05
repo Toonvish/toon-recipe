@@ -43,8 +43,8 @@ import { toPublicUser } from "../groups/mappers.ts";
 import { assertRole } from "../groups/membership.ts";
 import {
   type DbLike,
-  foldSql,
-  likeFolded,
+  foldText,
+  likeStoredFold,
   nowMs,
   toCountMap,
   unique,
@@ -118,7 +118,9 @@ function orderFor(sort: RecipeSort): SQL[] {
     case "oldest":
       return [asc(recipes.createdAt)];
     case "title":
-      return [asc(foldSql(recipes.title))];
+      // The STORED fold, so `recipes_group_title_fold_idx` can supply the order.
+      // Ordering by the equivalent expression cost a TEMP B-TREE over the group.
+      return [asc(recipes.titleFold)];
     case "rating":
       return [sql`${recipes.rating} is null`, desc(recipes.rating), desc(recipes.createdAt)];
     case "time":
@@ -143,8 +145,11 @@ export async function listRecipes(
 
   if (query.q && query.q.length > 0) {
     const term = query.q;
+    // Against the PRE-FOLDED columns: the `total` count(*) below cannot stop early,
+    // so folding in SQL meant 23 replace() calls per row per search (32 ms at 2000
+    // recipes, 91 ms when nothing matched). See src/db/schema.ts.
     conditions.push(
-      sql`(${likeFolded(recipes.title, term)} or ${likeFolded(recipes.description, term)} or exists (select 1 from ${recipeIngredients} where ${recipeIngredients.recipeId} = ${recipes.id} and ${likeFolded(recipeIngredients.name, term)}))`,
+      sql`(${likeStoredFold(recipes.titleFold, term)} or ${likeStoredFold(recipes.descriptionFold, term)} or exists (select 1 from ${recipeIngredients} where ${recipeIngredients.recipeId} = ${recipes.id} and ${likeStoredFold(recipeIngredients.nameFold, term)}))`,
     );
   }
 
@@ -252,6 +257,8 @@ export function buildIngredientRows(
       quantityMax: input.quantityMax ?? null,
       unit: input.unit ?? null,
       name: input.name,
+      // Written here rather than computed at query time — see src/db/schema.ts.
+      nameFold: foldText(input.name),
       note: input.note ?? null,
       raw: "",
     };
@@ -374,8 +381,16 @@ export function deriveTotalMinutes(
 /** Maps the request fields onto recipe columns (undefined = untouched). */
 function recipePatch(input: UpdateRecipeRequest): Partial<typeof recipes.$inferInsert> {
   const patch: Partial<typeof recipes.$inferInsert> = {};
-  if (input.title !== undefined) patch.title = input.title;
-  if (input.description !== undefined) patch.description = input.description ?? null;
+  // Each folded column moves with its source column, in the same branch, so a
+  // PATCH can never leave the two disagreeing (the row would drop out of search).
+  if (input.title !== undefined) {
+    patch.title = input.title;
+    patch.titleFold = foldText(input.title);
+  }
+  if (input.description !== undefined) {
+    patch.description = input.description ?? null;
+    patch.descriptionFold = foldText(input.description ?? "");
+  }
   // The client sends back the SIGNED url it was served (see lib/uploadUrls.ts);
   // store the bare `/uploads/<file>` so the row never holds an expiring value.
   if (input.imageUrl !== undefined) {
@@ -422,6 +437,11 @@ export async function createRecipe(
       createdAt: timestamp,
       updatedAt: timestamp,
       title: input.title,
+      // Spelled out rather than left to `patch`: a create always has a title, but
+      // `recipePatch` only emits `descriptionFold` when a description was sent, and
+      // both columns are NOT NULL.
+      titleFold: foldText(input.title),
+      descriptionFold: foldText(input.description ?? ""),
       language: input.language ?? "de",
       ...patch,
     });

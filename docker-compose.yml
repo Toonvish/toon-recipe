@@ -60,6 +60,11 @@ services:
       MAIL_SECURITY: none
       MAIL_FROM: ${MAIL_FROM:-Rezepte <rezepte@localhost>}
 
+      # Photo/PDF import. Off by default, matching an image built WITHOUT the
+      # `WITH_OCR=1` build arg: the binaries are not installed, so there is nothing
+      # to enable. Set both (build arg AND this) to turn it on — see
+      # docs/deployment.md.
+      IMPORT_OCR_ENABLED: ${IMPORT_OCR_ENABLED:-0}
       TESSERACT_LANGS: ${TESSERACT_LANGS:-deu+eng}
 
       # --- OAuth (optional, third party by definition) ---------------------

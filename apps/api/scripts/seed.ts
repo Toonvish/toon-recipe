@@ -6,7 +6,7 @@
  *
  * Login: demo@toon.local / demo1234
  */
-import { parseIngredientBlock, parseStepBlock, type RecipeStep } from "@toon/shared";
+import { foldText, parseIngredientBlock, parseStepBlock, type RecipeStep } from "@toon/shared";
 import { eq } from "drizzle-orm";
 import { client, db } from "../src/db/client.ts";
 import { runMigrations } from "../src/db/migrate.ts";
@@ -252,7 +252,9 @@ for (const demo of demoRecipes) {
     id: recipeId,
     groupId,
     title: demo.title,
+    titleFold: foldText(demo.title),
     description: demo.description,
+    descriptionFold: foldText(demo.description),
     servingsAmount: demo.servingsAmount,
     servingsUnit: demo.servingsUnit,
     prepMinutes: demo.prepMinutes,
@@ -276,6 +278,7 @@ for (const demo of demoRecipes) {
         quantityMax: ingredient.quantityMax ?? null,
         unit: ingredient.unit ?? null,
         name: ingredient.name,
+        nameFold: foldText(ingredient.name),
         note: ingredient.note ?? null,
         raw: ingredient.raw,
       })),

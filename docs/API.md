@@ -45,6 +45,17 @@ Base URL: `PUBLIC_API_URL` (default `http://localhost:3001`). Everything below `
 | GET | `/uploads/:filename` | signature | `?exp` + `?sig` | binary | 200, 404 (missing/forged/expired signature, or no such file) |
 | GET | `/uploads/:filename.thumb.webp` | signature | `?exp` + `?sig` | binary | 200 (built on demand; the original when it cannot be converted), 404 |
 
+`HealthResponse.features` reports the optional parts of the app this deployment actually has, so a
+client can stop offering what the server cannot do instead of discovering it through an error:
+
+| Field | Meaning when false |
+| --- | --- |
+| `features.ocrImport` | `/imports/{image,pdf,file}` answer `501 ocr_disabled` (`IMPORT_OCR_ENABLED` unset, or an image built without `WITH_OCR=1`). URL and text import still work. |
+
+It is **optional** in the schema: a client must treat a missing `features` as "unknown", and unknown
+as unavailable — briefly hiding a working button is self-correcting, offering a missing one is not.
+The service worker never caches `/api`, so the answer is always the running server's.
+
 ## Auth — `apps/api/src/routes/auth.ts`
 
 | Method | Path | Auth | Request | Response | Status |
@@ -175,8 +186,9 @@ Notes
   (`tags(group_id,name)` is unique, so upsert case-insensitively).
 - `ingredients` / `steps` / `tags` / `collectionIds` are **replace-all** when present in a PATCH and
   untouched when absent. Positions are re-assigned from array order.
-- `q` searches `recipes.title`, `recipes.description` and `recipe_ingredients.name` with LIKE
-  (see the search-strategy comment in `src/db/schema.ts`; FTS5 is out of scope).
+- `q` searches `recipes.title`, `recipes.description` and `recipe_ingredients.name` with LIKE, via
+  the pre-folded `*_fold` columns (see the search-strategy comment in `src/db/schema.ts`; FTS5 is
+  out of scope). Matching is unchanged: case- and diacritic-insensitive, German folding.
 - `tags` in `RecipeListQuery` is a comma-separated list of tag **ids**; a recipe must carry all.
 - `scale` uses `scaleIngredients` from `@toon/shared` so client and server agree.
 
@@ -188,10 +200,10 @@ edits in the review screen; nothing is written to `recipes` until `/commit`.
 | Method | Path | Auth | Request | Response | Status |
 | --- | --- | --- | --- | --- | --- |
 | POST | `/api/groups/:groupId/imports/url` | group:member | `ImportUrlRequest` | `ImportDraftResponse` | 201, 403, 422 `parse_failed`, 400 `fetch_failed` |
-| POST | `/api/groups/:groupId/imports/image` | group:member | multipart `file` | `ImportDraftResponse` | 201, 403, 413, 415, 422 `ocr_failed` |
-| POST | `/api/groups/:groupId/imports/pdf` | group:member | multipart `file` | `ImportDraftResponse` | 201, 403, 413, 415, 422 `pdf_no_text_layer` |
+| POST | `/api/groups/:groupId/imports/image` | group:member | multipart `file` | `ImportDraftResponse` | 201, 403, 413, 415, 422 `ocr_failed`, 501 `ocr_disabled` |
+| POST | `/api/groups/:groupId/imports/pdf` | group:member | multipart `file` | `ImportDraftResponse` | 201, 403, 413, 415, 422 `pdf_no_text_layer`, 501 `ocr_disabled` |
 | POST | `/api/groups/:groupId/imports/text` | group:member | `ImportTextRequest` | `ImportDraftResponse` | 201, 403, 422 |
-| POST | `/api/groups/:groupId/imports/file` | group:member | multipart `file` | `ImportDraftResponse` | 201, 403, 413, 415, 422 |
+| POST | `/api/groups/:groupId/imports/file` | group:member | multipart `file` | `ImportDraftResponse` | 201, 403, 413, 415, 422, 501 `ocr_disabled` |
 | GET | `/api/groups/:groupId/imports/:draftId/source` | group:member | – | binary | 200, 403, 404 |
 | GET | `/api/groups/:groupId/imports` | group:member | `ImportDraftListQuery` (query) | `ImportDraftListResponse` | 200, 403 |
 | GET | `/api/groups/:groupId/imports/:draftId` | group:member | – | `ImportDraftResponse` | 200, 403, 404 |
@@ -200,6 +212,16 @@ edits in the review screen; nothing is written to `recipes` until `/commit`.
 | DELETE | `/api/groups/:groupId/imports/:draftId` | group:member | – | – | 204, 403, 404 |
 
 Notes
+- **PHOTO/PDF IMPORT IS OPT-IN.** `/imports/image`, `/imports/pdf` and `/imports/file` answer
+  **`501 { code: "ocr_disabled" }`** unless `IMPORT_OCR_ENABLED` is set, because OCR needs the
+  `tesseract`/`pdftoppm` binaries and the memory a job holds — a lean deployment omits both (see
+  README and `docs/deployment.md`). 501 rather than 503: it is how the server was built, not a
+  temporary outage, so retrying cannot help. The check runs BEFORE the rate limiter and before the
+  body is read, so a rejected upload costs neither a bucket slot nor 15 MB of buffering. `/imports/url`,
+  `/imports/text`, the draft endpoints and commit are unaffected, and a draft OCR produced earlier
+  stays reviewable and committable. Clients discover this from `HealthResponse.features.ocrImport`
+  rather than by probing — but the 501 is the enforcement, since an installed PWA can be running a
+  bundle from before the flag was flipped.
 - `sourceType`: `url` for URL imports, `ocr` for image **and** PDF imports, `manual` for pasted text.
   `sourceMeta.method` disambiguates: `json-ld` \| `microdata` \| `selector` \| `pdf-text` \| `ocr` \| `manual`.
 - URL pipeline: fetch → JSON-LD `@graph`/array-aware schema.org `Recipe` → microdata → site selectors

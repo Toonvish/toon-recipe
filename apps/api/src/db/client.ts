@@ -25,24 +25,97 @@ function prepareUrl(url: string): string {
   return `file:${absolute}`;
 }
 
+/**
+ * Connection PRAGMAs for a local `file:` database, in the order they are sent.
+ *
+ * WITHOUT THESE, EVERY WRITE COSTS A FULL fsync. libSQL's defaults are
+ * `journal_mode=delete` + `synchronous=FULL`, which measured (ext4, NVMe) at
+ * **15.5 ms for a single-row INSERT**; WAL alone brings that to 5.2 ms and
+ * WAL + `synchronous=NORMAL` to **0.04 ms**. On an SD card — the Raspberry-Pi
+ * deployment — the untuned figure is far worse. It is paid by every shopping-list
+ * write (i.e. every replayed offline mutation) and by the `sessions.last_used_at`
+ * refresh that any request older than a minute triggers.
+ *
+ * `journal_mode` is PERSISTENT in the database file, but `synchronous` is
+ * PER-CONNECTION — which is exactly why this belongs here and not in a migration.
+ * A connection that skips it silently falls back to FULL and pays 5 ms a write.
+ *
+ * `synchronous=NORMAL` under WAL is the documented durability trade: a commit is
+ * still crash-safe, but the last transactions can be lost if the OS itself dies
+ * (power cut, kernel panic). For a family recipe box that is the right trade;
+ * nothing here is a ledger.
+ *
+ * NEVER SENT TO A REMOTE DATABASE. Against `libsql://…turso.io` these are
+ * meaningless at best — the storage engine is not ours — so they are skipped, as
+ * they are for `:memory:` (no journal, nothing to tune).
+ */
+const LOCAL_FILE_PRAGMAS: readonly string[] = [
+  "journal_mode = WAL",
+  "synchronous = NORMAL",
+  // Wait rather than throw SQLITE_BUSY when another connection holds the write
+  // lock. The default is 0, i.e. fail immediately.
+  "busy_timeout = 5000",
+  // 64 MB of page cache (negative = KiB, not pages). The default 2 MB cannot hold
+  // the recipes table plus its indexes, so a list query re-read pages every time.
+  "cache_size = -65536",
+  // Read pages straight out of the page cache instead of copying through a
+  // syscall. Harmless when the file is smaller than the limit.
+  "mmap_size = 268435456",
+];
+
+/** True for a local file DB — the only kind whose PRAGMAs we own. */
+function isLocalFile(url: string): boolean {
+  return url.startsWith("file:") && !url.includes(":memory:");
+}
+
 export interface CreateDatabaseOptions {
   url?: string;
   authToken?: string;
+}
+
+export interface CreatedDatabase {
+  client: Client;
+  db: Database;
+  /**
+   * Resolves once {@link LOCAL_FILE_PRAGMAS} have been applied.
+   *
+   * The statements are QUEUED before this function returns, and libSQL serialises
+   * everything on a connection, so any query issued afterwards already runs with
+   * them in effect — awaiting is belt and braces, and a place to see a failure.
+   * `src/index.ts` awaits it before serving so a broken DB fails at boot.
+   */
+  ready: Promise<void>;
 }
 
 /**
  * Builds an independent client + drizzle instance. Use this in tests
  * (`createDatabase({ url: "file::memory:" })`); the app uses the shared `db`.
  */
-export function createDatabase(options: CreateDatabaseOptions = {}): {
-  client: Client;
-  db: Database;
-} {
+export function createDatabase(options: CreateDatabaseOptions = {}): CreatedDatabase {
   const url = prepareUrl(options.url ?? env.databaseUrl);
   const authToken = options.authToken ?? env.DATABASE_AUTH_TOKEN;
   const client = createClient(authToken ? { url, authToken } : { url });
   const db = drizzle(client, { schema, logger: env.DEBUG_SQL === true });
-  return { client, db };
+  return { client, db, ready: applyPragmas(client, url) };
+}
+
+/**
+ * Sends the tuning PRAGMAs. Never rejects for a reason that should not stop the
+ * server: an old libSQL that rejects one of them must not take the API down, so a
+ * failure is logged and the process continues on the slow-but-correct defaults.
+ */
+async function applyPragmas(client: Client, url: string): Promise<void> {
+  if (!isLocalFile(url)) return;
+  for (const pragma of LOCAL_FILE_PRAGMAS) {
+    try {
+      await client.execute(`PRAGMA ${pragma}`);
+    } catch (error) {
+      if (!env.isTest) {
+        const reason = error instanceof Error ? error.message : String(error);
+        console.warn(`[db] PRAGMA ${pragma} abgelehnt: ${reason}`);
+      }
+    }
+  }
 }
 
 const shared = createDatabase();
@@ -51,5 +124,7 @@ const shared = createDatabase();
 export const client: Client = shared.client;
 /** Process-wide drizzle instance — import this in routes. */
 export const db: Database = shared.db;
+/** Awaited by src/index.ts before the first request — see {@link CreatedDatabase.ready}. */
+export const dbReady: Promise<void> = shared.ready;
 
 export { schema };

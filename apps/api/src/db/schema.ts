@@ -231,14 +231,41 @@ export const groupInvites = sqliteTable(
 /* -------------------------------------------------------------------------- */
 
 /**
- * SEARCH STRATEGY (FTS5 is explicitly out of scope for now):
- * `GET /recipes?q=` does a case-insensitive LIKE over recipes.title / description
- * plus an EXISTS sub-query on recipe_ingredients.name. The composite index
- * `recipes_group_title_idx` serves the ordered listing and prefix matches; the
- * `recipe_ingredients_name_idx` serves the ingredient sub-query.
- * Planned upgrade path: a `recipes_fts` FTS5 virtual table fed by AFTER
- * INSERT/UPDATE/DELETE triggers on recipes + recipe_ingredients, queried with
- * MATCH and joined back on rowid. Do NOT add it in this milestone.
+ * SEARCH STRATEGY: `GET /recipes?q=` LIKEs the PRE-FOLDED columns
+ * `title_fold` / `description_fold` plus an EXISTS sub-query on
+ * `recipe_ingredients.name_fold`. FTS5 is still out of scope — see below for why
+ * these columns were the answer instead.
+ *
+ * WHY THE FOLD IS STORED. It used to be computed per row per query: `foldSql()`
+ * expands {@link FOLD_PAIRS} into 23 nested `replace(lower(…))` calls, and the
+ * `total` half of the list envelope is a `count(*)` that cannot stop early, so
+ * EVERY row's title and description were folded on EVERY search. Measured on 2000
+ * recipes: 32 ms for a search, of which 31.8 ms was that one `count(*)`, and 91 ms
+ * for a term that matches nothing (the page half loses its early exit too). Cost
+ * grows linearly with the library — 6 ms at 300 recipes, 34 ms at 2000 — and
+ * because libSQL serialises a local file, one such query delays every other
+ * request behind it. With the fold stored, the same no-match search is ~9 ms.
+ *
+ * WHY NOT A GENERATED COLUMN. It would be the obvious fit and it does not work
+ * here: libSQL 0.17.4 bundles SQLite 3.45.1, which rejects
+ * `ALTER TABLE … ADD COLUMN … GENERATED ALWAYS AS (…) STORED` outright ("cannot
+ * add a STORED column"). Note that `bun:sqlite` is 3.53 and accepts it, so a
+ * migration tested only through bun:sqlite would pass locally and fail on deploy.
+ * A VIRTUAL column is no use: it recomputes the fold on read, which is the cost we
+ * are removing.
+ *
+ * SO THE APP WRITES THEM, exactly as it already does for the shopping list's
+ * `name_key` / `merge_key`. The columns are `.notNull()` WITHOUT a drizzle default
+ * on purpose: that makes them required in `$inferInsert`, so `tsc` fails on any
+ * insert site that forgets one rather than silently storing NULL and making the
+ * recipe unfindable. The migration adds them with a SQL-level `DEFAULT ''` because
+ * SQLite cannot add a NOT NULL column to a populated table without one — a
+ * deliberate divergence, and the reason `bun run db:generate` will offer to
+ * "fix" it. Do not let it.
+ *
+ * KEEP THEM IN STEP WITH `foldText()`. Adding a pair to {@link FOLD_PAIRS} makes
+ * every stored value stale until rewritten — the same rule the shopping-list keys
+ * already carry. `test/recipes-search.test.ts` pins the agreement.
  */
 export const recipes = sqliteTable(
   "recipes",
@@ -249,6 +276,10 @@ export const recipes = sqliteTable(
       .references(() => groups.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     description: text("description"),
+    /** `foldText(title)` — the searchable/sortable form. See the table comment. */
+    titleFold: text("title_fold").notNull(),
+    /** `foldText(description ?? "")`; empty string when there is no description. */
+    descriptionFold: text("description_fold").notNull(),
     imageUrl: text("image_url"),
     sourceUrl: text("source_url"),
     sourceName: text("source_name"),
@@ -271,7 +302,17 @@ export const recipes = sqliteTable(
   (table) => [
     index("recipes_group_id_idx").on(table.groupId),
     index("recipes_group_created_at_idx").on(table.groupId, table.createdAt),
-    index("recipes_group_title_idx").on(table.groupId, table.title),
+    /**
+     * `?sort=title`. It has to be the FOLDED column: ordering by an expression
+     * (`foldSql(title)`) cannot use an index, so the planner fell back to
+     * `USE TEMP B-TREE FOR ORDER BY` over every row in the group — 6.7 ms against
+     * 2.1 ms for `?sort=newest`, which reads its order straight out of
+     * `recipes_group_created_at_idx`.
+     *
+     * This REPLACES the old `recipes_group_title_idx` on the raw title, which no
+     * query could use once sorting became case/diacritic-insensitive.
+     */
+    index("recipes_group_title_fold_idx").on(table.groupId, table.titleFold),
     index("recipes_created_by_idx").on(table.createdBy),
   ],
 );
@@ -290,6 +331,8 @@ export const recipeIngredients = sqliteTable(
     quantityMax: real("quantity_max"),
     unit: text("unit"),
     name: text("name").notNull(),
+    /** `foldText(name)` — searched by the `?q=` EXISTS sub-query. See `recipes`. */
+    nameFold: text("name_fold").notNull(),
     note: text("note"),
     /** Original source line, never rewritten. */
     raw: text("raw").notNull().default(""),

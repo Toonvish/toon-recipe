@@ -11,6 +11,12 @@
  *   importRoutes.use("*", requireGroupRole("member"))
  * so that src/index.ts never has to be edited (no merge conflicts).
  *
+ * PHOTO/PDF IMPORT IS OPT-IN. `/image`, `/pdf` and `/file` answer 501
+ * `ocr_disabled` unless IMPORT_OCR_ENABLED is set — see
+ * services/import/capabilities.ts for why (native binaries + memory a small VPS
+ * should not have to pay for). `/url`, `/text`, the draft endpoints and commit are
+ * always available, and a draft that OCR produced earlier stays reviewable.
+ *
  * OCR IS SYNCHRONOUS but bounded on three axes, because one member must not be
  * able to flatten a self-hosted box with a loop of 15 MB uploads:
  *   - IMPORT_RULE  10 imports per user per minute (429 rate_limited),
@@ -37,6 +43,7 @@ import { ApiError } from "../lib/errors.ts";
 import { created, json, noContent } from "../lib/http.ts";
 import { type AppEnv, requireMembership, requireUser } from "../lib/types.ts";
 import { IMPORT_RULE, enforceRateLimit } from "../services/auth/rateLimit.ts";
+import { assertOcrImportEnabled } from "../services/import/capabilities.ts";
 import { commitDraft } from "../services/import/commit.ts";
 import { importDb } from "../services/import/db.ts";
 import {
@@ -107,6 +114,9 @@ importRoutes.post("/image", async (c) => {
   const user = requireUser(c);
   const { groupId } = requireMembership(c);
 
+  // BEFORE the rate limit and before the body is read: a deployment without OCR
+  // must not spend a bucket slot, or 15 MB of upload, on a 501.
+  assertOcrImportEnabled();
   enforceRateLimit(c, "import", user.id, IMPORT_RULE);
 
   const file = await readUploadedFile(c.req.raw, { accept: ["image"] });
@@ -136,6 +146,7 @@ importRoutes.post("/pdf", async (c) => {
   const user = requireUser(c);
   const { groupId } = requireMembership(c);
 
+  assertOcrImportEnabled();
   enforceRateLimit(c, "import", user.id, IMPORT_RULE);
 
   const file = await readUploadedFile(c.req.raw, { accept: ["pdf"] });
@@ -168,6 +179,7 @@ importRoutes.post("/file", async (c) => {
   const user = requireUser(c);
   const { groupId } = requireMembership(c);
 
+  assertOcrImportEnabled();
   enforceRateLimit(c, "import", user.id, IMPORT_RULE);
 
   const file = await readUploadedFile(c.req.raw, { accept: ["image", "pdf"] });

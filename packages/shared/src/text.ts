@@ -20,7 +20,28 @@
  * in use, or accept that two spellings stop merging for old rows.
  */
 
-/** Replacement table, applied in order AFTER lowercasing. */
+/**
+ * Replacement table, applied in order AFTER lowercasing.
+ *
+ * THE UPPERCASE ENTRIES ARE ONLY THERE FOR SQL. `foldText()` lowercases first, so
+ * "Ä"/"Ö"/"Ü" can never reach the loop in JS — but `foldSql()` expands this same
+ * table into SQLite `replace(lower(…))` calls and **SQLite's `lower()` folds ASCII
+ * only**, so without them "MÖHRE" would fold to "mÖhre" in SQL and "mohre" in JS.
+ *
+ * THE TABLE IS DELIBERATELY NOT COMPLETE IN THAT RESPECT, and the reason is a hard
+ * limit: SQLite's parser overflows at 31 nested `replace()` calls (measured against
+ * libSQL 0.17.4 — 30 works, 32 is `parser stack overflow`). Listing the uppercase
+ * twin of every accent below would need 40 and break `foldSql()` outright. So
+ * `foldSql()` agrees with `foldText()` for ASCII and for the German umlauts, and
+ * NOT for an uppercase "È"/"Ç"/"ẞ" — which is exactly why the pre-folded recipe
+ * columns are written by `foldText()` in JS and backfilled by
+ * `backfillFoldedColumns()` in JS, never by folding in SQL. Do not "complete" this
+ * table; it will overflow the parser.
+ *
+ * Adding a pair changes stored `name_key` / `merge_key` values: existing rows keep
+ * their old key until rewritten, so only ever ADD pairs that cannot affect words
+ * already in use, or accept that two spellings stop merging for old rows.
+ */
 export const FOLD_PAIRS: ReadonlyArray<readonly [string, string]> = [
   ["Ä", "a"],
   ["Ö", "o"],
