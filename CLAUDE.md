@@ -386,6 +386,19 @@ add to that panel instead.
   utility (`styles/index.css`, resets to `bottom: 0` from `lg`) is the fix; prefer `sticky` over
   `fixed` so the bar stays in flow and `pb-tabbar` on the page is all the clearance needed. Grep
   `bottom-0` before adding a new bar.
+- **`apple-mobile-web-app-status-bar-style: black-translucent` is banned from `index.html`.** Since
+  iOS 11 that value does not float the status bar over the page: it pushes the whole document DOWN
+  by the status-bar height AND leaves the layout viewport short by the same amount. So a home-screen
+  install rendered every screen — `BottomTabBar` included, `fixed bottom-0` being measured against
+  that short viewport — a status-bar height above the physical bottom edge, with a strip of page
+  background beneath it. The strip is the page's own colour, so it reads as a layout bug rather than
+  a viewport one, and the first vertical drag makes iOS re-lay-out at the true height and it
+  disappears for the session — which is why it looks like a scroll glitch. Apple has deprecated the
+  value outright. `viewport-fit=cover` (for the insets) plus `<meta name="theme-color">` (kept in
+  sync with the theme by `lib/theme.ts`) is the supported replacement and is already in place;
+  `pt-safe` on `TopBar` and `Toast` simply resolves to 0 in portrait standalone now. This is
+  iOS-only and invisible in a desktop browser AND in mobile Safari — it needs a real home-screen
+  install to see or to verify.
 - **An idle TanStack mutation reports `error: null`, not `undefined`.** So
   `apiFieldErrors(mutation.error)` on every render pass — which is what `RecipeForm` does with the
   `error` prop `RecipeNewPage`/`RecipeEditPage` hand it — used to greet the user with a red

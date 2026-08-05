@@ -21,7 +21,19 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Rezepte" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!--
+      NO `apple-mobile-web-app-status-bar-style: black-translucent` here, and do not put it
+      back. Since iOS 11 that value renders the content under the status bar by pushing the
+      whole document DOWN by the status-bar height while leaving the layout viewport short by
+      the same amount — so on a home-screen install the fixed BottomTabBar (`bottom-0`) sat a
+      status-bar height above the physical screen edge, with a strip of page background under
+      it. The first vertical drag forced iOS to re-lay-out at the true height and the strip
+      vanished, which is what made it look like a scroll bug. Apple has also deprecated the
+      value ("support for this value will be removed in a future release").
+      The supported replacement is what is already here: `viewport-fit=cover` above for the
+      safe-area insets, and <meta name="theme-color"> (kept in sync with the rendered theme by
+      lib/theme.ts) for the status-bar colour.
+    -->
     <meta name="format-detection" content="telephone=no" />
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
