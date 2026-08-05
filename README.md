@@ -78,7 +78,7 @@ apps/api/
   scripts/{migrate,seed,reset-password,uploads-gc}.ts
   src/services/auth/      passwords, sessions, users, invites, oauth accounts, rate limit,
                           password reset + e-mail verification (hashed single-use tokens)
-  src/services/mail/      Mailer interface + console (default) / resend adapters + German templates
+  src/services/mail/      Mailer interface + console (default) / smtp / resend adapters + templates
   src/lib/uploadUrls.ts   signs and verifies /uploads/... URLs (?exp&sig)
   src/services/groups/    group + invite services, membership helpers, validation
   src/services/recipes/   recipes, tags, collections, uploads, mappers
@@ -204,11 +204,13 @@ Every variable is documented in [`.env.example`](./.env.example): `DATABASE_URL`
 
 **Mail is optional.** With no `MAIL_TRANSPORT` the API uses the `ConsoleMailer`: invite, reset and
 confirmation mails are printed to the log (link included) and nothing is sent, so `bun run dev` and
-`bun test` never touch the network. Set `MAIL_TRANSPORT="resend"` plus `MAIL_API_KEY` and a
-`MAIL_FROM` on a verified sender domain to deliver for real — the API refuses to start if one of
-those is missing, rather than silently swallowing every mail. A failed send never fails the action
-that triggered it (an invite still returns its `inviteUrl`; `POST /api/auth/password/forgot` still
-answers 204).
+`bun test` never touch the network. For real delivery either set `MAIL_TRANSPORT="smtp"` plus
+`MAIL_HOST` (+ `MAIL_PORT`/`MAIL_SECURITY`/`MAIL_USER`/`MAIL_PASSWORD`) or `MAIL_TRANSPORT="resend"`
+plus `MAIL_API_KEY` — both also need a `MAIL_FROM` the relay is allowed to send from. The API refuses
+to start if one of those is missing, rather than silently swallowing every mail. A failed send never
+fails the action that triggered it (an invite still returns its `inviteUrl`; `POST
+/api/auth/password/forgot` still answers 204) — the caller learns what happened from `mailDelivery`
+instead, and the UI reports the two non-deliveries as a warning/error rather than a success.
 
 `TRUST_PROXY=1` makes the rate limiter believe `X-Forwarded-For` / `X-Real-IP` / `CF-Connecting-IP`.
 **Set it only behind a proxy that overwrites those headers.** Without it the socket address is used,
@@ -406,14 +408,17 @@ Honest list of what is **not** finished. Nothing here blocks the flows above.
 > honest remainder.
 
 **Auth / accounts**
-- **Mail delivery is opt-in and single-provider.** The only real transport is Resend
-  (`MAIL_TRANSPORT="resend"`); an SMTP adapter would be a new file next to
-  `apps/api/src/services/mail/resend.ts` and nothing else. With nothing configured the
+- **Mail delivery is opt-in.** Two real transports ship — `MAIL_TRANSPORT="smtp"`
+  (`services/mail/smtp.ts`, dependency-free, the Docker default and the self-hosted path) and
+  `MAIL_TRANSPORT="resend"` (`services/mail/resend.ts`, one `fetch`, needs `MAIL_API_KEY`) — and a
+  third provider is a new file implementing the same `Mailer` interface. With nothing configured the
   `ConsoleMailer` logs every message instead of sending it, which means on such an install invites
   still have to be forwarded by hand and "Passwort vergessen" cannot reach anyone — use
-  `bun run auth:reset-password <email>` there.
+  `bun run auth:reset-password <email>` there. The UI says which of the three happened
+  (`mailDelivery`), so a console install no longer promises a mail nobody will get.
 - **A mail send is never retried.** One attempt, 10 s timeout, failure logged and reported as
-  `emailSent: false` / swallowed. Good enough for a family install; a job queue would be the fix.
+  `mailDelivery: "failed"` / swallowed. Good enough for a family install; a job queue would be the
+  fix.
 - **An OAuth login is still never auto-linked to a matching local account** — it answers 409
   `email_taken`, even for a confirmed address. Sign in with the password and link the provider under
   *Profil → Verknüpfte Konten* (`GET /api/auth/oauth/:provider/link`). Auto-linking on the old

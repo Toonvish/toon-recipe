@@ -68,7 +68,7 @@ The service worker never caches `/api`, so the answer is always the running serv
 | POST | `/api/auth/password` | session | `ChangePasswordRequest` | – | 204, 401 `invalid_credentials`, 422 |
 | POST | `/api/auth/password/forgot` | public | `ForgotPasswordRequest` | – | **always 204**, 422 (malformed address), 429 |
 | POST | `/api/auth/password/reset` | public | `ResetPasswordRequest` | – | 204, 400 `reset_token_invalid`, 422, 429 |
-| POST | `/api/auth/email/verify/request` | session | – | – | 204, 401, 409 `conflict` (already verified), 429 |
+| POST | `/api/auth/email/verify/request` | session | – | `EmailVerificationRequestResponse` | 200, 401, 409 `conflict` (already verified), 429 |
 | POST | `/api/auth/email/verify/confirm` | public | `VerifyEmailRequest` | `UserResponse` | 200, 400 `verification_token_invalid`, 422, 429 |
 | GET | `/api/auth/sessions` | session | – | `SessionListResponse` | 200, 401 |
 | DELETE | `/api/auth/sessions/:sessionId` | session | – | – | 204, 401, 404 |
@@ -123,6 +123,11 @@ Notes
 
 - `POST /api/auth/email/verify/request` mails a link to the **session's own** address (authenticated,
   so it is not another enumeration oracle). 24 h TTL, hash-only storage, one live token per user.
+  It answers **200 `{ mailDelivery }`** (`"sent" | "not_configured" | "failed"`), not 204: the send
+  happens after the token row is written and can fail without failing the request, and with an empty
+  body the UI had no choice but to claim "E-Mail unterwegs" for a message that only reached the log.
+  **Do not copy that onto `/password/forgot`** — there the response must stay identical for a known
+  and an unknown address, and a delivery status would say which one it was.
 - `POST /api/auth/email/verify/confirm` works **without a session** — the link is regularly opened on
   a different device — and sets `users.email_verified` **and** `users.email_verified_at` together
   (`markEmailVerified()` is the only writer). A token is bound to the address it was issued for, so
@@ -155,6 +160,10 @@ Notes
 - Creating a group makes the caller `owner` and sets `users.active_group_id`.
 - Ownership transfer = `PATCH .../members/:userId {role:"owner"}`; the previous owner becomes `admin`.
 - Invite tokens: 32-byte URL-safe random, 14-day expiry, `inviteUrl` = `${WEB_ORIGIN}/invite/<token>`.
+- `GroupInviteResponse` carries `mailDelivery` (`"sent" | "not_configured" | "failed"`) next to the
+  legacy boolean `emailSent` (= `mailDelivery === "sent"`). The invite is valid in all three cases —
+  `inviteUrl` is the source of truth — but the UI colours them differently, because a *configured*
+  transport that refuses mail is a broken deployment, not a self-hosted install without one.
 
 ## Recipes — `apps/api/src/routes/recipes.ts`
 

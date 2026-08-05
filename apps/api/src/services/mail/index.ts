@@ -7,6 +7,7 @@
  * call every feature actually uses because a failed send may never break the
  * action that triggered it.
  */
+import type { MailDelivery } from "@toon/shared";
 import { env } from "../../env.ts";
 import { ConsoleMailer } from "./console.ts";
 import { ResendMailer } from "./resend.ts";
@@ -93,6 +94,20 @@ export async function trySendMail(message: MailMessage): Promise<MailSendResult>
     console.error(`[mail] Versand an ${redactAddress(message.to)} fehlgeschlagen (${active.name}): ${reason}`);
     return { delivered: false, transport: active.name, error: reason };
   }
+}
+
+/**
+ * Turns a send result into the three-state status the contract exposes.
+ *
+ * The ConsoleMailer RESOLVES — it logged the message, that is its job — so
+ * `delivered` alone reports "no mail configured" as a successful send, and a UI
+ * built on it promises a mail that will never arrive. The transport name is what
+ * separates the two, exactly as in {@link isMailConfigured}, and it lives here so
+ * every endpoint answers the same way.
+ */
+export function mailDeliveryOf(result: MailSendResult): MailDelivery {
+  if (result.transport === "console") return "not_configured";
+  return result.delivered ? "sent" : "failed";
 }
 
 /**

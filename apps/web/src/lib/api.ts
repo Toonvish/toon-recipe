@@ -31,6 +31,7 @@ import {
   type CreateRecipeRequest,
   type CreateShoppingListRequest,
   type CreateTagRequest,
+  type EmailVerificationRequestResponse,
   type ForgotPasswordRequest,
   type GroupDetailResponse,
   type GroupInviteListResponse,
@@ -461,9 +462,20 @@ export function resetPassword(
   });
 }
 
-/** Mails a confirmation link to the signed-in account's address. */
-export function requestEmailVerification(options?: RequestOptions): Promise<void> {
-  return request<void>("/api/auth/email/verify/request", { ...options, method: "POST", body: {} });
+/**
+ * Mails a confirmation link to the signed-in account's address.
+ *
+ * `mailDelivery` says whether it really went out — a send can fail without the
+ * request failing, so a resolved promise is NOT "the mail is on its way".
+ */
+export function requestEmailVerification(
+  options?: RequestOptions,
+): Promise<EmailVerificationRequestResponse> {
+  return request<EmailVerificationRequestResponse>("/api/auth/email/verify/request", {
+    ...options,
+    method: "POST",
+    body: {},
+  });
 }
 
 /**

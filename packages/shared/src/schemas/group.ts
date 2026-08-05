@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { IdSchema, IsoDateSchema, listResponse } from "./common.ts";
+import { IdSchema, IsoDateSchema, MailDeliverySchema, listResponse } from "./common.ts";
 import { EmailSchema, PublicUserSchema } from "./user.ts";
 
 /** owner > admin > member. Exactly one owner per group at any time. */
@@ -127,14 +127,21 @@ export const GroupInviteResponseSchema = z.object({
    */
   inviteUrl: z.string(),
   /**
-   * Whether an invite e-mail was actually delivered.
+   * Whether an invite e-mail really went out — i.e. `mailDelivery === "sent"`.
    *
-   * `false` covers both "no MAIL_TRANSPORT configured" (the normal self-hosted
-   * case) and "the provider rejected it". Creating the invite still succeeded, so
-   * the UI renders this as a hint to forward the link by hand — never as an error.
-   * Optional so an older client keeps working.
+   * Kept for older clients; new code reads `mailDelivery`, which says WHICH of the
+   * two non-deliveries happened. Note this is false for an install with no
+   * MAIL_TRANSPORT: the ConsoleMailer logging the link is not a delivery, and
+   * reporting it as one is what made the UI promise a mail nobody would get.
    */
   emailSent: z.boolean().optional(),
+  /**
+   * Why no mail arrived, when none did. Optional so an older client keeps working
+   * and a newer client can treat a server that predates the field as "unknown"
+   * (fall back to `emailSent`). Creating the invite succeeded either way — the
+   * `inviteUrl` above is the source of truth.
+   */
+  mailDelivery: MailDeliverySchema.optional(),
 });
 export type GroupInviteResponse = z.infer<typeof GroupInviteResponseSchema>;
 

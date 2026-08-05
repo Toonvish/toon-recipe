@@ -145,6 +145,28 @@ export const HealthResponseSchema = z.object({
 });
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
 
+/**
+ * What became of a mail the request tried to send.
+ *
+ * THREE states, not a boolean, because the two non-deliveries need different copy
+ * and only the server can tell them apart:
+ *
+ *  - `sent`           — a configured transport accepted the message.
+ *  - `not_configured` — no MAIL_TRANSPORT: the ConsoleMailer wrote the link to the
+ *                       log. A working self-hosted install, nothing is broken, the
+ *                       link just has to be forwarded by hand.
+ *  - `failed`         — a configured transport REFUSED it (expired API key,
+ *                       unverified sender domain, relay down). Somebody has to look
+ *                       at `docker compose logs app`.
+ *
+ * The action that triggered the send never fails over this (see `trySendMail`), so
+ * this is a status, not an error — but the UI must not report the last two as
+ * success. Collapsing them into one boolean is how the invite panel came to greet
+ * an install with no mail configured with "Eine E-Mail ist unterwegs".
+ */
+export const MailDeliverySchema = z.enum(["sent", "not_configured", "failed"]);
+export type MailDelivery = z.infer<typeof MailDeliverySchema>;
+
 /** Response of every "no body needed but say something" mutation. */
 export const OkResponseSchema = z.object({ ok: z.literal(true) });
 export type OkResponse = z.infer<typeof OkResponseSchema>;

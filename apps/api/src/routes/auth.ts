@@ -14,6 +14,7 @@
 import {
   type AuthSessionResponse,
   ChangePasswordRequestSchema,
+  type EmailVerificationRequestResponse,
   ForgotPasswordRequestSchema,
   LoginRequestSchema,
   type MeResponse,
@@ -84,6 +85,7 @@ import {
   enforceRateLimit,
 } from "../services/auth/rateLimit.ts";
 import {
+  mailDeliveryOf,
   passwordResetMail,
   trySendMail,
   verifyEmailMail,
@@ -357,6 +359,13 @@ authRoutes.post("/password/reset", async (c) => {
  * variant would be another enumeration oracle, and there is no reason to need one.
  *
  * 409 when the address is already confirmed.
+ *
+ * Answers 200 `{ mailDelivery }` rather than the 204 it used to: the send can fail
+ * (or be a ConsoleMailer log) without the request failing, and with an empty body
+ * the UI had nothing to go on and said "E-Mail unterwegs" either way. Reporting it
+ * is safe here and NOT on `/password/forgot` — this endpoint needs a session and
+ * mails only that session's own address, so the answer says nothing about whether
+ * any other address has an account. Keep that asymmetry.
  */
 authRoutes.post("/email/verify/request", requireSession(), async (c) => {
   const user = requireUser(c);
@@ -366,7 +375,7 @@ authRoutes.post("/email/verify/request", requireSession(), async (c) => {
   if (!row) throw ApiError.unauthorized();
 
   const { token } = await createEmailVerificationToken(db, row, { requestedIp: clientIp(c) });
-  await trySendMail(
+  const sent = await trySendMail(
     verifyEmailMail({
       to: row.email,
       name: row.name,
@@ -374,7 +383,9 @@ authRoutes.post("/email/verify/request", requireSession(), async (c) => {
       expiresInHours: EMAIL_VERIFICATION_TTL_HOURS,
     }),
   );
-  return noContent(c);
+  // The token is stored either way — a failed mail must not invalidate a link the
+  // operator can still fish out of the log.
+  return json(c, { mailDelivery: mailDeliveryOf(sent) } satisfies EmailVerificationRequestResponse);
 });
 
 /**

@@ -3,14 +3,23 @@
  * link, and see/revoke pending invites.
  *
  * The API mails the link AND returns it: `inviteUrl` (built from WEB_ORIGIN) plus the
- * raw token, so it can also be shared through any other channel. `emailSent` says
- * whether delivery actually happened — it is `false` on an install with no
- * MAIL_TRANSPORT configured, and on a provider failure. Either way the invite is
- * valid, so that is a hint ("bitte selbst weitergeben"), never an error.
+ * raw token, so it can also be shared through any other channel. `mailDelivery` says
+ * what became of the mail, and the panel has THREE outcomes rather than two: a
+ * delivered mail is a success, "kein Mailversand eingerichtet" is a warning that the
+ * link needs forwarding by hand, and a REFUSED delivery is an error — a configured
+ * relay that rejects mail is a broken deployment, and an admin who is told "unterwegs"
+ * has no reason to go and look. The invite itself is valid in all three cases, which
+ * is why none of them hides the link.
  */
 import { useState } from "react";
 import { Copy, Link2, MailPlus, Share2, Undo2 } from "lucide-react";
-import { CreateInviteRequestSchema, type GroupInvite, type InvitableRole } from "@toon/shared";
+import {
+  CreateInviteRequestSchema,
+  type GroupInvite,
+  type GroupInviteResponse,
+  type InvitableRole,
+  type MailDelivery,
+} from "@toon/shared";
 import {
   Badge,
   Button,
@@ -45,6 +54,62 @@ function inviteLink(invite: GroupInvite, fallbackUrl?: string): string {
   return `${window.location.origin}/invite/${invite.token}`;
 }
 
+/**
+ * The server's three outcomes plus `unknown` for one that predates `mailDelivery` —
+ * an installed PWA can be running a bundle newer than the API, and the old
+ * `emailSent: false` genuinely cannot say which of the two non-deliveries it was.
+ */
+type InviteMailOutcome = MailDelivery | "unknown";
+
+function outcomeOf(response: GroupInviteResponse): InviteMailOutcome {
+  if (response.mailDelivery !== undefined) return response.mailDelivery;
+  return response.emailSent === true ? "sent" : "unknown";
+}
+
+/**
+ * How each outcome looks. `failed` is the ONLY one in danger colours: a configured
+ * relay that refuses mail is a broken deployment and somebody has to look at the
+ * log, whereas the other two are working setups. None of them hides the link —
+ * the invite is valid in every case, which is the whole reason the API returns it.
+ *
+ * Every class here is a LITERAL string on purpose: Tailwind v4 generates only what
+ * its scanner finds in the source, so a class assembled at runtime (`fg + "/90"`)
+ * would resolve to nothing at all. Hence the spelled-out `hintFg`.
+ */
+const MAIL_OUTCOMES: Record<
+  InviteMailOutcome,
+  { box: string; fg: string; hintFg: string; title: string; hint: string | null }
+> = {
+  sent: {
+    box: "border-success/40 bg-success-soft",
+    fg: "text-success-soft-fg",
+    hintFg: "text-success-soft-fg/90",
+    title: "Einladung verschickt",
+    hint: null,
+  },
+  not_configured: {
+    box: "border-warning/40 bg-warning-soft",
+    fg: "text-warning-soft-fg",
+    hintFg: "text-warning-soft-fg/90",
+    title: "Neuer Einladungslink — keine E-Mail",
+    hint: "Auf diesem Server ist kein Mailversand eingerichtet. Schicke den Link bitte selbst weiter.",
+  },
+  failed: {
+    box: "border-danger/40 bg-danger-soft",
+    fg: "text-danger-soft-fg",
+    hintFg: "text-danger-soft-fg/90",
+    title: "E-Mail konnte nicht zugestellt werden",
+    hint: "Der Mailversand ist eingerichtet, hat die Nachricht aber abgelehnt — der Grund steht im Server-Log. Die Einladung selbst ist gültig: schicke den Link bitte selbst weiter.",
+  },
+  unknown: {
+    box: "border-warning/40 bg-warning-soft",
+    fg: "text-warning-soft-fg",
+    hintFg: "text-warning-soft-fg/90",
+    title: "Neuer Einladungslink",
+    hint: "Es wurde keine E-Mail verschickt. Schicke den Link bitte selbst weiter.",
+  },
+};
+
 export function InvitePanel({ groupId, groupName, enabled }: InvitePanelProps) {
   const invites = useGroupInvites(groupId, enabled);
   const createInvite = useCreateInvite();
@@ -55,7 +120,7 @@ export function InvitePanel({ groupId, groupName, enabled }: InvitePanelProps) {
   const [role, setRole] = useState<InvitableRole>("member");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [lastUrl, setLastUrl] = useState<string | null>(null);
-  const [lastMailed, setLastMailed] = useState(false);
+  const [lastOutcome, setLastOutcome] = useState<InviteMailOutcome>("unknown");
 
   if (!enabled) {
     return (
@@ -79,16 +144,30 @@ export function InvitePanel({ groupId, groupName, enabled }: InvitePanelProps) {
       setErrors({});
       setEmail("");
       setLastUrl(response.inviteUrl);
-      setLastMailed(response.emailSent === true);
+      const outcome = outcomeOf(response);
+      setLastOutcome(outcome);
       const copied = await copyToClipboard(response.inviteUrl);
-      toast.success(
-        "Einladung erstellt",
-        response.emailSent === true
-          ? `Eine E-Mail ist an ${result.data.email} unterwegs.`
-          : copied
-            ? "Der Link ist in der Zwischenablage."
-            : "Kopiere den Link unten und schicke ihn weiter.",
-      );
+      // Creating the invite worked in every branch — only the MAIL differs, so the
+      // toast reports the mail. Saying "Einladung erstellt" in success green while
+      // the server refused to deliver is how a broken relay stays unnoticed.
+      if (outcome === "sent") {
+        toast.success("Einladung verschickt", `Eine E-Mail ist an ${result.data.email} unterwegs.`);
+      } else {
+        const fallback = copied
+          ? "Der Link ist in der Zwischenablage."
+          : "Kopiere den Link unten und schicke ihn weiter.";
+        toast.toast({
+          title:
+            outcome === "failed"
+              ? "E-Mail nicht zugestellt"
+              : "Einladung erstellt — keine E-Mail",
+          description:
+            outcome === "failed"
+              ? `Die Einladung für ${result.data.email} ist gültig, der Mailversand hat sie aber abgelehnt (Grund im Server-Log). ${fallback}`
+              : fallback,
+          variant: outcome === "failed" ? "error" : "warning",
+        });
+      }
     } catch (error) {
       if (isApiError(error) && error.status === 409) {
         setErrors({ email: "Diese Person ist bereits Mitglied der Gruppe." });
@@ -148,14 +227,15 @@ export function InvitePanel({ groupId, groupName, enabled }: InvitePanelProps) {
         </form>
 
         {lastUrl ? (
-          <div className="mt-3 flex flex-col gap-2 rounded-xl border border-success/40 bg-success-soft p-3">
-            <p className="text-sm font-medium text-success-soft-fg">
-              {lastMailed ? "Einladung verschickt" : "Neuer Einladungslink"}
+          <div
+            className={`mt-3 flex flex-col gap-2 rounded-xl border p-3 ${MAIL_OUTCOMES[lastOutcome].box}`}
+          >
+            <p className={`text-sm font-medium ${MAIL_OUTCOMES[lastOutcome].fg}`}>
+              {MAIL_OUTCOMES[lastOutcome].title}
             </p>
-            {lastMailed ? null : (
-              <p className="text-xs text-success-soft-fg/90">
-                Es konnte keine E-Mail verschickt werden (auf diesem Server ist kein Mailversand
-                eingerichtet). Schicke den Link bitte selbst weiter.
+            {MAIL_OUTCOMES[lastOutcome].hint === null ? null : (
+              <p className={`text-xs ${MAIL_OUTCOMES[lastOutcome].hintFg}`}>
+                {MAIL_OUTCOMES[lastOutcome].hint}
               </p>
             )}
             <code className="block overflow-x-auto rounded-lg bg-surface p-2 text-xs text-fg">

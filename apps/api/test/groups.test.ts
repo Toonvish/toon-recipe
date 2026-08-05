@@ -8,11 +8,12 @@
  * `toon_session` cookie — no dependency on the auth routes.
  */
 import { foldText } from "@toon/shared";
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { db } from "../src/db/client.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import { groupInvites, groupMembers, groups, recipes, sessions, users } from "../src/db/schema.ts";
+import { type Mailer, setMailer } from "../src/services/mail/index.ts";
 
 await runMigrations(db);
 
@@ -178,7 +179,28 @@ describe("invites", () => {
   interface InvitePayload {
     invite: { id: string; token: string; role: string; status: string; email: string };
     inviteUrl: string;
+    emailSent?: boolean;
+    mailDelivery?: string;
   }
+
+  /**
+   * A transport that claims not to be the console one. `mailDelivery` is derived
+   * from the transport NAME, because the ConsoleMailer's `send()` resolves as
+   * happily as a real relay's — which is what used to make "no mail configured"
+   * indistinguishable from a delivery.
+   *
+   * `setMailer` is process-wide and `bun test` runs every file in one process, so
+   * the afterEach below MUST hand it back (see CLAUDE.md).
+   */
+  class FakeRelay implements Mailer {
+    readonly name = "smtp";
+    constructor(private readonly rejects = false) {}
+    async send(): Promise<void> {
+      if (this.rejects) throw new Error("relay lehnt ab");
+    }
+  }
+
+  afterEach(() => setMailer(null));
 
   async function invite(
     owner: TestUser,
@@ -194,6 +216,32 @@ describe("invites", () => {
     expect(response.status).toBe(201);
     return body<InvitePayload>(response);
   }
+
+  test("the invite reports what became of its mail, and stays valid either way", async () => {
+    const owner = await createUser("Postmaster");
+    const groupId = await createGroup(owner, "Mailtest");
+
+    // Default under `bun test`: a silent ConsoleMailer. It RESOLVES, so this is the
+    // case a `delivered` boolean used to report as "an e-mail is on its way".
+    const unconfigured = await invite(owner, groupId, "a@toon.test");
+    expect(unconfigured.mailDelivery).toBe("not_configured");
+    expect(unconfigured.emailSent).toBe(false);
+
+    setMailer(new FakeRelay());
+    const sent = await invite(owner, groupId, "b@toon.test");
+    expect(sent.mailDelivery).toBe("sent");
+    expect(sent.emailSent).toBe(true);
+
+    setMailer(new FakeRelay(true));
+    const failed = await invite(owner, groupId, "c@toon.test");
+    expect(failed.mailDelivery).toBe("failed");
+    expect(failed.emailSent).toBe(false);
+    // Still 201 (asserted in `invite()`) with a usable link: a refused mail must
+    // not throw away an invite that can be forwarded by hand.
+    expect(failed.inviteUrl).toContain(`/invite/${failed.invite.token}`);
+    const preview = await call(`/api/groups/invites/${failed.invite.token}`);
+    expect(preview.status).toBe(200);
+  });
 
   test("admin invites, anybody can preview, invitee joins as member", async () => {
     const owner = await createUser("Host");

@@ -327,6 +327,18 @@ add to that panel instead.
   `{ delivered }`, never throws), always after the row is committed. `POST /password/forgot` answers
   **204 for a known AND an unknown address**, with the rate limit enforced before the lookup — three
   things that together keep it from being a user-enumeration oracle. Don't "improve" it with a 404.
+- **`delivered` ALONE IS NOT "a mail went out" — the ConsoleMailer resolves too.** It logged the
+  message, which is all it promises, so `emailSent: sent.delivered` reported an install with no
+  MAIL_TRANSPORT as a successful send and the invite panel announced a mail nobody would ever get.
+  `mailDeliveryOf()` (`services/mail/index.ts`) is the only correct reading: it keys off the
+  TRANSPORT NAME, same rule as `isMailConfigured()`, and returns the contract's three states —
+  `sent` · `not_configured` (console: fine, forward the link by hand) · `failed` (a configured relay
+  refused: a broken deployment, somebody has to read the log). The UI colours those three
+  differently (`InvitePanel`, `EmailVerificationCard`) and **must never render the last two as
+  success**. `/api/auth/email/verify/request` returns the status (200 `{ mailDelivery }`, no longer
+  204) because it is authenticated and mails only the session's OWN address; **`/password/forgot`
+  deliberately does NOT**, since a delivery status there would reveal whether the address has an
+  account. Keep that asymmetry.
 - **`bun test` gets a silent ConsoleMailer** (`env.isTest` in `services/mail/index.ts`). Tests that
   assert on mail install their own `new ConsoleMailer(() => undefined)` and read `.sent`; `bun test`
   runs every file in ONE process, so a test file that calls `setMailer()` must hand it back

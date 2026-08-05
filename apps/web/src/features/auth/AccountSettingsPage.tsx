@@ -212,9 +212,28 @@ function EmailVerificationCard({
 
   const requestLink = useMutation({
     mutationFn: () => requestEmailVerification(),
-    onSuccess: () => {
-      setSent(true);
-      toast.success("E-Mail unterwegs", `Wir haben einen Bestätigungslink an ${email} geschickt.`);
+    /*
+      A 2xx here means "the token exists", NOT "the mail is on its way": the send
+      happens after the row is written and never fails the request (trySendMail).
+      So the copy follows `mailDelivery` — announcing a mail that the server only
+      wrote to its log, or that a relay refused, is worse than saying nothing,
+      because the user then waits for it instead of asking the admin.
+    */
+    onSuccess: (result) => {
+      if (result.mailDelivery === "sent") {
+        setSent(true);
+        toast.success("E-Mail unterwegs", `Wir haben einen Bestätigungslink an ${email} geschickt.`);
+        return;
+      }
+      setSent(false);
+      toast.toast({
+        title: "Keine E-Mail verschickt",
+        description:
+          result.mailDelivery === "not_configured"
+            ? "Auf diesem Server ist kein Mailversand eingerichtet. Der Bestätigungslink steht im Server-Log."
+            : "Die Zustellung ist fehlgeschlagen. Bitte später erneut versuchen — Details stehen im Server-Log.",
+        variant: result.mailDelivery === "not_configured" ? "warning" : "error",
+      });
     },
     onError: (error) => {
       const errors = apiFieldErrors(error);

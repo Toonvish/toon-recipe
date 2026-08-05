@@ -26,7 +26,7 @@ import {
   createPasswordResetToken,
 } from "../src/services/auth/passwordReset.ts";
 import { hashToken } from "../src/services/auth/tokens.ts";
-import { ConsoleMailer, setMailer } from "../src/services/mail/index.ts";
+import { ConsoleMailer, type Mailer, setMailer } from "../src/services/mail/index.ts";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const PASSWORD = "geheimes-passwort-123";
@@ -42,6 +42,22 @@ function useRecordingMailer(): ConsoleMailer {
   setMailer(mailer);
   return mailer;
 }
+
+/**
+ * A mailer that is NOT the console one.
+ *
+ * `mailDelivery` is derived from the transport NAME, not just from whether `send()`
+ * resolved — the ConsoleMailer resolves too — so telling "sent" from
+ * "not_configured" apart needs a transport that claims to be real.
+ */
+class FakeRelay implements Mailer {
+  readonly name = "smtp";
+  constructor(private readonly rejects = false) {}
+  async send(): Promise<void> {
+    if (this.rejects) throw new Error("relay lehnt ab");
+  }
+}
+
 afterEach(() => setMailer(null));
 
 /* -------------------------------- helpers -------------------------------- */
@@ -372,7 +388,7 @@ describe("e-mail verification", () => {
     const account = await register();
 
     const requested = await post("/api/auth/email/verify/request", {}, account.cookie);
-    expect(requested.status).toBe(204);
+    expect(requested.status).toBe(200);
     expect(recorder.sent).toHaveLength(1);
     expect(recorder.sent[0]?.to).toBe(account.email);
 
@@ -415,6 +431,47 @@ describe("e-mail verification", () => {
 
     const again = await post("/api/auth/email/verify/request", {}, account.cookie);
     expect(again.status).toBe(409);
+  });
+
+  /*
+    The three `mailDelivery` states. The point of the field is that the UI must not
+    say "E-Mail unterwegs" when nothing left the machine — and the ConsoleMailer
+    RESOLVES, so a plain `delivered` boolean reports exactly that case as a success.
+  */
+  test('mailDelivery is "not_configured" when no transport is set up', async () => {
+    useRecordingMailer(); // a ConsoleMailer: it logs the link and sends nothing
+    const account = await register();
+
+    const response = await post("/api/auth/email/verify/request", {}, account.cookie);
+    expect(response.status).toBe(200);
+    expect((await response.json()) as { mailDelivery: string }).toEqual({
+      mailDelivery: "not_configured",
+    });
+  });
+
+  test('mailDelivery is "sent" when a real transport accepts the message', async () => {
+    setMailer(new FakeRelay());
+    const account = await register();
+
+    const response = await post("/api/auth/email/verify/request", {}, account.cookie);
+    expect(((await response.json()) as { mailDelivery: string }).mailDelivery).toBe("sent");
+  });
+
+  test('mailDelivery is "failed" when the transport refuses — and the request still succeeds', async () => {
+    setMailer(new FakeRelay(true));
+    const account = await register();
+
+    const response = await post("/api/auth/email/verify/request", {}, account.cookie);
+    // 200, not a 5xx: the token row is written and usable, so failing the request
+    // would throw away a link the operator can still read out of the log.
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { mailDelivery: string }).mailDelivery).toBe("failed");
+
+    const rows = await db
+      .select()
+      .from(emailVerificationTokens)
+      .where(eq(emailVerificationTokens.userId, account.userId));
+    expect(rows).toHaveLength(1);
   });
 
   test("a token cannot be reused, and expired/unknown answer the same", async () => {
