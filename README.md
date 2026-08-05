@@ -33,8 +33,10 @@ These are **fixed** — do not redesign them.
    (schema.org JSON-LD incl. `@graph`, microdata fallback, then site selectors — must work for
    chefkoch.de and biancazapatka.com/WP Recipe Maker), image (server-side OCR), PDF (embedded text
    layer first, rasterize + OCR as fallback, clear actionable error if rasterization is unavailable).
-6. **OCR runs server-side in Bun** with `tesseract.js` (`deu+eng`, German first), preprocessed with
-   `sharp` (grayscale, normalize, ~2000px wide), behind a swappable `OcrEngine` interface.
+6. **OCR runs server-side** by spawning the NATIVE `tesseract` binary (`deu+eng`, German first),
+   preprocessed with `sharp` (grayscale, normalize, ~2000px wide), behind a swappable `OcrEngine`
+   interface. PDFs are rasterized by poppler's `pdftoppm`. Both are OS packages, not npm ones —
+   which is what keeps the memory footprint small enough for a cheap VPS or a 2 GB Pi.
 7. **Shopping lists ("Einkaufslisten") are group-owned and Bring-like.** Several named lists per
    group; a recipe can be put on a list at any portion count and the amounts are rescaled; identical
    articles are summed (`200 g + 200 g Mehl` = one `400 g` line, `1 kg + 200 g` = `1.2 kg`). Ticking
@@ -49,7 +51,7 @@ These are **fixed** — do not redesign them.
 | Part | Tech |
 | --- | --- |
 | Monorepo | Bun workspaces (`apps/*`, `packages/*`), Bun 1.3.14 |
-| `apps/api` | Bun.serve + Hono, drizzle-orm, `@hono/zod-validator`, zod, arctic, tesseract.js, sharp, unpdf, pdf-to-img |
+| `apps/api` | Bun.serve + Hono, drizzle-orm, `@hono/zod-validator`, zod, arctic, sharp, unpdf — plus the native `tesseract` and `pdftoppm` binaries |
 | `apps/web` | React 19 + Vite + TypeScript, TanStack Router, TanStack Query, Tailwind CSS v4, vite-plugin-pwa, lucide-react |
 | `packages/shared` | Zod schemas + inferred types + pure parsers — the single source of truth, imported as `@toon/shared` |
 | Tests | `bun test` (parser unit tests with German fixtures, API integration tests against `file::memory:`) |
@@ -79,7 +81,7 @@ apps/api/
   src/services/groups/    group + invite services, membership helpers, validation
   src/services/recipes/   recipes, tags, collections, uploads, mappers
   src/services/import/    URL pipeline (html/, url/, adapters/), drafts, commit, files
-  src/services/ocr/       OcrEngine interface, tesseract worker, sharp preprocess, pdf.ts
+  src/services/ocr/       OcrEngine interface, native tesseract, sharp preprocess, pdf.ts
   test/                   ALL api tests live here (`test/`, not `tests/`)
 apps/web/
   index.html              viewport-fit=cover, theme-color, pre-paint theme script
@@ -100,6 +102,10 @@ docs/API.md               authoritative endpoint contract
 Verified end to end on Bun 1.3.14 / Linux:
 
 ```bash
+# Native binaries the import pipeline spawns. Everything else works without them;
+# photo and scanned-PDF imports answer a clear 422 until they are installed.
+sudo apt install tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng poppler-utils
+
 bun install
 cp .env.example .env            # then edit (SESSION_SECRET at minimum)
 bun run db:migrate              # creates ./data/local.db from drizzle/*.sql
@@ -229,7 +235,6 @@ the Vite config must therefore set `envDir: "../../"` and `envPrefix: ["VITE_", 
 | `bun run db:migrate` | Apply migrations to `DATABASE_URL` |
 | `bun run db:studio` | drizzle studio |
 | `bun run seed` | Demo user + group "Familie" + 3 recipes with sections (idempotent) |
-| `bun run ocr:prefetch` | Downloads + caches the tesseract `deu+eng` traineddata into `data/tessdata` once, so the first import does not have to (the Docker image does this at build time) |
 | `bun run auth:reset-password <email> [--send]` | Mints a password-reset token and prints the link. Works with **no mailer at all** — the answer for a locked-out user on a self-hosted install |
 | `bun run uploads:gc [--dry-run] [--min-age-hours=N]` | Deletes files in `UPLOAD_DIR` that no row references any more (default: keeps anything younger than 24 h) |
 
@@ -262,8 +267,8 @@ Three things about this setup are worth knowing before you touch it:
 - **No API key is required anywhere.** The Resend key was replaced by an SMTP adapter
   (`services/mail/smtp.ts`, no dependency) pointed at a Mailpit container on the private compose
   network — every invite/reset/confirmation mail is readable in its web UI and nothing leaves the
-  machine. The database was already a local libSQL file and OCR already ran in-process, with the
-  `deu+eng` traineddata baked into the image at build time. Google/GitHub OAuth stays third-party and
+  machine. The database was already a local libSQL file, and OCR is a local `tesseract` process whose
+  language data is an OS package inside the image. Google/GitHub OAuth stays third-party and
   is deliberately **off**; e-mail + password is the self-hosted path.
 - **TLS is not optional, and a self-signed certificate is not enough on its own.** Caddy issues the
   certificate from its own local CA. A browser that does not trust that CA treats the origin as
@@ -410,16 +415,17 @@ Honest list of what is **not** finished. Nothing here blocks the flows above.
 **Import**
 - OCR runs **synchronously** inside the request with a 60 s cap (`504 ocr_failed` beyond that). A
   large photo blocks one worker; a job queue + client polling is the intended next step.
-- PDF rasterization needs `pdf-to-img`'s native canvas. It works here, but where the binary is
-  missing a PDF without a text layer answers `422 pdf_no_text_layer` with a German hint to upload a
-  photo instead.
-- The **first** photo/scanned-PDF import on a fresh deployment downloads ~15 MB of `deu+eng`
-  traineddata from `tessdata.projectnaptha.com` into `data/tessdata`. Run `bun run ocr:prefetch` at
-  deploy time (or copy the `*.traineddata` files in) if the host has no outbound HTTPS, otherwise
-  that import fails with `ocr_failed`.
+- OCR and PDF rasterization need two NATIVE BINARIES on the host, `tesseract` and poppler's
+  `pdftoppm`. The Docker image installs both; for a local checkout,
+  `sudo apt install tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng poppler-utils` (or set
+  `TESSERACT_BIN`/`PDFTOPPM_BIN`). Where they are missing, a photo import answers `422 ocr_failed`
+  and a PDF without a text layer `422 pdf_no_text_layer`, each with a German hint — never a crash.
+  Nothing is downloaded at runtime, so an air-gapped install works on the first import.
+- Each language in `TESSERACT_LANGS` needs its own `tesseract-ocr-<lang>` package. Adding one to the
+  variable without adding the package fails at recognise time, not at boot.
 - Import load limits are per process, not per cluster: `IMPORT_RULE` (10 per user per minute) and
   `MAX_CONCURRENT_OCR` (2 slots, 429 when full) live in memory. The 60 s OCR deadline answers the
-  request on time but cannot actually kill the tesseract/unpdf work it abandoned, so a flood of
+  request on time but cannot actually kill the `unpdf` work it abandoned (OCR itself is killed), so a flood of
   malformed PDFs can still keep CPU busy for a while after the 429s start.
 - **`/uploads/:filename` is signature-gated, not session-gated.** Hero images carry
   `?exp&sig` (HMAC over filename + expiry, `SESSION_SECRET`), because a cross-origin `<img>` cannot

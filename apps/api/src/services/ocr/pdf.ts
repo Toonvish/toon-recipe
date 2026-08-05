@@ -5,15 +5,18 @@
  *      print-views, publisher PDFs) carry perfect text — OCR would only make it
  *      worse, so we never rasterize when a usable layer exists.
  *   2. If the layer is missing or too sparse (scanned page → the layer holds
- *      only a header or nothing at all), RASTERIZE with `pdf-to-img` and OCR the
- *      pages.
- *   3. If rasterization is unavailable at runtime (the @napi-rs/canvas native
- *      binary is missing on this platform), fail with 422 `pdf_no_text_layer`
- *      and an actionable German message.
+ *      only a header or nothing at all), RASTERIZE with poppler's `pdftoppm` and
+ *      OCR the pages.
+ *   3. If rasterization is unavailable at runtime (no `pdftoppm` on the host, or a
+ *      file poppler cannot open), fail with 422 `pdf_no_text_layer` and an
+ *      actionable German message.
  *
  * Hard cap: 10 pages. A cookbook chapter dump would otherwise burn minutes of
  * OCR for a single recipe.
  */
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { env } from "../../env.ts";
 import { ApiError } from "../../lib/errors.ts";
 import { preprocessImage } from "./preprocess.ts";
@@ -24,8 +27,14 @@ export const MAX_PDF_PAGES = 10;
 export const MIN_TEXT_LAYER_CHARS = 200;
 /** …and it must contain at least this many alphanumeric words. */
 export const MIN_TEXT_LAYER_WORDS = 20;
-/** Rasterization scale: 2.0 ≈ 144 dpi for an A4 page, enough for Tesseract. */
-export const RASTER_SCALE = 2;
+/** Rasterization resolution. 144 dpi is enough for Tesseract on an A4 page. */
+export const RASTER_DPI = 144;
+/**
+ * The same number as a multiple of the MediaBox, which is what a rendered page
+ * measures: PDF user space is 72 dpi, so 144 dpi is exactly 2x. Kept as its own
+ * export because that is the invariant `pdf-rasterize.test.ts` asserts.
+ */
+export const RASTER_SCALE = RASTER_DPI / 72;
 
 export const PDF_NO_TEXT_LAYER_MESSAGE =
   "Das PDF enthält keinen Text — bitte ein Foto der Seite hochladen.";
@@ -51,7 +60,7 @@ export function isUsableTextLayer(text: string): boolean {
  * @returns the layer, or undefined when the PDF cannot be opened at all.
  */
 export async function extractPdfTextLayer(bytes: Uint8Array): Promise<PdfTextLayer | undefined> {
-  return await withPdfjsLock(async () => {
+  return await withPdfTextLock(async () => {
     try {
       const { extractText } = await import("unpdf");
       // A fresh copy: pdf.js transfers/detaches the buffer it is handed.
@@ -70,50 +79,34 @@ export async function extractPdfTextLayer(bytes: Uint8Array): Promise<PdfTextLay
   });
 }
 
-/* ------------------------- the two pdf.js problem ------------------------- */
+/* ---------------------------- pdf.js text layer --------------------------- */
 
 /**
- * TWO INCOMPATIBLE pdf.js COPIES LIVE IN THIS PROCESS:
- *   - `unpdf` bundles pdf.js 6.x and installs `globalThis.pdfjsWorker`/`pdfjsLib`
- *     as a side effect of the first `extractText()` call;
- *   - `pdf-to-img` uses `pdfjs-dist` 5.x, which VERSION-CHECKS that very global
- *     and throws `The API version "5.x" does not match the Worker version "6.x"`.
+ * Serializes text-layer extraction.
  *
- * Because the text-layer probe always runs first, the rasterize+OCR fallback for
- * scanned PDFs used to be dead: every such upload answered 422
- * `pdf_no_text_layer` / `rasterization_unavailable`. So rasterization runs with
- * those globals temporarily removed, and both phases are serialized through one
- * lock so a concurrent import can never observe the swapped state.
+ * HISTORY, because the reason changed: this lock used to exist because TWO
+ * INCOMPATIBLE pdf.js COPIES shared the process — `unpdf` bundles pdf.js 6 and
+ * installs `globalThis.pdfjsWorker`, while the old `pdf-to-img` rasterizer used
+ * pdfjs-dist 5, which version-checks that global and refuses to start. Since the
+ * text-layer probe always runs first, the rasterize+OCR fallback for scanned PDFs
+ * was dead in the real server; the fix was to stash and restore those globals
+ * around rasterization and serialize both phases through this lock.
+ *
+ * Rasterization is now poppler in a SUBPROCESS, so there is exactly one pdf.js in
+ * the process and no global to swap. What remains is a plain concurrency bound:
+ * `unpdf` holds a whole parsed document in memory, and this is the deployment that
+ * has to fit in a few hundred megabytes. Rasterization deliberately runs OUTSIDE
+ * this lock — a subprocess needs no protection from it.
  */
-const PDFJS_GLOBAL_KEYS = ["pdfjsWorker", "pdfjsLib"] as const;
+let pdfTextLock: Promise<unknown> = Promise.resolve();
 
-let pdfjsLock: Promise<unknown> = Promise.resolve();
-
-/** Serializes everything that touches a pdf.js global. */
-function withPdfjsLock<T>(operation: () => Promise<T>): Promise<T> {
-  const run = pdfjsLock.then(operation, operation);
-  pdfjsLock = run.then(
+function withPdfTextLock<T>(operation: () => Promise<T>): Promise<T> {
+  const run = pdfTextLock.then(operation, operation);
+  pdfTextLock = run.then(
     () => undefined,
     () => undefined,
   );
   return run;
-}
-
-/** Runs `operation` with unpdf's pdf.js globals stashed away and then restored. */
-async function withoutPdfjsGlobals<T>(operation: () => Promise<T>): Promise<T> {
-  const scope = globalThis as unknown as Record<string, unknown>;
-  const saved = new Map<string, unknown>();
-  for (const key of PDFJS_GLOBAL_KEYS) {
-    if (key in scope) {
-      saved.set(key, scope[key]);
-      delete scope[key];
-    }
-  }
-  try {
-    return await operation();
-  } finally {
-    for (const [key, value] of saved) scope[key] = value;
-  }
 }
 
 /**
@@ -140,44 +133,87 @@ export interface RasterizedPage {
   bytes: Uint8Array;
 }
 
+export type PdfRasterizer = (bytes: Uint8Array, maxPages: number) => Promise<RasterizedPage[]>;
+
+let rasterizer: PdfRasterizer | null = null;
+
+/**
+ * Replaces the rasterizer; `null` restores poppler.
+ *
+ * This exists so tests never have to `mock.module()` the rasterizer. That mattered:
+ * `mock.module` is process-global, bun never restores it between files, and file
+ * execution order is FILESYSTEM order rather than alphabetical — so a stub left
+ * installed in one file broke `pdf-rasterize.test.ts` on whichever machine happened
+ * to enumerate that file first, which is exactly how it passed locally and failed in
+ * CI. An explicit seam cannot leak silently: it is reset in an `afterEach`, the same
+ * rule as `setMailer(null)` and `setOcrEngine(null)`.
+ */
+export function setPdfRasterizer(next: PdfRasterizer | null): void {
+  rasterizer = next;
+}
+
 /**
  * Renders PDF pages to PNG.
  *
- * @throws ApiError 422 `pdf_no_text_layer` when the rasterizer (or its native
- *   canvas binary) is unavailable — that is the documented fallback contract.
+ * @throws ApiError 422 `pdf_no_text_layer` when rasterization is unavailable (no
+ *   `pdftoppm`) or the file cannot be opened — that is the documented fallback
+ *   contract.
  */
 export async function rasterizePdf(bytes: Uint8Array, maxPages = MAX_PDF_PAGES): Promise<RasterizedPage[]> {
-  return await withPdfjsLock(async () =>
-    // See withoutPdfjsGlobals: unpdf's pdf.js 6 globals make pdfjs-dist 5 refuse
-    // to start, which used to kill this whole fallback path.
-    withoutPdfjsGlobals(async () => {
-      let pdf: typeof import("pdf-to-img").pdf;
-      try {
-        // Dynamic import on purpose: bun's isolated install layout only exposes
-        // @napi-rs/canvas to pdf-to-img, and a missing native binary must surface
-        // here as the documented 422 rather than as a module-load crash.
-        ({ pdf } = await import("pdf-to-img"));
-      } catch (error) {
-        throw noTextLayerError(error);
-      }
+  return await (rasterizer ?? rasterizeWithPoppler)(bytes, maxPages);
+}
 
-      try {
-        const document = await pdf(new Uint8Array(bytes), { scale: RASTER_SCALE });
-        const pageCount = Math.min(document.length, maxPages);
-        const out: RasterizedPage[] = [];
-        for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-          const page = await document.getPage(pageNumber);
-          out.push({ pageNumber, bytes: new Uint8Array(page) });
-        }
-        await document.destroy().catch(() => undefined);
-        if (out.length === 0) throw new Error("rasterizer produced no pages");
-        return out;
-      } catch (error) {
-        if (error instanceof ApiError) throw error;
-        throw noTextLayerError(error);
-      }
-    }),
-  );
+/**
+ * poppler's `pdftoppm`, in a subprocess.
+ *
+ * It writes NUMBERED FILES (`page-1.png`, or `page-01.png` once the last page has
+ * two digits — poppler pads to the width of `-l`), so the output has to be a
+ * directory prefix and the page number is read back off the filename rather than
+ * assumed from the loop counter. Both the input and the output live in a temp dir
+ * that is removed in `finally`, so a crashed render leaves nothing behind.
+ */
+async function rasterizeWithPoppler(bytes: Uint8Array, maxPages: number): Promise<RasterizedPage[]> {
+  const directory = await mkdtemp(join(tmpdir(), "toon-pdf-"));
+  try {
+    const input = join(directory, "in.pdf");
+    await writeFile(input, bytes);
+    const prefix = join(directory, "page");
+
+    let child: ReturnType<typeof Bun.spawn>;
+    try {
+      child = Bun.spawn(
+        [env.PDFTOPPM_BIN, "-png", "-r", String(RASTER_DPI), "-f", "1", "-l", String(maxPages), input, prefix],
+        { stdout: "ignore", stderr: "pipe" },
+      );
+    } catch (error) {
+      // ENOENT: poppler is not installed on this host.
+      throw noTextLayerError(error);
+    }
+
+    const [exitCode, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stderr as ReadableStream<Uint8Array>).text(),
+    ]);
+    if (exitCode !== 0) {
+      throw noTextLayerError(new Error(stderr.trim() || `pdftoppm exited with ${exitCode}`));
+    }
+
+    const pages: RasterizedPage[] = [];
+    for (const name of await readdir(directory)) {
+      const match = /^page-(\d+)\.png$/.exec(name);
+      if (match === null) continue;
+      pages.push({
+        pageNumber: Number(match[1]),
+        bytes: new Uint8Array(await readFile(join(directory, name))),
+      });
+    }
+    pages.sort((left, right) => left.pageNumber - right.pageNumber);
+
+    if (pages.length === 0) throw noTextLayerError(new Error("rasterizer produced no pages"));
+    return pages;
+  } finally {
+    await rm(directory, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 function noTextLayerError(error: unknown): ApiError {

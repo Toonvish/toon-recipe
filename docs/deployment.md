@@ -59,8 +59,13 @@ Passwort-Reset funktionieren vollständig.
 
 - **Raspberry Pi 4 oder 5 mit einem 64-Bit-Betriebssystem.** `uname -m` muss `aarch64`
   ausgeben. Für 32-Bit-ARM gibt es kein Bun, das Image lässt sich dort nicht starten.
-- **Mindestens 2 GB RAM.** Der Tesseract-Worker ist der Speicherfresser; mit 2 GB
-  `TOON_MEM_LIMIT=1200m` setzen. Ein Foto-Import dauert auf einem Pi 4 rund 10–30 s.
+- **Mindestens 2 GB RAM** — mit Reserve, nicht als harte Grenze. Die Texterkennung ist
+  weiterhin der Speicherfresser, ruft aber inzwischen das native `tesseract`-Binary in
+  einem eigenen Prozess auf statt tesseract.js (WASM) im API-Prozess, braucht also
+  deutlich weniger als früher und ist schneller. Die Werte in `docker/env.example`
+  (`TOON_MEM_LIMIT`, 2 GB → `1200m`) stammen noch aus der WASM-Zeit und sind seitdem
+  konservativ: wer kleiner fahren will, misst mit `docker stats` bei zwei parallelen
+  Foto-Importen (`MAX_CONCURRENT_OCR=2`) statt zu raten.
 - **SSD oder gute SD-Karte.** SQLite auf einer billigen SD-Karte ist der häufigste Grund
   für „die App ist langsam“.
 - Docker inkl. Compose-Plugin:
@@ -380,7 +385,8 @@ docker compose exec app bun apps/api/scripts/reset-password.ts <email>
 | Einkaufsliste funktioniert offline nicht | Gleiche Ursache: kein Service-Worker ohne vertrauenswürdiges Zertifikat. In den DevTools unter *Application → Service Workers* prüfen. |
 | Warnung, obwohl das Zertifikat installiert ist | Zugriff über IP oder einen anderen Namen als `TOON_HOSTNAME`. Immer denselben Namen benutzen. |
 | App zeigt nach dem Update die alte Version | Meist ein CDN/Proxy davor. `sw.js` und `index.html` liefert die API mit `Cache-Control: no-cache` aus — das darf nichts überschreiben. |
-| `ocr_failed` beim ersten Foto-Import | Sprachdaten fehlen im Volume. `docker compose exec app ls data/tessdata` prüfen, sonst `docker compose exec app bun run ocr:prefetch` (braucht einmal ausgehendes HTTPS). |
+| `ocr_failed` bei jedem Foto-Import | Binary oder Sprachpaket fehlt im Image. `docker compose exec app tesseract --list-langs` muss `deu` und `eng` zeigen. `reason` im Fehler sagt, was fehlt: `tesseract_unavailable` (Binary) oder `language_data_missing` (Sprachpaket). Nichts wird zur Laufzeit nachgeladen — das gehört ins Dockerfile. |
+| `pdf_no_text_layer` bei jedem gescannten PDF | poppler fehlt: `docker compose exec app pdftoppm -v`. |
 | Import bricht bei großen PDFs ab | Speicher. `TOON_MEM_LIMIT` prüfen; auf einem 2-GB-Pi `1200m`. |
 | Container ständig `unhealthy` | `docker compose logs app`. Meist eine fehlende Variable — die API nennt sie beim Start im Klartext. |
 | `docker compose pull` scheitert mit `denied` | GHCR-Package ist privat. Entweder auf *public* stellen (siehe [Schritt 1](#1--image-veröffentlichen-lassen)) oder auf dem Pi `docker login ghcr.io -u <user>` mit einem Read-Only-PAT. |

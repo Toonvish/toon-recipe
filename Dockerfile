@@ -12,12 +12,13 @@
 #  1. TARGET IS linux/arm64 (Pi 4 / Pi 5 on a 64-BIT OS). There is no Bun build
 #     for 32-bit ARM, so Raspberry Pi OS *must* be the 64-bit release — `uname -m`
 #     has to say `aarch64`. A 32-bit userland cannot run this image at all.
-#  2. DEBIAN, NOT ALPINE. `sharp` and `@napi-rs/canvas` (via pdf-to-img) ship
-#     prebuilt glibc binaries for linux-arm64; on musl they would be rebuilt from
-#     source on the Pi, which takes the better part of an hour when it works.
-#  3. THE WEB BUNDLE AND THE TESSERACT LANGUAGE DATA ARE BUILT ON THE BUILD
-#     PLATFORM ($BUILDPLATFORM), not the target. Both outputs are
-#     architecture-independent — JavaScript and *.traineddata — so building them
+#  2. DEBIAN, NOT ALPINE. `sharp` ships a prebuilt glibc binary for linux-arm64;
+#     on musl it would be rebuilt from source on the Pi, which takes the better
+#     part of an hour when it works. Debian also has `tesseract-ocr` and
+#     `poppler-utils` as ordinary packages, which is what the OCR and PDF
+#     pipelines now shell out to.
+#  3. THE WEB BUNDLE IS BUILT ON THE BUILD PLATFORM ($BUILDPLATFORM), not the
+#     target. Its output is architecture-independent JavaScript, so building it
 #     natively on the amd64 CI runner instead of under QEMU emulation is the
 #     difference between a ~4 minute and a ~40 minute build. Only the native
 #     node_modules are installed for arm64.
@@ -60,36 +61,17 @@ ENV NODE_ENV=production
 RUN bun --filter @toon/web build && test -f apps/web/dist/index.html && test -f apps/web/dist/sw.js
 
 # -----------------------------------------------------------------------------
-# tessdata — the OCR language packs, downloaded ONCE at build time.
-#
-# `bun run ocr:prefetch` performs a real recognition, because tesseract.js only
-# writes its cache when a worker actually initialises. Done here rather than on
-# first use so that (a) the first photo import on the Pi is not a 15 MB download
-# while someone waits, and (b) an install with no outbound HTTPS works at all.
-# Also on the BUILD platform: *.traineddata is just data.
-#
-# It needs sharp, hence a full install — but the ~15 MB of output is all we keep.
-# -----------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM oven/bun:${BUN_VERSION}-debian AS tessdata
-WORKDIR /app
-COPY --from=manifests /app/ ./
-RUN bun install --frozen-lockfile
-COPY packages/shared ./packages/shared
-COPY apps/api ./apps/api
-# env.ts validates at import time, so give it the minimum it insists on. None of
-# this reaches the final image.
-ENV NODE_ENV=production \
-    DATABASE_URL="file:./data/build.db" \
-    SESSION_SECRET="build-time-only-not-a-real-secret-0000" \
-    TESSERACT_LANGS="deu+eng"
-RUN bun run ocr:prefetch && ls -la data/tessdata/*.traineddata
-
-# -----------------------------------------------------------------------------
 # deps — production node_modules FOR THE TARGET ARCHITECTURE.
 #
 # The only stage that must run under emulation when cross-building, because this
-# is where sharp's and @napi-rs/canvas's arm64 binaries are fetched. No
-# compilation happens (they are prebuilt), so QEMU is tolerable here.
+# is where sharp's arm64 binary is fetched. No compilation happens (it is
+# prebuilt), so QEMU is tolerable here.
+#
+# There is no `tessdata` stage any more: OCR language data used to be downloaded at
+# build time because tesseract.js fetches its ~15 MB `.traineddata` over HTTPS on
+# first use. The native engine reads it from an OS package instead (installed in
+# the runtime stage), so the download, the seed copy and the entrypoint's volume
+# seeding are all gone.
 # -----------------------------------------------------------------------------
 FROM oven/bun:${BUN_VERSION}-debian AS deps
 WORKDIR /app
@@ -102,12 +84,32 @@ RUN bun install --frozen-lockfile --production
 FROM oven/bun:${BUN_VERSION}-debian AS runtime
 WORKDIR /app
 
-# tini reaps zombies and forwards signals. The API's SIGTERM handler shuts the
-# long-lived tesseract worker down gracefully (see src/index.ts); as PID 1 without
-# an init, that signal handling is unreliable and a redeploy can leak the worker.
+# --- native OCR + PDF rasterization -----------------------------------------
+# THE APP SHELLS OUT TO BOTH OF THESE; without them every photo and scanned-PDF
+# import answers 422. They replaced tesseract.js and pdf-to-img, which is where
+# most of this deployment's memory footprint used to go.
+#
+#   tesseract-ocr          the engine (services/ocr/tesseract.ts)
+#   tesseract-ocr-deu/-eng one package PER language in TESSERACT_LANGS. Adding a
+#                          language to that variable without adding its package
+#                          here fails at recognise time, not at boot.
+#   poppler-utils          pdftoppm, the PDF rasterizer (services/ocr/pdf.ts)
+#
+# tini reaps zombies and forwards signals. It matters more now, not less: every
+# recognition is a CHILD PROCESS, and PID 1 without an init leaves a killed
+# tesseract as a zombie on every aborted or timed-out import.
 RUN apt-get update \
- && apt-get install --no-install-recommends -y tini ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+ && apt-get install --no-install-recommends -y \
+      tini \
+      ca-certificates \
+      tesseract-ocr \
+      tesseract-ocr-deu \
+      tesseract-ocr-eng \
+      poppler-utils \
+ && rm -rf /var/lib/apt/lists/* \
+ && tesseract --version \
+ && tesseract --list-langs \
+ && pdftoppm -v
 
 ENV NODE_ENV=production \
     API_PORT=3001 \
@@ -138,16 +140,12 @@ COPY --from=web-build /app/apps/web/dist ./apps/web/dist
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
-# Seed copy, NOT the live path: /app/data is a volume, so anything written there
-# at build time disappears behind a bind mount. The entrypoint copies these in
-# when the volume has none. See docker/entrypoint.sh.
-COPY --from=tessdata /app/data/tessdata /app/seed/tessdata
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # `bun` is the unprivileged user the oven/bun images ship with (uid 1000, which is
 # also the default `pi` uid — so a bind-mounted ./data is writable without chown).
-RUN mkdir -p /app/data/uploads /app/data/tessdata && chown -R bun:bun /app/data
+RUN mkdir -p /app/data/uploads && chown -R bun:bun /app/data
 USER bun
 
 VOLUME ["/app/data"]

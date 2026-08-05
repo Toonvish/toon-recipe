@@ -1,9 +1,12 @@
 /**
  * The single place the rest of the API gets an `OcrEngine` from.
  *
- * `getOcrEngine()` returns a process-wide warm TesseractEngine; `setOcrEngine()`
+ * `getOcrEngine()` returns the process-wide TesseractEngine; `setOcrEngine()`
  * replaces it, which is how tests inject a fake engine and never run real
- * Tesseract. `shutdownOcr()` releases the worker on process exit.
+ * Tesseract. `shutdownOcr()` is now a formality — the native engine holds no
+ * worker between calls — but it stays on the interface so an engine that DOES own
+ * a handle (a sidecar, a cloud client with a keep-alive pool) can be dropped in
+ * without changing any caller.
  */
 import { env } from "../../env.ts";
 import { ApiError } from "../../lib/errors.ts";
@@ -53,11 +56,12 @@ export const OCR_TIMEOUT_MS = 60_000;
 /**
  * Runs `operation` with a hard timeout that is REALLY hard.
  *
- * The signal is cooperative — `unpdf`'s extractText and tesseract's
- * `worker.recognize` ignore it entirely — so awaiting the operation and merely
- * relabelling its rejection meant a stuck worker held the request open forever,
- * however loudly the constant was named OCR_TIMEOUT_MS. The deadline is therefore
- * a `Promise.race`: the client always gets an answer at `timeoutMs`, and the
+ * The signal is only PARTLY honoured downstream, so this must stay a
+ * `Promise.race`. The native OCR engine does respect it (aborting kills the
+ * `tesseract` child), but `unpdf`'s extractText still ignores it entirely — and
+ * awaiting the operation while merely relabelling its rejection meant a stuck
+ * extraction held the request open forever, however loudly the constant was named
+ * OCR_TIMEOUT_MS. So: the client always gets an answer at `timeoutMs`, and the
  * abandoned work is still aborted (best effort) so it stops burning CPU.
  *
  * @throws ApiError 504 `ocr_failed` when the budget is exhausted.
@@ -101,12 +105,18 @@ export async function withOcrTimeout<T>(
 /**
  * How many OCR/PDF pipelines may run at the same time, process-wide.
  *
- * Each one holds up to 15 MB of image bytes, runs sharp, and drives the single
- * Tesseract worker; a handful of parallel uploads is enough to make a self-hosted
- * box unusable. Requests that arrive while the gate is full are REJECTED (429),
- * not queued — a queue would just move the timeout to a place where the user
- * cannot see it. The per-user `IMPORT_RULE` rate limit is the first line of
- * defence; this is the backstop against several users at once.
+ * Each one holds up to 15 MB of image bytes, runs sharp, and spawns a `tesseract`
+ * process; a handful of parallel uploads is enough to make a self-hosted box
+ * unusable. Requests that arrive while the gate is full are REJECTED (429), not
+ * queued — a queue would just move the timeout to a place where the user cannot
+ * see it. The per-user `IMPORT_RULE` rate limit is the first line of defence; this
+ * is the backstop against several users at once.
+ *
+ * SINCE THE ENGINE WENT NATIVE THIS IS THE ONLY BOUND ON OCR CONCURRENCY. The
+ * tesseract.js engine also serialized internally, because one WASM worker cannot
+ * run two recognitions at once; separate processes can, so this number is now
+ * directly the peak number of concurrent tesseract processes — i.e. the app's
+ * memory ceiling. Raise it only with a measurement.
  */
 export const MAX_CONCURRENT_OCR = 2;
 

@@ -412,7 +412,8 @@ Details, inklusive Rollback auf einen bestimmten Image-Digest, in
 | Warnung, obwohl das Zertifikat installiert ist | Zugriff über die IP oder einen anderen Namen als `TOON_HOSTNAME`. |
 | Einkaufsliste funktioniert offline nicht | Gleiche Ursache: kein Service-Worker ohne vertrauenswürdiges Zertifikat. |
 | Hostname nicht auflösbar | Ohne FRITZ!Box/mDNS: feste IP im Router vergeben und den Namen dort (oder per `/etc/hosts` je Gerät) hinterlegen. |
-| `ocr_failed` beim ersten Foto-Import | Sprachdaten fehlen im Volume: `docker compose exec app ls data/tessdata`, sonst `docker compose exec app bun run ocr:prefetch`. |
+| `ocr_failed` bei jedem Foto-Import | Texterkennung fehlt im Image: `docker compose exec app tesseract --list-langs` muss `deu` und `eng` zeigen. |
+| `pdf_no_text_layer` bei jedem gescannten PDF | poppler fehlt: `docker compose exec app pdftoppm -v`. |
 | Import bricht bei großen PDFs ab | Speicher: `TOON_MEM_LIMIT` prüfen (2-GB-Pi → `1200m`). |
 
 Alles Weitere — Update, Rollback, Backup, Logs, echte Mails, echtes Zertifikat — in

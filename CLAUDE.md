@@ -34,7 +34,8 @@ recipes, import from URL / photo / PDF, mobile-first installable PWA. Bun worksp
    `POST …/imports/:draftId/commit`. Three sources: URL (JSON-LD `@graph`/array → microdata → site
    selectors), image (server-side OCR), PDF (text layer first, rasterize+OCR fallback,
    `422 pdf_no_text_layer` when rasterization is unavailable).
-6. **OCR is server-side** (`tesseract.js`, `deu+eng`, German first, `sharp` preprocessing) behind the
+6. **OCR is server-side** (NATIVE `tesseract` in a subprocess, `deu+eng`, German first, `sharp`
+   preprocessing; PDFs rasterized by poppler's `pdftoppm`) behind the
    swappable `OcrEngine` interface in `src/services/ocr/`. **Mail uses the same shape**: `Mailer`
    interface in `src/services/mail/`, `ConsoleMailer` as the no-config default, then `SmtpMailer`
    (dependency-free, `node:net`/`node:tls`) and `ResendMailer`. **SMTP is the self-hosted transport
@@ -96,7 +97,7 @@ apps/api/src/
   services/auth|groups|recipes|import|media|ocr|mail|shopping/
                            mail/: console.ts · smtp.ts (self-hosted default) · resend.ts
                            media/: thumbnails.ts (generated `<name>.thumb.webp` list images)
-  scripts/{migrate,seed,ocr-prefetch,reset-password,uploads-gc}.ts
+  scripts/{migrate,seed,reset-password,uploads-gc}.ts
   test/                    ALL api tests (test/, NOT tests/ — tsconfig only includes test/**)
                            test/support/ shared test helpers (removeUpload — see the note below)
 apps/web/src/
@@ -206,13 +207,36 @@ add to that panel instead.
   in `consider()`, i.e. BEFORE the merge.
 - **`parseDuration` / `parseServings` return the UPPER bound** of a range (`"20-25 Minuten"` → 25).
   `scaleIngredients` throws `RangeError` for factor ≤ 0 and leaves `raw` untouched (provenance).
-- **TWO INCOMPATIBLE pdf.js COPIES share the process.** `unpdf` (text layer) bundles pdf.js 6 and
-  installs `globalThis.pdfjsWorker`; `pdf-to-img` uses `pdfjs-dist` 5, which version-checks that
-  global and throws. `rasterizePdf()` in `services/ocr/pdf.ts` stashes/restores those globals and
-  serializes both phases through one lock. Remove that and EVERY scanned PDF answers 422
-  `pdf_no_text_layer`. `test/import/pdf-rasterize.test.ts` is the only import test that uses the real
-  rasterizer — **never** `mock.module("pdf-to-img")` in it, and keep its rendered-size assertion
-  (a leaked mock from another file would otherwise make it pass).
+- **OCR AND PDF RASTERIZATION ARE NATIVE SUBPROCESSES, not libraries.** `services/ocr/tesseract.ts`
+  spawns `tesseract`, `services/ocr/pdf.ts` spawns poppler's `pdftoppm`, and the Docker image
+  installs `tesseract-ocr`, `tesseract-ocr-deu`, `tesseract-ocr-eng` and `poppler-utils`. This
+  replaced `tesseract.js` (WASM: same models, several times the peak memory, ~15 MB of language data
+  loaded into the API process) and `pdf-to-img`, and it is why the deployment no longer needs 2 GB of
+  RAM. Consequences worth knowing before you touch it:
+  - **A missing binary must stay the documented 422**, never a module-load crash — `ocr_failed`
+    (`reason: "tesseract_unavailable"` / `"language_data_missing"`) and `pdf_no_text_layer`
+    (`reason: "rasterization_unavailable"`). `TESSERACT_BIN`/`PDFTOPPM_BIN` override the paths.
+  - **Adding a language to `TESSERACT_LANGS` needs its `tesseract-ocr-<lang>` package in the
+    Dockerfile.** Nothing is downloaded at runtime any more, so a missing pack fails at recognise
+    time, not at boot.
+  - **One tesseract run writes BOTH `txt` and `tsv`, on purpose.** Only the txt renderer honours
+    `preserve_interword_spaces` (which keeps "250 g   Mehl" aligned); only the tsv carries per-word
+    confidence. Rebuilding the text from tsv word boxes collapses every run of spaces to one. Writing
+    to stdout can emit only ONE format, hence the temp dir.
+  - **`parseTesseractOutput` is pure so `bun test` can cover it without the binary** — no test runs
+    real OCR, and most dev machines have no `tesseract`. Verify the binary itself by building and
+    running the image.
+  - **`MAX_CONCURRENT_OCR` is now the ONLY bound on OCR concurrency** (the tesseract.js engine also
+    serialized internally, because one WASM worker cannot recognise twice at once). It is therefore
+    directly the peak number of concurrent tesseract processes.
+  - **The abort signal is now real for OCR** — aborting kills the child — but `withOcrTimeout` must
+    STILL be a `Promise.race`, because `unpdf` remains cooperative-only.
+- **`test/import/pdf-rasterize.test.ts` is the only test that uses the REAL rasterizer**, it needs
+  `pdftoppm` on the machine (CI installs it), and it must keep failing rather than skipping when the
+  binary is absent — a silent skip is how the fallback stayed dead the first time. Never stub the
+  rasterizer in that file; keep its rendered-size assertion, which a leaked stub would otherwise
+  satisfy. Everywhere else, stub via `setPdfRasterizer()` and reset it in `afterEach` — NOT
+  `mock.module`, see the mock-leak gotcha below.
 - **OAuth never auto-links on an e-mail match, even a CONFIRMED one.** Auto-linking on the old
   always-true `emailVerified` let an attacker pre-register a victim's address and capture their later
   Google/GitHub login. Linking is explicit: `GET /api/auth/oauth/:provider/link` (session +
@@ -233,10 +257,7 @@ add to that panel instead.
   header value = a new bucket). Login also has an IP-independent per-address bucket.
 - **Import endpoints must stay bounded**: `enforceRateLimit(c, "import", user.id, IMPORT_RULE)` in
   every handler, `withOcrSlot()` around every OCR/PDF pipeline, and `withOcrTimeout` must remain a
-  `Promise.race` — the abort signal is cooperative and tesseract/unpdf ignore it.
-- **`tesseract.js` never creates its own `cachePath`.** `ensureLangCacheDir()` in
-  `services/ocr/tesseract.ts` mkdirs `data/tessdata`; without it every cache write ENOENTs silently
-  and each restart re-downloads ~15 MB. `bun run ocr:prefetch` warms it at deploy time.
+  `Promise.race` — `unpdf` still ignores the abort signal even though OCR now honours it.
 - **Recipe list/search filters live in the URL**, owned by `useUrlRecipeFilters`
   (`apps/web/src/features/recipes/lib/url-filters.ts`). A new filter needs a line in
   `RECIPE_FILTER_PARAMS` (`router.tsx`) — `pick()` drops anything unlisted. **`/search` must
@@ -410,14 +431,16 @@ add to that panel instead.
   FILESYSTEM order, not alphabetical.** Both halves matter: `bun test` runs every file in one process,
   so a stub installed in one file is still installed in the next; and which file is "next" differs
   between a working copy and a fresh clone, so the resulting failure appears only on some machines.
-  This is exactly how `ocr-segment.test.ts` (which stubs `pdf-to-img`) broke `pdf-rasterize.test.ts`
-  in CI while passing locally — one failing test, in ~3 ms, on the rendered-size assertion.
-  So: **a file that calls `mock.module()` must hand the module back in `afterAll`**, same rule as
-  `setMailer(null)`. And it must snapshot the real export **by value** at module-evaluation time
-  (`const realPdf = pdfToImg.pdf`) — a namespace object is a LIVE view of the registry, so
-  `mock.module(spec, () => namespace)` restores the stub over itself and silently does nothing.
-  `bun test a.ts b.ts` does NOT let you control the order, so ordering cannot be tested that way;
-  inject a stub into a file that already runs earlier instead.
+  This is exactly how `ocr-segment.test.ts` (which stubbed `pdf-to-img`) broke
+  `pdf-rasterize.test.ts` in CI while passing locally — one failing test, in ~3 ms, on the
+  rendered-size assertion. **PREFER AN EXPLICIT SEAM**: that pair is now `setPdfRasterizer()` +
+  `afterEach`, which cannot leak silently, and it is the pattern to copy (`setMailer`, `setOcrEngine`
+  are the others). Where `mock.module()` is unavoidable: **the file must hand the module back in
+  `afterAll`**, same rule as `setMailer(null)`, and it must snapshot the real export **by value** at
+  module-evaluation time (`const real = ns.thing`) — a namespace object is a LIVE view of the
+  registry, so `mock.module(spec, () => namespace)` restores the stub over itself and silently does
+  nothing. `bun test a.ts b.ts` does NOT let you control the order, so ordering cannot be tested that
+  way; inject a stub into a file that already runs earlier instead.
 - **Bun 1.3 uses the ISOLATED linker for workspaces**, so `node_modules/` at the root holds nothing
   but the `.bun` store and each workspace gets its OWN symlink tree. A Dockerfile that copies only
   `/app/node_modules` builds and starts fine and then dies on the first request with
@@ -450,10 +473,14 @@ add to that panel instead.
 - **Mailpit is bound to `127.0.0.1` in compose, not the LAN.** Its UI shows every password-reset and
   invite link, so LAN access there is account takeover for anyone on the wifi. Reach it via
   `ssh -L 8025:127.0.0.1:8025`.
-- **`/app/data` is a VOLUME, so anything written there at build time is invisible at runtime.** The
-  OCR traineddata is therefore baked to `/app/seed/tessdata` and copied in by `docker/entrypoint.sh`
-  when the volume has none. Prefetching straight into `/app/data` looks like it works and silently
-  re-downloads ~15 MB on every fresh volume.
+- **`/app/data` is a VOLUME, so anything written there at build time is invisible at runtime.**
+  Nothing in the image relies on that today, and the reason is worth keeping: the OCR language data
+  used to be prefetched at build time and had to be baked to `/app/seed/tessdata` and copied in by
+  `docker/entrypoint.sh` whenever the volume had none, because writing it straight to `/app/data`
+  looks like it works and then silently re-downloads ~15 MB on every fresh volume. The native engine
+  reads its language data from `/usr/share/tesseract-ocr` — image content a volume cannot hide —
+  which is what let that whole dance be deleted. Anything else you are tempted to seed into
+  `/app/data` at build time has the same trap.
 - **Never verify a Docker build through a pipe** (`docker build … | tail`): the pipeline's exit code
   is `tail`'s, so a failed build reads as success. Redirect to a file and check `$?`.
 

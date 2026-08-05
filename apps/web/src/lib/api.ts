@@ -895,7 +895,7 @@ export function importFromUrl(
   });
 }
 
-/** Photo of a recipe -> server-side OCR (sharp + tesseract.js deu+eng) -> draft. */
+/** Photo of a recipe -> server-side OCR (sharp + native tesseract, deu+eng) -> draft. */
 export function importFromImage(
   groupId: string,
   file: File,

@@ -1,6 +1,6 @@
 /**
  * The OCR abstraction. Everything downstream of this file talks to `OcrEngine`
- * and never to tesseract.js, which is what makes the engine swappable (a future
+ * and never to the tesseract binary, which is what makes the engine swappable (a
  * PaddleOCR sidecar, a cloud Vision API, or the fake engine used in tests).
  */
 
@@ -36,7 +36,7 @@ export interface OcrResult {
 }
 
 export interface OcrEngine {
-  /** Stable name for diagnostics, e.g. "tesseract.js@7". */
+  /** Stable name for diagnostics, e.g. "tesseract-native". */
   readonly name: string;
   /** Recognises text in a raster image (PNG/JPEG/WEBP bytes). */
   recognize(input: Uint8Array, options?: OcrOptions): Promise<OcrResult>;

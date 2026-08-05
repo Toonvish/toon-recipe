@@ -81,6 +81,16 @@ const EnvSchema = z
 
     UPLOAD_DIR: z.string().default("./data/uploads"),
     TESSERACT_LANGS: z.string().default("deu+eng"),
+    /**
+     * OCR and PDF rasterization run as NATIVE SUBPROCESSES, so both binaries have
+     * to be on the host. The Docker image installs them (`tesseract-ocr`,
+     * `tesseract-ocr-deu`, `tesseract-ocr-eng`, `poppler-utils`); these overrides
+     * exist for a dev machine that keeps them somewhere else, or a Nix/Homebrew
+     * path. Each language in TESSERACT_LANGS needs its own `tesseract-ocr-<lang>`
+     * package — a missing one fails at recognise time with a 422 naming it.
+     */
+    TESSERACT_BIN: z.string().default("tesseract"),
+    PDFTOPPM_BIN: z.string().default("pdftoppm"),
 
     /**
      * Directory of the built web app (`apps/web/dist`). When set, the API also

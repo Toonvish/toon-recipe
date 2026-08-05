@@ -205,19 +205,22 @@ Notes
 - URL pipeline: fetch → JSON-LD `@graph`/array-aware schema.org `Recipe` → microdata → site selectors
   (chefkoch.de, WP Recipe Maker for biancazapatka.com). Durations via `parseDuration`, yield via
   `parseServings`, ingredient lines via `parseIngredientLine`.
-- PDF pipeline: text layer first (`unpdf`), rasterize + OCR only as fallback (`pdf-to-img` →
-  `sharp` → `tesseract.js`). If rasterization is unavailable, answer
+- PDF pipeline: text layer first (`unpdf`), rasterize + OCR only as fallback (`pdftoppm` →
+  `sharp` → `tesseract`). If rasterization is unavailable, answer
   `422 { code: "pdf_no_text_layer" }` with the actionable German message
   "Das PDF enthält keine Textebene. Bitte lade ein Foto der Seite hoch."
-  TWO pdf.js COPIES: `unpdf` bundles pdf.js 6 and installs `globalThis.pdfjsWorker`; `pdfjs-dist` 5
-  behind `pdf-to-img` version-checks that global and throws. `rasterizePdf()` therefore stashes and
-  restores those globals and serializes both phases through one lock — without it EVERY scanned PDF
-  answered `pdf_no_text_layer` / `rasterization_unavailable`. The regression test
-  (`apps/api/test/import/pdf-rasterize.test.ts`) must never mock `pdf-to-img`.
+  BOTH OCR STEPS ARE NATIVE SUBPROCESSES, not libraries: `tesseract` and poppler's `pdftoppm` must be
+  installed on the host (the image installs `tesseract-ocr`, `tesseract-ocr-deu`, `tesseract-ocr-eng`
+  and `poppler-utils`). A missing binary is the documented 422, not a crash. `sourceMeta.engine` is
+  therefore `tesseract-native`. Tests stub rasterization via `setPdfRasterizer()` and must reset it;
+  the regression test (`apps/api/test/import/pdf-rasterize.test.ts`) uses the real one and asserts the
+  rendered page size, so a leaked stub cannot make it pass.
 - Every import endpoint is rate limited (`IMPORT_RULE`, 10 per user per minute → 429 `rate_limited`),
   and the OCR/PDF paths additionally hold one of `MAX_CONCURRENT_OCR` (2) process-wide slots → 429
-  when full. `OCR_TIMEOUT_MS` (60 s) is a `Promise.race`, so a worker that ignores the abort signal
-  still yields `504 ocr_failed` on time.
+  when full. Since the engine went native that gate is also the cap on concurrent `tesseract`
+  processes, i.e. the memory ceiling. `OCR_TIMEOUT_MS` (60 s) is a `Promise.race`, so an extraction
+  that ignores the abort signal still yields `504 ocr_failed` on time — OCR itself now honours it
+  (aborting kills the child), but `unpdf` does not.
 - `ParsedRecipe.sourceUrl` and `CreateRecipeRequest.sourceUrl` accept **http(s) only**
   (`HttpUrlSchema`); anything else is 422. They are rendered into `<a href>`, and a `javascript:`
   value stored by a member would run on the app origin with the reader's session.

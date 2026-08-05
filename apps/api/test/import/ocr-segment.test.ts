@@ -2,26 +2,15 @@
  * OCR text -> recipe segmentation, quantity repair, and the image/PDF pipelines.
  * A FAKE OcrEngine is injected everywhere — real Tesseract never runs in tests.
  *
- * THIS FILE STUBS `pdf-to-img` AND MUST HAND IT BACK (see the afterAll at the
- * bottom). `mock.module` is process-global and bun NEVER restores it between test
- * files, and the file execution order is filesystem-dependent — so leaving the
- * stub installed breaks `pdf-rasterize.test.ts` (the one test that uses the REAL
- * rasterizer) on whichever machine happens to enumerate this file first. Same rule
- * as `setMailer(null)` for the mailer.
+ * THE RASTERIZER IS STUBBED VIA `setPdfRasterizer` AND RESET IN `afterEach`, not
+ * with `mock.module`. That used to be the mechanism, and it was a trap: this file
+ * stubbed `pdf-to-img` process-globally, bun never restores a module mock between
+ * files, and file execution order is FILESYSTEM order rather than alphabetical — so
+ * the stub broke `pdf-rasterize.test.ts` (the one test using the REAL rasterizer)
+ * on whichever machine happened to enumerate this file first. It passed locally and
+ * failed in CI for exactly that reason. An explicit seam cannot leak that way.
  */
-import { afterAll, describe, expect, mock, test } from "bun:test";
-import * as pdfToImg from "pdf-to-img";
-
-/**
- * The REAL `pdf()`, snapshotted BY VALUE at module-evaluation time (before any
- * `mock.module` below runs) so the afterAll at the bottom can put it back.
- *
- * It has to be the function, not the namespace: a namespace object is a LIVE view
- * of the module registry, so after `mock.module` replaces the module, `pdfToImg.pdf`
- * is the stub — and "restoring" from the namespace restores the stub over itself,
- * which looks like it works and changes nothing.
- */
-const realPdf = pdfToImg.pdf;
+import { afterEach, describe, expect, test } from "bun:test";
 import { ApiError } from "../../src/lib/errors.ts";
 import { importFromImage, importFromPdf, importFromText } from "../../src/services/import/ocr/index.ts";
 import {
@@ -40,6 +29,7 @@ import {
   isUsableTextLayer,
   normalizePdfText,
   pdfToText,
+  setPdfRasterizer,
 } from "../../src/services/ocr/pdf.ts";
 import {
   MAX_CONCURRENT_OCR,
@@ -540,18 +530,14 @@ describe("PDF text handling", () => {
 
   test("the rasterize + OCR fallback runs one recognise call per page, capped", async () => {
     const png = await makeTestPng();
-    // Stub the rasterizer: pdf.ts imports it dynamically, so the mock applies.
-    mock.module("pdf-to-img", () => ({
-      pdf: async () => ({
-        length: 25,
-        metadata: {},
-        isDestroyed: false,
-        async getPage() {
-          return Buffer.from(png);
-        },
-        async destroy() {},
-      }),
-    }));
+    // A 25-page document with maxPages 2: the rasterizer is asked for the cap, so
+    // it returns exactly that many pages and OCR runs twice, not 25 times.
+    setPdfRasterizer(async (_bytes, maxPages) =>
+      Array.from({ length: Math.min(25, maxPages) }, (_unused, index) => ({
+        pageNumber: index + 1,
+        bytes: png,
+      })),
+    );
 
     const engine = createFakeOcrEngine({ text: ["Seite eins Text", "Seite zwei Text"], confidence: 0.7 });
     const result = await pdfToText(new TextEncoder().encode("%PDF-1.4 stub"), engine, {
@@ -571,17 +557,7 @@ describe("PDF text handling", () => {
 
   test("importFromPdf reports method 'ocr' and the page count in sourceMeta", async () => {
     const png = await makeTestPng();
-    mock.module("pdf-to-img", () => ({
-      pdf: async () => ({
-        length: 1,
-        metadata: {},
-        isDestroyed: false,
-        async getPage() {
-          return Buffer.from(png);
-        },
-        async destroy() {},
-      }),
-    }));
+    setPdfRasterizer(async () => [{ pageNumber: 1, bytes: png }]);
 
     const engine = createFakeOcrEngine({
       text: "Apfelkuchen\nZutaten\n300 g Mehl\n4 Eier\nZubereitung\n1. Alles verruehren und backen.",
@@ -606,19 +582,15 @@ describe("PDF text handling", () => {
 });
 
 /**
- * Hands `pdf-to-img` back to the rest of the suite.
+ * Hands the REAL poppler rasterizer back after every test.
  *
- * `mock.module` is process-global and bun does NOT undo it when a test file ends,
- * so without this the stub above stays installed for every file that runs after
- * this one. `pdf-rasterize.test.ts` is the only test that exercises the REAL
- * rasterizer, and with the stub in place its rendered-size assertion fails —
- * which is precisely the failure that assertion exists to catch.
- *
- * The failure is ORDER-DEPENDENT and therefore machine-dependent: bun enumerates
- * test files from the filesystem, not alphabetically, so a fresh clone (CI) can
- * run this file first while a working copy runs it second. It passed locally and
- * failed in CI for exactly that reason.
+ * Non-negotiable for the same reason `setMailer(null)` is: `bun test` runs every
+ * file in ONE process, so a seam left overridden here stays overridden for every
+ * file that runs afterwards — and `pdf-rasterize.test.ts` is the only test that
+ * exercises the real rasterizer, so it would fail its rendered-size assertion,
+ * which is precisely the failure that assertion exists to catch. `afterEach` rather
+ * than `afterAll` so one stubbing test cannot affect the next test in this file.
  */
-afterAll(() => {
-  mock.module("pdf-to-img", () => ({ pdf: realPdf }));
+afterEach(() => {
+  setPdfRasterizer(null);
 });
