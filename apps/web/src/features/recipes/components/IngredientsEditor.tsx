@@ -13,7 +13,7 @@ import { parseIngredientLine } from "@toon/shared";
 import { Button, Dialog, IconButton, Input, Textarea } from "@/components/ui";
 import { useT } from "@/lib/i18n";
 import type { FieldErrors } from "@/lib/validation";
-import { moveItem } from "../lib/hooks";
+import { moveItem, moveTargetIndex, patchRow, removeRow } from "../lib/hooks";
 import { sectionNames } from "../lib/format";
 import {
   emptyIngredientRow,
@@ -44,19 +44,18 @@ export function IngredientsEditor({
   const sections = sectionNames(rows);
 
   function patch(index: number, changes: Partial<IngredientRow>) {
-    onChange(rows.map((row, position) => (position === index ? { ...row, ...changes } : row)));
+    onChange(patchRow(rows, index, changes));
   }
 
   function move(index: number, delta: number) {
-    const target = index + delta;
-    if (target < 0 || target >= rows.length) return;
+    const target = moveTargetIndex(rows.length, index, delta);
+    if (target === undefined) return;
     onChange(moveItem(rows, index, target));
     setStatus(t("recipes.ingredientsEditor.status.moved", { position: target + 1 }));
   }
 
   function remove(index: number) {
-    const next = rows.filter((_row, position) => position !== index);
-    onChange(next.length > 0 ? next : [emptyIngredientRow()]);
+    onChange(removeRow(rows, index, emptyIngredientRow));
     setStatus(t("recipes.ingredientsEditor.status.removed"));
   }
 

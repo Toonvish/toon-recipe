@@ -29,18 +29,32 @@ export function hashToken(token: string): string {
   return hasher.digest("hex");
 }
 
+/** Re-exported so a token comparison never grows a second implementation. */
+export { timingSafeEqualHex } from "../../lib/timingSafe.ts";
+
+/** The two columns every mailed-token table shares, and all this guard reads. */
+interface SpendableTokenRow {
+  usedAt: number | null;
+  expiresAt: number;
+}
+
 /**
- * Constant-time comparison of two hex digests.
+ * The "is this row still worth anything" half of a token lookup, identical for
+ * password reset and e-mail confirmation.
  *
- * Lookups here go through a UNIQUE index on the hash, so there is no secret to
- * leak by timing in the happy path — this exists for the places that compare a
- * recomputed digest against one already in hand.
+ * UNKNOWN, ALREADY-USED AND EXPIRED MUST BE INDISTINGUISHABLE, which is why the
+ * caller passes ONE `invalid` factory and every branch here throws it — three
+ * different errors would tell an attacker whether the token ever existed. Keeping
+ * the query at the call site keeps drizzle's row type exact; only the verdict is
+ * shared.
  */
-export function timingSafeEqualHex(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let index = 0; index < a.length; index += 1) {
-    diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
-  }
-  return diff === 0;
+export function assertSpendableToken<T extends SpendableTokenRow>(
+  row: T | undefined,
+  invalid: () => Error,
+  now: number = Date.now(),
+): T {
+  if (!row) throw invalid();
+  if (row.usedAt !== null) throw invalid();
+  if (row.expiresAt <= now) throw invalid();
+  return row;
 }

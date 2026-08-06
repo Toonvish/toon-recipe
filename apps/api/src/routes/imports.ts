@@ -37,7 +37,7 @@ import {
   ParsedRecipeSchema,
   UpdateImportDraftRequestSchema,
 } from "@toon/shared";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { z } from "zod";
 import { ApiError } from "../lib/errors.ts";
 import { created, json, noContent } from "../lib/http.ts";
@@ -55,7 +55,12 @@ import {
   toDraftWire,
   updateDraft,
 } from "../services/import/drafts.ts";
-import { deleteUpload, readUploadedFile, resolveUploadPath } from "../services/import/files.ts";
+import {
+  type ImportFileKind,
+  deleteUpload,
+  readUploadedFile,
+  resolveUploadPath,
+} from "../services/import/files.ts";
 import { requireGroupRole, requireSession } from "../services/import/middleware-bridge.ts";
 import { importFromImage, importFromPdf, importFromText } from "../services/import/ocr/index.ts";
 import { importFromUrl } from "../services/import/url/index.ts";
@@ -107,104 +112,60 @@ importRoutes.post("/url", async (c) => {
   return created<ImportDraftResponse>(c, { draft });
 });
 
-/* ----------------------------- image import ------------------------------- */
+/* -------------------- OCR uploads: image / pdf / file --------------------- */
+
+/**
+ * The three multipart OCR endpoints, which differ ONLY in which sniffed kinds
+ * they accept — the pipeline is picked from the sniffed content either way, so
+ * `/file` is `/image` and `/pdf` with a wider `accept`.
+ *
+ * ORDER INSIDE THE HANDLER IS PART OF THE CONTRACT: `assertOcrImportEnabled()`
+ * runs FIRST, before the rate limit and before the body is read, so a deployment
+ * without OCR never spends a bucket slot or buffers 15 MB to produce a 501.
+ * `test/import/ocr-disabled.test.ts` pins both.
+ */
+function ocrUploadHandler(accept: readonly ImportFileKind[]) {
+  return async (c: Context<AppEnv>) => {
+    const user = requireUser(c);
+    const { groupId } = requireMembership(c);
+
+    assertOcrImportEnabled();
+    enforceRateLimit(c, "import", user.id, IMPORT_RULE);
+
+    const file = await readUploadedFile(c.req.raw, { accept });
+    // Omitted rather than undefined: the option types are exactOptionalPropertyTypes-shaped.
+    const named = file.originalName === undefined ? {} : { originalName: file.originalName };
+    const result = await withOcrSlot(() =>
+      file.kind === "pdf"
+        ? importFromPdf(file.bytes, named)
+        : importFromImage(file.bytes, { mimeType: file.mimeType, ...named }),
+    );
+
+    const draft = await createDraft(importDb(), {
+      groupId,
+      createdBy: user.id,
+      sourceType: "ocr",
+      parsed: result.parsed,
+      rawText: result.rawText,
+      sourceMeta: result.sourceMeta,
+    });
+
+    return created<ImportDraftResponse>(c, { draft });
+  };
+}
 
 /** POST /api/groups/:groupId/imports/image — multipart `file`, image/* only. */
-importRoutes.post("/image", async (c) => {
-  const user = requireUser(c);
-  const { groupId } = requireMembership(c);
-
-  // BEFORE the rate limit and before the body is read: a deployment without OCR
-  // must not spend a bucket slot, or 15 MB of upload, on a 501.
-  assertOcrImportEnabled();
-  enforceRateLimit(c, "import", user.id, IMPORT_RULE);
-
-  const file = await readUploadedFile(c.req.raw, { accept: ["image"] });
-  const result = await withOcrSlot(() =>
-    importFromImage(file.bytes, {
-      mimeType: file.mimeType,
-      ...(file.originalName === undefined ? {} : { originalName: file.originalName }),
-    }),
-  );
-
-  const draft = await createDraft(importDb(), {
-    groupId,
-    createdBy: user.id,
-    sourceType: "ocr",
-    parsed: result.parsed,
-    rawText: result.rawText,
-    sourceMeta: result.sourceMeta,
-  });
-
-  return created<ImportDraftResponse>(c, { draft });
-});
-
-/* ------------------------------ PDF import -------------------------------- */
+importRoutes.post("/image", ocrUploadHandler(["image"]));
 
 /** POST /api/groups/:groupId/imports/pdf — multipart `file`, application/pdf only. */
-importRoutes.post("/pdf", async (c) => {
-  const user = requireUser(c);
-  const { groupId } = requireMembership(c);
-
-  assertOcrImportEnabled();
-  enforceRateLimit(c, "import", user.id, IMPORT_RULE);
-
-  const file = await readUploadedFile(c.req.raw, { accept: ["pdf"] });
-  const result = await withOcrSlot(() =>
-    importFromPdf(file.bytes, {
-      ...(file.originalName === undefined ? {} : { originalName: file.originalName }),
-    }),
-  );
-
-  const draft = await createDraft(importDb(), {
-    groupId,
-    createdBy: user.id,
-    sourceType: "ocr",
-    parsed: result.parsed,
-    rawText: result.rawText,
-    sourceMeta: result.sourceMeta,
-  });
-
-  return created<ImportDraftResponse>(c, { draft });
-});
-
-/* ------------------ combined file import (image OR pdf) ------------------- */
+importRoutes.post("/pdf", ocrUploadHandler(["pdf"]));
 
 /**
  * POST /api/groups/:groupId/imports/file — convenience endpoint for the mobile
  * UI, which uses ONE `<input type="file">` for photos and PDFs alike. The kind is
  * decided by SNIFFED content, never by the filename. Additive to the contract.
  */
-importRoutes.post("/file", async (c) => {
-  const user = requireUser(c);
-  const { groupId } = requireMembership(c);
-
-  assertOcrImportEnabled();
-  enforceRateLimit(c, "import", user.id, IMPORT_RULE);
-
-  const file = await readUploadedFile(c.req.raw, { accept: ["image", "pdf"] });
-  const result = await withOcrSlot(() =>
-    file.kind === "pdf"
-      ? importFromPdf(file.bytes, {
-          ...(file.originalName === undefined ? {} : { originalName: file.originalName }),
-        })
-      : importFromImage(file.bytes, {
-          mimeType: file.mimeType,
-          ...(file.originalName === undefined ? {} : { originalName: file.originalName }),
-        }),
-  );
-
-  const draft = await createDraft(importDb(), {
-    groupId,
-    createdBy: user.id,
-    sourceType: "ocr",
-    parsed: result.parsed,
-    rawText: result.rawText,
-    sourceMeta: result.sourceMeta,
-  });
-
-  return created<ImportDraftResponse>(c, { draft });
-});
+importRoutes.post("/file", ocrUploadHandler(["image", "pdf"]));
 
 /* ------------------------------ text import ------------------------------- */
 

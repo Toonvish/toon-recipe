@@ -870,6 +870,20 @@ export function deleteCollection(
   });
 }
 
+/** One membership row: PUT adds it, DELETE removes it, both idempotent. */
+function collectionRecipe(
+  method: "PUT" | "DELETE",
+  groupId: string,
+  collectionId: string,
+  recipeId: string,
+  options?: RequestOptions,
+): Promise<void> {
+  return request<void>(`/api/groups/${groupId}/collections/${collectionId}/recipes/${recipeId}`, {
+    ...options,
+    method,
+  });
+}
+
 /** Idempotent. */
 export function addRecipeToCollection(
   groupId: string,
@@ -877,10 +891,7 @@ export function addRecipeToCollection(
   recipeId: string,
   options?: RequestOptions,
 ): Promise<void> {
-  return request<void>(
-    `/api/groups/${groupId}/collections/${collectionId}/recipes/${recipeId}`,
-    { ...options, method: "PUT" },
-  );
+  return collectionRecipe("PUT", groupId, collectionId, recipeId, options);
 }
 
 export function removeRecipeFromCollection(
@@ -889,10 +900,7 @@ export function removeRecipeFromCollection(
   recipeId: string,
   options?: RequestOptions,
 ): Promise<void> {
-  return request<void>(
-    `/api/groups/${groupId}/collections/${collectionId}/recipes/${recipeId}`,
-    { ...options, method: "DELETE" },
-  );
+  return collectionRecipe("DELETE", groupId, collectionId, recipeId, options);
 }
 
 /* -------------------------------------------------------------------------- */

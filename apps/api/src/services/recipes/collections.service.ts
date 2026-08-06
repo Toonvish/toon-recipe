@@ -199,12 +199,7 @@ export async function addRecipeToCollection(
   const [existing] = await db
     .select({ recipeId: collectionRecipes.recipeId })
     .from(collectionRecipes)
-    .where(
-      and(
-        eq(collectionRecipes.collectionId, collectionId),
-        eq(collectionRecipes.recipeId, recipeId),
-      ),
-    )
+    .where(isMembership(collectionId, recipeId))
     .limit(1);
   if (existing) return;
 
@@ -229,12 +224,13 @@ export async function removeRecipeFromCollection(
   recipeId: string,
 ): Promise<void> {
   await loadCollectionRow(db, groupId, collectionId);
-  await db
-    .delete(collectionRecipes)
-    .where(
-      and(
-        eq(collectionRecipes.collectionId, collectionId),
-        eq(collectionRecipes.recipeId, recipeId),
-      ),
-    );
+  await db.delete(collectionRecipes).where(isMembership(collectionId, recipeId));
+}
+
+/** The `collection_recipes` primary key as a predicate — one row, or none. */
+function isMembership(collectionId: string, recipeId: string) {
+  return and(
+    eq(collectionRecipes.collectionId, collectionId),
+    eq(collectionRecipes.recipeId, recipeId),
+  );
 }

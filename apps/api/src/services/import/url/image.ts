@@ -10,7 +10,7 @@
 import { warmThumbnail } from "../../media/thumbnails.ts";
 import { type SniffedMime, sniffMimeType, storeUpload } from "../files.ts";
 import { IMPORT_USER_AGENT } from "./fetch.ts";
-import { SsrfError, assertPublicUrl, type AssertPublicUrlOptions } from "./ssrf.ts";
+import { assertPublicUrl, type AssertPublicUrlOptions } from "./ssrf.ts";
 
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 export const IMAGE_TIMEOUT_MS = 8_000;
@@ -59,9 +59,10 @@ export async function downloadHeroImage(
 
   let target: URL;
   try {
+    // SsrfError is the expected rejection; anything else (a malformed URL, a DNS
+    // failure) is just as much "no photo", so both fall into the same undefined.
     target = await assertPublicUrl(imageUrl, options);
-  } catch (error) {
-    if (error instanceof SsrfError) return undefined;
+  } catch {
     return undefined;
   }
 
@@ -87,15 +88,7 @@ export async function downloadHeroImage(
     const buffer = await response.arrayBuffer();
     if (buffer.byteLength === 0 || buffer.byteLength > maxBytes) return undefined;
 
-    const bytes = new Uint8Array(buffer);
-    const mimeType = sniffMimeType(bytes);
-    if (mimeType === undefined || !STORABLE_IMAGE_TYPES.includes(mimeType)) return undefined;
-
-    const stored = await storeUpload(bytes, mimeType);
-    // The hero image goes straight onto a list screen once the draft is committed,
-    // so build its thumbnail now rather than on that first render.
-    warmThumbnail(stored.filename);
-    return { filename: stored.filename, url: stored.url, mimeType: stored.mimeType, size: stored.size };
+    return await storeSniffedImage(new Uint8Array(buffer));
   } catch {
     return undefined;
   } finally {
@@ -110,13 +103,26 @@ async function storeDataUrl(dataUrl: string): Promise<DownloadedImage | undefine
   try {
     const binary = Buffer.from(match[2]!.replace(/\s+/g, ""), "base64");
     if (binary.byteLength === 0 || binary.byteLength > MAX_IMAGE_BYTES) return undefined;
-    const bytes = new Uint8Array(binary);
-    const mimeType = sniffMimeType(bytes);
-    if (mimeType === undefined || !STORABLE_IMAGE_TYPES.includes(mimeType)) return undefined;
-    const stored = await storeUpload(bytes, mimeType);
-    warmThumbnail(stored.filename);
-    return { filename: stored.filename, url: stored.url, mimeType: stored.mimeType, size: stored.size };
+    return await storeSniffedImage(new Uint8Array(binary));
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The last three steps both paths share: trust the MAGIC BYTES over whatever the
+ * response or the `data:` prefix claimed, store, and get the list thumbnail built.
+ *
+ * @returns undefined when the bytes are not a storable image — the caller's
+ *   contract is that a missing photo is still a good import.
+ */
+async function storeSniffedImage(bytes: Uint8Array): Promise<DownloadedImage | undefined> {
+  const mimeType = sniffMimeType(bytes);
+  if (mimeType === undefined || !STORABLE_IMAGE_TYPES.includes(mimeType)) return undefined;
+
+  const stored = await storeUpload(bytes, mimeType);
+  // The hero image goes straight onto a list screen once the draft is committed,
+  // so build its thumbnail now rather than on that first render.
+  warmThumbnail(stored.filename);
+  return { filename: stored.filename, url: stored.url, mimeType: stored.mimeType, size: stored.size };
 }

@@ -19,7 +19,7 @@ import type { Database } from "../../db/client.ts";
 import { type PasswordResetTokenRow, passwordResetTokens, users } from "../../db/schema.ts";
 import { ApiError } from "../../lib/errors.ts";
 import { deleteOtherSessions } from "./sessions.ts";
-import { generateOpaqueToken, hashToken } from "./tokens.ts";
+import { assertSpendableToken, generateOpaqueToken, hashToken } from "./tokens.ts";
 import { findUserById } from "./users.ts";
 import { hashPassword } from "./passwords.ts";
 
@@ -92,11 +92,7 @@ export async function findUsablePasswordReset(
     .where(eq(passwordResetTokens.tokenHash, hashToken(token)))
     .limit(1);
 
-  const row = rows[0];
-  if (!row) throw invalidToken();
-  if (row.usedAt !== null) throw invalidToken();
-  if (row.expiresAt <= Date.now()) throw invalidToken();
-  return row;
+  return assertSpendableToken(rows[0], invalidToken);
 }
 
 /**

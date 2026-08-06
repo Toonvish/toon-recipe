@@ -237,6 +237,39 @@ export function localId(): string {
   return `row-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 }
 
+/* ------------------------- list-editor row helpers ------------------------ */
+/*
+ * Shared by IngredientsEditor and StepsEditor, which are the same editor over a
+ * different row type. Only the pure list maths lives here — the `t()` calls that
+ * announce each change stay in the components, because a translator key has to be
+ * a LITERAL for the placeholder check to mean anything.
+ */
+
+/** Replaces one row, returning a new array. */
+export function patchRow<T>(rows: readonly T[], index: number, changes: Partial<T>): T[] {
+  return rows.map((row, position) => (position === index ? { ...row, ...changes } : row));
+}
+
+/**
+ * Removes one row, **never leaving the editor empty**: removing the last row
+ * yields a fresh blank one instead. An editor with zero rows has nothing to type
+ * into and reads as broken, so the last delete is a reset.
+ */
+export function removeRow<T>(rows: readonly T[], index: number, emptyRow: () => T): T[] {
+  const next = rows.filter((_row, position) => position !== index);
+  return next.length > 0 ? next : [emptyRow()];
+}
+
+/** Target index for a relative move, or undefined when it would leave the list. */
+export function moveTargetIndex(
+  length: number,
+  index: number,
+  delta: number,
+): number | undefined {
+  const target = index + delta;
+  return target < 0 || target >= length ? undefined : target;
+}
+
 /** Moves an array item, returning a new array. Out-of-range moves are no-ops. */
 export function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
   if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) {

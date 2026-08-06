@@ -47,12 +47,13 @@ export interface OAuthLoginResult {
   outcome: OAuthOutcome;
 }
 
-/** Resolves (or creates) the local account for an OAuth profile. */
-export async function loginWithOAuthProfile(
-  database: Database,
-  profile: OAuthProfile,
-): Promise<OAuthLoginResult> {
-  const existingLink = await database
+/**
+ * The existing row for `(provider, provider_user_id)` — the identity's unique key,
+ * and the ONLY thing either entry point is allowed to match on. Matching an
+ * e-mail instead is the takeover described in the module header.
+ */
+async function findLinkByIdentity(database: Database, profile: OAuthProfile) {
+  const rows = await database
     .select()
     .from(oauthAccounts)
     .where(
@@ -62,8 +63,15 @@ export async function loginWithOAuthProfile(
       ),
     )
     .limit(1);
+  return rows[0];
+}
 
-  const link = existingLink[0];
+/** Resolves (or creates) the local account for an OAuth profile. */
+export async function loginWithOAuthProfile(
+  database: Database,
+  profile: OAuthProfile,
+): Promise<OAuthLoginResult> {
+  const link = await findLinkByIdentity(database, profile);
   if (link) {
     const user = await findUserById(database, link.userId);
     if (!user) {
@@ -154,18 +162,7 @@ export async function linkOAuthAccount(
   userId: string,
   profile: OAuthProfile,
 ): Promise<void> {
-  const existing = await database
-    .select()
-    .from(oauthAccounts)
-    .where(
-      and(
-        eq(oauthAccounts.provider, profile.provider),
-        eq(oauthAccounts.providerUserId, profile.providerUserId),
-      ),
-    )
-    .limit(1);
-
-  const link = existing[0];
+  const link = await findLinkByIdentity(database, profile);
   if (link) {
     if (link.userId === userId) return;
     throw ApiError.conflict("oauth_already_linked", "server.auth.oauthLinkedElsewhere");

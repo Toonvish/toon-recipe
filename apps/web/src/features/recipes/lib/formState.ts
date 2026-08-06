@@ -12,6 +12,7 @@ import type {
   RecipeDetail,
   RecipeIngredient,
   RecipeIngredientInput,
+  RecipeStep,
   RecipeStepInput,
 } from "@toon/shared";
 import {
@@ -135,26 +136,15 @@ export function recipeToForm(recipe: RecipeDetail): RecipeFormValues {
     difficulty: recipe.difficulty ?? "",
     rating: intToInput(recipe.rating),
     notes: recipe.notes ?? "",
+    // Same mappers as the paste path, but keyed by the PERSISTED row id instead of
+    // a fresh local one — React must not remount a field while it is being typed in.
     ingredients:
       recipe.ingredients.length > 0
-        ? recipe.ingredients.map((ingredient) => ({
-            key: ingredient.id,
-            section: ingredient.section ?? "",
-            quantity: numberToInput(ingredient.quantity),
-            quantityMax: numberToInput(ingredient.quantityMax),
-            unit: ingredient.unit ?? "",
-            name: ingredient.name,
-            note: ingredient.note ?? "",
-            raw: ingredient.raw,
-          }))
+        ? recipe.ingredients.map((ingredient) => ({ ...ingredientToRow(ingredient), key: ingredient.id }))
         : [emptyIngredientRow()],
     steps:
       recipe.steps.length > 0
-        ? recipe.steps.map((step) => ({
-            key: step.id,
-            section: step.section ?? "",
-            text: step.text,
-          }))
+        ? recipe.steps.map((step) => ({ ...stepToRow(step), key: step.id }))
         : [emptyStepRow()],
     tags: recipe.tags.map((tag) => tag.name),
     collectionIds: [...recipe.collectionIds],
@@ -280,11 +270,11 @@ export function ingredientToRow(ingredient: RecipeIngredient): IngredientRow {
 
 /** Step rows parsed from a pasted preparation block. */
 export function rowsFromPastedSteps(text: string): StepRow[] {
-  return parseStepBlock(text).map((step) => ({
-    key: localId(),
-    section: step.section ?? "",
-    text: step.text,
-  }));
+  return parseStepBlock(text).map((step) => stepToRow(step));
+}
+
+export function stepToRow(step: RecipeStep): StepRow {
+  return { key: localId(), section: step.section ?? "", text: step.text };
 }
 
 /** Sum of prep + cook, used to prefill "Total" when the user leaves it empty. */

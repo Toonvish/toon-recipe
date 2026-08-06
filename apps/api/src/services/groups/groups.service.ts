@@ -124,6 +124,23 @@ export async function getMember(
   return toGroupMember(row.member, row.user);
 }
 
+/**
+ * The raw membership row, for the role checks that need it before they can decide
+ * what to do — {@link getMember} joins the user and builds the wire shape, which
+ * those callers would only throw away.
+ *
+ * @throws ApiError 404 `member_not_found`.
+ */
+async function loadMemberRow(db: DbLike, groupId: string, userId: string) {
+  const [row] = await db
+    .select()
+    .from(groupMembers)
+    .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, userId)))
+    .limit(1);
+  if (!row) throw ApiError.notFound("server.group.memberNotFound");
+  return row;
+}
+
 /* -------------------------------------------------------------------------- */
 /* writes                                                                     */
 /* -------------------------------------------------------------------------- */
@@ -214,12 +231,7 @@ export async function updateMemberRole(
   nextRole: GroupRole,
 ): Promise<GroupMember> {
   const { groupId } = actor;
-  const [target] = await db
-    .select()
-    .from(groupMembers)
-    .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, targetUserId)))
-    .limit(1);
-  if (!target) throw ApiError.notFound("server.group.memberNotFound");
+  const target = await loadMemberRow(db, groupId, targetUserId);
 
   const currentRole = toGroupRole(target.role);
   if (currentRole === nextRole) return getMember(db, groupId, targetUserId);
@@ -266,12 +278,7 @@ export async function removeMember(
   targetUserId: string,
 ): Promise<void> {
   const { groupId } = actor;
-  const [target] = await db
-    .select()
-    .from(groupMembers)
-    .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, targetUserId)))
-    .limit(1);
-  if (!target) throw ApiError.notFound("server.group.memberNotFound");
+  const target = await loadMemberRow(db, groupId, targetUserId);
 
   const targetRole = toGroupRole(target.role);
   const isSelf = actor.userId === targetUserId;

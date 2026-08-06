@@ -31,6 +31,18 @@ export interface UpdateTagInput extends UpdateTagRequest {
   tagId: string;
 }
 
+/**
+ * Renaming or deleting a tag changes what every recipe CARD shows, so the recipe
+ * list has to go too — creating one does not, which is why `useCreateTag` above
+ * invalidates less.
+ */
+function invalidateTagsAndRecipes(
+  client: ReturnType<typeof useQueryClient>,
+  groupId: string,
+): Promise<unknown> {
+  return Promise.all([invalidate.tags(client, groupId), invalidate.recipes(client, groupId)]);
+}
+
 export function useUpdateTag(groupId: string | null) {
   const client = useQueryClient();
   return useMutation<Tag, Error, UpdateTagInput>({
@@ -40,7 +52,7 @@ export function useUpdateTag(groupId: string | null) {
     },
     onSuccess: async () => {
       if (!groupId) return;
-      await Promise.all([invalidate.tags(client, groupId), invalidate.recipes(client, groupId)]);
+      await invalidateTagsAndRecipes(client, groupId);
     },
   });
 }
@@ -51,7 +63,7 @@ export function useDeleteTag(groupId: string | null) {
     mutationFn: (tagId) => deleteTag(groupId ?? "", tagId),
     onSuccess: async () => {
       if (!groupId) return;
-      await Promise.all([invalidate.tags(client, groupId), invalidate.recipes(client, groupId)]);
+      await invalidateTagsAndRecipes(client, groupId);
     },
   });
 }

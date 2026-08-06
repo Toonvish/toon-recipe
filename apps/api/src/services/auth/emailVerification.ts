@@ -25,7 +25,7 @@ import {
   users,
 } from "../../db/schema.ts";
 import { ApiError } from "../../lib/errors.ts";
-import { generateOpaqueToken, hashToken } from "./tokens.ts";
+import { assertSpendableToken, generateOpaqueToken, hashToken } from "./tokens.ts";
 import { findUserById } from "./users.ts";
 
 /** 24 hours — long enough for "I'll do it tonight", short enough to matter. */
@@ -100,11 +100,7 @@ export async function findUsableEmailVerification(
     .where(eq(emailVerificationTokens.tokenHash, hashToken(token)))
     .limit(1);
 
-  const row = rows[0];
-  if (!row) throw invalidToken();
-  if (row.usedAt !== null) throw invalidToken();
-  if (row.expiresAt <= Date.now()) throw invalidToken();
-  return row;
+  return assertSpendableToken(rows[0], invalidToken);
 }
 
 /**

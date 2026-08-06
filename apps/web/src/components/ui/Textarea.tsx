@@ -1,7 +1,7 @@
-import { forwardRef, useId, type ReactNode, type TextareaHTMLAttributes } from "react";
+import { forwardRef, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { cn } from "@/lib/cn";
+import { FieldShell, useControlAria } from "./Field";
 import { controlClasses } from "./Input";
-import { Label } from "./Label";
 
 export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   label?: ReactNode;
@@ -30,24 +30,23 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
   },
   ref,
 ) {
-  const generatedId = useId();
-  const id = idProp ?? generatedId;
-  const describedBy = error ? `${id}-error` : hint ? `${id}-hint` : undefined;
+  const aria = useControlAria(idProp, error, hint);
 
   return (
-    <div className={cn("flex flex-col gap-1.5", containerClassName)}>
-      {label ? (
-        <Label htmlFor={id} required={required} optional={optional}>
-          {label}
-        </Label>
-      ) : null}
+    <FieldShell
+      id={aria.id}
+      label={label}
+      hint={hint}
+      error={error}
+      required={required}
+      optional={optional}
+      className={containerClassName}
+    >
       <textarea
         ref={ref}
-        id={id}
         rows={rows}
         required={required}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy}
+        {...aria}
         className={cn(controlClasses, "resize-y leading-relaxed", className)}
         onInput={(event) => {
           if (autoGrow) {
@@ -59,15 +58,6 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
         }}
         {...rest}
       />
-      {error ? (
-        <p id={`${id}-error`} role="alert" className="text-sm font-medium text-danger">
-          {error}
-        </p>
-      ) : hint ? (
-        <p id={`${id}-hint`} className="text-sm text-fg-muted">
-          {hint}
-        </p>
-      ) : null}
-    </div>
+    </FieldShell>
   );
 });

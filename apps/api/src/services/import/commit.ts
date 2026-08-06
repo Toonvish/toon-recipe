@@ -37,8 +37,40 @@ import {
 import { ApiError } from "../../lib/errors.ts";
 import { toIso } from "../../lib/http.ts";
 import { normalizeStoredUploadUrl, signUploadUrl } from "../../lib/uploadUrls.ts";
+import { toPublicUser } from "../groups/mappers.ts";
 import { thumbnailUrlFor } from "../media/thumbnails.ts";
 import { dedupeTags } from "./parsed.ts";
+
+/**
+ * The scalar fields a `ParsedRecipe` contributes, in the shape BOTH the `recipes`
+ * insert and the `RecipeDetail` response want them.
+ *
+ * The two used to list all twelve separately, which is a silent bug generator: add
+ * a field to the schema, wire it into the insert, forget the response, and the
+ * committed recipe loses its cook time until the screen is reloaded. The three
+ * things that genuinely differ between the two sites — `imageUrl` (bare in the
+ * column, signed on the wire), the folded search columns and the timestamps — stay
+ * at the call site.
+ *
+ * `difficulty` is widened to the column's `Difficulty | null`; the wire type is the
+ * same union, so one shape serves both.
+ */
+function parsedScalars(parsed: ParsedRecipe) {
+  return {
+    description: parsed.description ?? null,
+    sourceUrl: parsed.sourceUrl ?? null,
+    sourceName: parsed.sourceName ?? null,
+    servingsAmount: parsed.servings?.amount ?? null,
+    servingsUnit: parsed.servings?.unit ?? null,
+    prepMinutes: parsed.prepMinutes ?? null,
+    cookMinutes: parsed.cookMinutes ?? null,
+    totalMinutes: parsed.totalMinutes ?? null,
+    difficulty: (parsed.difficulty ?? null) as Difficulty | null,
+    rating: null,
+    notes: parsed.notes ?? null,
+    language: parsed.language ?? "de",
+  };
+}
 
 export interface CommitDraftInput {
   groupId: string;
@@ -128,22 +160,11 @@ export async function commitDraft(db: Database, input: CommitDraftInput): Promis
       groupId: input.groupId,
       title,
       titleFold: foldText(title),
-      description: parsed.description ?? null,
       descriptionFold: foldText(parsed.description ?? ""),
       // The review screen PATCHes back the signed hero-image URL it was served,
       // so reduce it to the bare `/uploads/<file>` before it becomes a column.
       imageUrl: normalizeStoredUploadUrl(parsed.imageUrl) ?? null,
-      sourceUrl: parsed.sourceUrl ?? null,
-      sourceName: parsed.sourceName ?? null,
-      servingsAmount: parsed.servings?.amount ?? null,
-      servingsUnit: parsed.servings?.unit ?? null,
-      prepMinutes: parsed.prepMinutes ?? null,
-      cookMinutes: parsed.cookMinutes ?? null,
-      totalMinutes: parsed.totalMinutes ?? null,
-      difficulty: (parsed.difficulty ?? null) as Difficulty | null,
-      rating: null,
-      notes: parsed.notes ?? null,
-      language: parsed.language ?? "de",
+      ...parsedScalars(parsed),
       createdBy: input.userId,
       createdAt: now,
       updatedAt: now,
@@ -273,15 +294,14 @@ async function loadRecipeDetail(db: Database, input: LoadRecipeDetailInput): Pro
     .from(users)
     .where(eq(users.id, input.userId))
     .limit(1);
+  // Same mapper the recipes router uses, so the wire shape (and the avatar
+  // signature) cannot drift between "created by import" and "read back later".
+  // The row is the session's own user, so the fallback is unreachable in practice;
+  // it exists so a missing author cannot fail a committed recipe.
   const found = authorRows[0];
   const author: PublicUser = found
-    ? { ...found, avatarUrl: signUploadUrl(found.avatarUrl) }
-    : {
-    id: input.userId,
-    name: "Unbekannt",
-    email: "",
-    avatarUrl: null,
-  };
+    ? toPublicUser(found)
+    : { id: input.userId, name: "", email: "", avatarUrl: null };
 
   const iso = toIso(input.createdAt);
   const parsed = input.parsed;
@@ -290,21 +310,10 @@ async function loadRecipeDetail(db: Database, input: LoadRecipeDetailInput): Pro
     id: input.recipeId,
     groupId: input.groupId,
     title: input.title,
-    description: parsed.description ?? null,
     // Same wire shape as toRecipe(): what was stored is bare, what is sent is signed.
     imageUrl: signUploadUrl(normalizeStoredUploadUrl(parsed.imageUrl)) ?? null,
     thumbnailUrl: signUploadUrl(thumbnailUrlFor(parsed.imageUrl)),
-    sourceUrl: parsed.sourceUrl ?? null,
-    sourceName: parsed.sourceName ?? null,
-    servingsAmount: parsed.servings?.amount ?? null,
-    servingsUnit: parsed.servings?.unit ?? null,
-    prepMinutes: parsed.prepMinutes ?? null,
-    cookMinutes: parsed.cookMinutes ?? null,
-    totalMinutes: parsed.totalMinutes ?? null,
-    difficulty: parsed.difficulty ?? null,
-    rating: null,
-    notes: parsed.notes ?? null,
-    language: parsed.language ?? "de",
+    ...parsedScalars(parsed),
     createdBy: input.userId,
     createdAt: iso,
     updatedAt: iso,

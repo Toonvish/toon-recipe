@@ -83,6 +83,25 @@ export interface CollectionRecipeInput {
   recipeId: string;
 }
 
+/**
+ * Adding and removing touch the same three caches — the collection itself, the
+ * list (its recipe count), and the recipe (its `collectionIds`). Keeping one copy
+ * is what stops the two from drifting; the reorder loop below fires both, so a
+ * cache one of them forgets shows up as a half-stale screen after a drag.
+ */
+function invalidateMembership(
+  client: ReturnType<typeof useQueryClient>,
+  groupId: string,
+  collectionId: string,
+  recipeId: string,
+): Promise<unknown> {
+  return Promise.all([
+    invalidate.collection(client, groupId, collectionId),
+    invalidate.collections(client, groupId),
+    invalidate.recipe(client, groupId, recipeId),
+  ]);
+}
+
 /** PUT is idempotent per the contract, so "add" can be fired repeatedly. */
 export function useAddRecipeToCollection(groupId: string | null) {
   const client = useQueryClient();
@@ -91,11 +110,7 @@ export function useAddRecipeToCollection(groupId: string | null) {
       addRecipeToCollection(groupId ?? "", collectionId, recipeId),
     onSuccess: async (_result, { collectionId, recipeId }) => {
       if (!groupId) return;
-      await Promise.all([
-        invalidate.collection(client, groupId, collectionId),
-        invalidate.collections(client, groupId),
-        invalidate.recipe(client, groupId, recipeId),
-      ]);
+      await invalidateMembership(client, groupId, collectionId, recipeId);
     },
   });
 }
@@ -107,11 +122,7 @@ export function useRemoveRecipeFromCollection(groupId: string | null) {
       removeRecipeFromCollection(groupId ?? "", collectionId, recipeId),
     onSuccess: async (_result, { collectionId, recipeId }) => {
       if (!groupId) return;
-      await Promise.all([
-        invalidate.collection(client, groupId, collectionId),
-        invalidate.collections(client, groupId),
-        invalidate.recipe(client, groupId, recipeId),
-      ]);
+      await invalidateMembership(client, groupId, collectionId, recipeId);
     },
   });
 }

@@ -1,8 +1,8 @@
-import { forwardRef, useId, type ReactNode, type SelectHTMLAttributes } from "react";
+import { forwardRef, type ReactNode, type SelectHTMLAttributes } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { FieldShell, useControlAria } from "./Field";
 import { controlClasses } from "./Input";
-import { Label } from "./Label";
 
 export interface SelectOption {
   value: string;
@@ -38,24 +38,23 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
   },
   ref,
 ) {
-  const generatedId = useId();
-  const id = idProp ?? generatedId;
-  const describedBy = error ? `${id}-error` : hint ? `${id}-hint` : undefined;
+  const aria = useControlAria(idProp, error, hint);
 
   return (
-    <div className={cn("flex flex-col gap-1.5", containerClassName)}>
-      {label ? (
-        <Label htmlFor={id} required={required} optional={optional}>
-          {label}
-        </Label>
-      ) : null}
+    <FieldShell
+      id={aria.id}
+      label={label}
+      hint={hint}
+      error={error}
+      required={required}
+      optional={optional}
+      className={containerClassName}
+    >
       <div className="relative">
         <select
           ref={ref}
-          id={id}
           required={required}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={describedBy}
+          {...aria}
           className={cn(controlClasses, "min-h-11 appearance-none pr-10", className)}
           {...rest}
         >
@@ -75,15 +74,6 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
           className="pointer-events-none absolute inset-y-0 right-3 my-auto size-5 text-fg-subtle"
         />
       </div>
-      {error ? (
-        <p id={`${id}-error`} role="alert" className="text-sm font-medium text-danger">
-          {error}
-        </p>
-      ) : hint ? (
-        <p id={`${id}-hint`} className="text-sm text-fg-muted">
-          {hint}
-        </p>
-      ) : null}
-    </div>
+    </FieldShell>
   );
 });

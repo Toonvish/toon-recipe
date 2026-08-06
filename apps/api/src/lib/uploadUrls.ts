@@ -32,6 +32,7 @@
  * one can exist. Do not "fix" that by signing it.
  */
 import { env } from "../env.ts";
+import { timingSafeEqualHex } from "./timingSafe.ts";
 
 /** Path prefix of every served upload. */
 const UPLOADS_PREFIX = "/uploads/";
@@ -175,17 +176,7 @@ export function verifyUploadSignature(
   // attacker cannot extend a URL by editing it, and comparing first keeps the
   // "invalid" and "expired" paths from depending on each other.
   const expected = uploadSignature(filename, expiresAt);
-  if (!timingSafeEqual(expected, sig)) return "invalid";
+  if (!timingSafeEqualHex(expected, sig)) return "invalid";
   if (expiresAt <= now) return "expired";
   return "ok";
-}
-
-/** Length-checked, branch-free hex comparison. */
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let index = 0; index < a.length; index += 1) {
-    diff |= a.charCodeAt(index) ^ b.charCodeAt(index);
-  }
-  return diff === 0;
 }

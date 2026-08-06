@@ -1,8 +1,8 @@
-import { forwardRef, useId, useState, type InputHTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useState, type InputHTMLAttributes, type ReactNode } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
-import { Label } from "./Label";
+import { FieldShell, useControlAria } from "./Field";
 
 /**
  * Shared by Input, Select and Textarea.
@@ -52,17 +52,18 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   },
   ref,
 ) {
-  const generatedId = useId();
-  const id = idProp ?? generatedId;
-  const describedBy = error ? `${id}-error` : hint ? `${id}-hint` : undefined;
+  const aria = useControlAria(idProp, error, hint);
 
   return (
-    <div className={cn("flex flex-col gap-1.5", containerClassName)}>
-      {label ? (
-        <Label htmlFor={id} required={required} optional={optional}>
-          {label}
-        </Label>
-      ) : null}
+    <FieldShell
+      id={aria.id}
+      label={label}
+      hint={hint}
+      error={error}
+      required={required}
+      optional={optional}
+      className={containerClassName}
+    >
       <div className="relative">
         {leftIcon ? (
           <span
@@ -74,11 +75,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         ) : null}
         <input
           ref={ref}
-          id={id}
           type={type}
           required={required}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={describedBy}
+          {...aria}
           className={cn(
             controlClasses,
             "min-h-11",
@@ -94,16 +93,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           </span>
         ) : null}
       </div>
-      {error ? (
-        <p id={`${id}-error`} role="alert" className="text-sm font-medium text-danger">
-          {error}
-        </p>
-      ) : hint ? (
-        <p id={`${id}-hint`} className="text-sm text-fg-muted">
-          {hint}
-        </p>
-      ) : null}
-    </div>
+    </FieldShell>
   );
 });
 
