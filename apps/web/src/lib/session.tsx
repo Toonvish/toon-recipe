@@ -249,11 +249,17 @@ export function useRequiredGroupId(): string {
 /**
  * Whether the app may write right now.
  *
- * Offline support here is READ-ONLY on purpose: there is no mutation outbox and no
- * conflict story for two flatmates editing one recipe, so a "saved" that silently
- * evaporates would be worse than a disabled button. Screens use this to disable
- * editors, the import flow and every destructive action BEFORE the request fails,
- * and to render `reason` next to them.
+ * Offline support here is READ-ONLY on purpose: there is no conflict story for two
+ * flatmates editing one recipe, so a "saved" that silently evaporates would be
+ * worse than a disabled button. Screens use this to disable editors, the import
+ * flow and every destructive action BEFORE the request fails, and to render
+ * `reason` next to them.
+ *
+ * DO NOT USE THIS ON THE SHOPPING SCREENS. The shopping list is the one feature
+ * that IS editable offline — its writes go through a persisted mutation outbox
+ * (features/shopping/lib/offline.ts) and replay on reconnect — so `canMutate:
+ * false` there is exactly backwards. Those screens gate only list
+ * create/rename/delete on `isOnline`.
  *
  * ```tsx
  * const { canMutate, reason } = useCanMutate();

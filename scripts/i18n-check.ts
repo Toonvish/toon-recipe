@@ -133,7 +133,7 @@ const ALLOW_LIST = [
   "apps/api/src/services/import/url/adapters",
   "apps/api/src/services/import/url/fetch.ts",
   "apps/api/src/services/import/url/ssrf.ts",
-  "apps/api/src/services/import/image.ts",
+  "apps/api/src/services/import/url/image.ts",
   "apps/api/src/services/import/parsed.ts",
   "apps/api/src/services/import/times.ts",
   "apps/api/scripts/seed.ts",

@@ -9,17 +9,21 @@
  *  3. the address belongs to an existing local account -> 409 `email_taken`
  *
  * WHY THERE IS NO AUTOMATIC LINK-ON-EMAIL-MATCH (this used to be case 2):
- * `POST /api/auth/register` cannot prove that the registrant owns the address —
- * there is no confirmation-mail flow — so `users.email_verified` was `true` for
- * every self-registered row. Auto-linking on that flag meant: attacker registers
- * victim@gmail.com with a password of their choosing, the victim later signs in
- * with Google, and the provider identity gets LINKED INTO THE ATTACKER'S account
- * — full takeover of the victim's groups and recipes while the victim sees a
- * perfectly normal login. Registration now stores `email_verified: false`, and
- * linking is an EXPLICIT, authenticated action ({@link linkOAuthAccount} behind
- * `GET /api/auth/oauth/:provider/link`). Once a confirmation-mail flow exists,
- * an auto-link may come back — gated on a real verification timestamp, not on a
- * flag the registrant set themselves.
+ * `POST /api/auth/register` cannot prove that the registrant owns the address, yet
+ * `users.email_verified` used to be `true` for every self-registered row.
+ * Auto-linking on that flag meant: attacker registers victim@gmail.com with a
+ * password of their choosing, the victim later signs in with Google, and the
+ * provider identity gets LINKED INTO THE ATTACKER'S account — full takeover of the
+ * victim's groups and recipes while the victim sees a perfectly normal login.
+ * Registration now stores `email_verified: false`, and linking is an EXPLICIT,
+ * authenticated action ({@link linkOAuthAccount} behind
+ * `GET /api/auth/oauth/:provider/link`).
+ *
+ * A confirmation-mail flow DOES exist now (`POST /api/auth/email/verify/request` ->
+ * `.../confirm`, services/auth/emailVerification.ts) and it writes a real
+ * `users.email_verified_at`. Auto-linking is still deliberately OFF; if it ever
+ * comes back it must be gated on that TIMESTAMP, never on the boolean, which an
+ * OAuth provider can also set.
  */
 import { and, eq } from "drizzle-orm";
 import type { Database } from "../../db/client.ts";

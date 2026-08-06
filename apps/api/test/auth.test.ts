@@ -541,9 +541,10 @@ describe("OAuth", () => {
   /**
    * ACCOUNT-TAKEOVER REGRESSION.
    *
-   * There is no confirmation-mail flow, so registration cannot prove address
-   * ownership; `users.email_verified` is therefore false for password accounts and
-   * an OAuth login on a matching address must NOT be linked into it. Otherwise:
+   * Registration itself cannot prove address ownership — the confirmation-mail
+   * flow is a separate, later step — so `users.email_verified` is false for a
+   * fresh password account and an OAuth login on a matching address must NOT be
+   * linked into it. Otherwise:
    * attacker registers victim@example.com, victim signs in with Google, and the
    * provider identity lands in the attacker's account — who still holds the
    * password and now owns the victim's groups.

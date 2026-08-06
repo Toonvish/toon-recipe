@@ -90,8 +90,8 @@ The service worker never caches `/api`, so the answer is always the running serv
 
 Notes
 - `RegisterRequest.inviteToken` joins that group instead of creating "Meine Rezepte".
-- **Registration stores `emailVerified: false`.** There is no confirmation-mail flow, so
-  self-registration proves nothing about who owns the address.
+- **Registration stores `emailVerified: false`.** Self-registration proves nothing about who owns
+  the address; the flag is earned afterwards through the confirmation flow below.
 - **OAuth never auto-links on an e-mail match.** State + PKCE live in short-lived `HttpOnly`
   cookies. A known `oauth_accounts(provider, provider_user_id)` logs that user in; an unknown
   identity whose e-mail is free creates a user (`emailVerified` from the provider,

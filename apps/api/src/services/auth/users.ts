@@ -56,11 +56,13 @@ export interface CreateUserInput {
   passwordHash?: string | null;
   avatarUrl?: string | null;
   /**
-   * ONLY set this when something actually proved the address belongs to the
-   * user — today that means an OAuth provider that reports it as verified.
-   * Self-registration must leave it `false` (the default): there is no
-   * confirmation-mail flow, and a trusted-looking flag was previously enough to
-   * hand a victim's OAuth login to whoever registered their address first.
+   * ONLY set this when something actually proved the address belongs to the user
+   * at CREATION time — today that means an OAuth provider that reports it as
+   * verified. Self-registration must leave it `false` (the default) and earn the
+   * flag later by clicking a confirmation link (see
+   * services/auth/emailVerification.ts): a trusted-looking flag set by the
+   * registrant themselves was once enough to hand a victim's OAuth login to
+   * whoever registered their address first.
    */
   emailVerified?: boolean;
 }
