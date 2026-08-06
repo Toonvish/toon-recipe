@@ -19,7 +19,7 @@ import type { CollectionRow } from "../../db/schema.ts";
 import { ApiError } from "../../lib/errors.ts";
 import type { Membership } from "../../lib/types.ts";
 import { normalizeStoredUploadUrl } from "../../lib/uploadUrls.ts";
-import { assertRole } from "../groups/membership.ts";
+import { assertCanModifyOwned } from "../groups/membership.ts";
 import { type DbLike, nowMs, unique, withTransaction } from "../groups/support.ts";
 import { toCollection } from "./mappers.ts";
 import { buildRecipeListItems, loadRecipeRow } from "./recipes.service.ts";
@@ -182,7 +182,7 @@ export async function deleteCollection(
   collectionId: string,
 ): Promise<void> {
   const row = await loadCollectionRow(db, membership.groupId, collectionId);
-  if (row.createdBy !== membership.userId) assertRole(membership, "admin");
+  assertCanModifyOwned(membership, row);
   await db.delete(collections).where(eq(collections.id, collectionId));
 }
 

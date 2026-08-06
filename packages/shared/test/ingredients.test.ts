@@ -309,3 +309,27 @@ describe("formatIngredient", () => {
     expect(formatIngredient(ingredient, formatQuantity)).toBe("2-3 Eier (Größe M)");
   });
 });
+
+describe("cleanupName trims the same characters at both ends", () => {
+  // The trailing character class used to omit "." "-" "–" "—", so a line ending in a
+  // German abbreviation kept its full stop in the STORED name. Shopping-list merging
+  // hid it (nameKey re-strips independently); the recipe's own ingredient list did not.
+  test("drops a trailing full stop", () => {
+    expect(parseIngredientLine("1 Pck. Vanillezucker.").name).toBe("Vanillezucker");
+    expect(parseIngredientLine("1 Prise Salz.").name).toBe("Salz");
+  });
+
+  test("drops a trailing dash", () => {
+    expect(parseIngredientLine("250 g Butter -").name).toBe("Butter");
+    expect(parseIngredientLine("3 Eier –").name).toBe("Eier");
+  });
+
+  test("leaves an interior dot or hyphen alone", () => {
+    expect(parseIngredientLine("200 g Crème fraîche").name).toBe("Crème fraîche");
+    expect(parseIngredientLine("1 Dose Tomaten-Passata").name).toBe("Tomaten-Passata");
+  });
+
+  test("still strips leading punctuation, as it always did", () => {
+    expect(parseIngredientLine("- 250 g Mehl").name).toBe("Mehl");
+  });
+});

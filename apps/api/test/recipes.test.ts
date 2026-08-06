@@ -67,6 +67,9 @@ interface RecipeDetailPayload {
     title: string;
     imageUrl: string | null;
     thumbnailUrl: string | null;
+    prepMinutes: number | null;
+    cookMinutes: number | null;
+    totalMinutes: number | null;
     ingredients: Array<{ position: number; section: string | null; name: string; quantity: number | null; raw: string }>;
     steps: Array<{ position: number; section: string | null; text: string }>;
     tags: Array<{ id: string; name: string }>;
@@ -398,6 +401,72 @@ describe("recipe update + delete", () => {
     expect(cleared.ingredients).toHaveLength(0);
     expect(cleared.tags).toHaveLength(0);
     expect(cleared.steps).toHaveLength(2);
+  });
+
+  /*
+    `totalMinutes` is derived from prep + cook on write. The derivation returns null
+    when both are gone, and that null has to REACH the column — it used to be dropped
+    by an `if (derived !== null)`, so a recipe that lost both times kept advertising
+    the old total forever. The counterpart matters just as much: a total the user typed
+    by hand, with no prep/cook behind it, must survive a PATCH that says nothing about
+    any of the three.
+  */
+  describe("derived totalMinutes", () => {
+    test("clearing prep and cook clears the derived total", async () => {
+      const { owner, groupId } = await setupGroup();
+      const recipe = await createRecipe(owner, groupId, { prepMinutes: 30, cookMinutes: 45 });
+      expect(recipe.totalMinutes).toBe(75);
+
+      const cleared = (
+        await body<RecipeDetailPayload>(
+          await call(`/api/groups/${groupId}/recipes/${recipe.id}`, {
+            method: "PATCH",
+            cookie: owner.cookie,
+            body: { prepMinutes: null, cookMinutes: null },
+          }),
+        )
+      ).recipe;
+      expect(cleared.prepMinutes).toBeNull();
+      expect(cleared.cookMinutes).toBeNull();
+      expect(cleared.totalMinutes).toBeNull();
+    });
+
+    test("moving one of the two re-derives the total", async () => {
+      const { owner, groupId } = await setupGroup();
+      const recipe = await createRecipe(owner, groupId, { prepMinutes: 30, cookMinutes: 45 });
+
+      const patched = (
+        await body<RecipeDetailPayload>(
+          await call(`/api/groups/${groupId}/recipes/${recipe.id}`, {
+            method: "PATCH",
+            cookie: owner.cookie,
+            body: { prepMinutes: 10 },
+          }),
+        )
+      ).recipe;
+      expect(patched.totalMinutes).toBe(55);
+    });
+
+    test("a hand-typed total survives a PATCH that does not touch the times", async () => {
+      const { owner, groupId } = await setupGroup();
+      const recipe = await createRecipe(owner, groupId, {
+        prepMinutes: null,
+        cookMinutes: null,
+        totalMinutes: 90,
+      });
+      expect(recipe.totalMinutes).toBe(90);
+
+      const renamed = (
+        await body<RecipeDetailPayload>(
+          await call(`/api/groups/${groupId}/recipes/${recipe.id}`, {
+            method: "PATCH",
+            cookie: owner.cookie,
+            body: { title: "Nur der Titel" },
+          }),
+        )
+      ).recipe;
+      expect(renamed.totalMinutes).toBe(90);
+    });
   });
 
   test("only the author or an admin may change/delete a recipe", async () => {

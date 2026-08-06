@@ -9,6 +9,7 @@
  * produce a 422 for structural reasons).
  */
 import {
+  foldText,
   formatIngredient,
   formatQuantity,
   parseIngredientBlock,
@@ -439,7 +440,9 @@ export function reparseAllSteps(draft: ParsedRecipe): ParsedRecipe {
 export function addTag(draft: ParsedRecipe, name: string): ParsedRecipe {
   const tag = name.trim().slice(0, LIMITS.tagName);
   if (tag.length === 0) return draft;
-  const exists = draft.tags.some((existing) => existing.toLowerCase() === tag.toLowerCase());
+  // foldText, not toLowerCase: the server keys tags by the folded name, so "Kase"
+  // and "Käse" are one tag there and must be one here too (see TagCombobox.sameName).
+  const exists = draft.tags.some((existing) => foldText(existing) === foldText(tag));
   if (exists || draft.tags.length >= LIMITS.maxTags) return draft;
   return { ...draft, tags: [...draft.tags, tag] };
 }
@@ -570,7 +573,7 @@ export function normalizeParsedRecipe(draft: ParsedRecipe): ParsedRecipe {
   for (const tag of draft.tags) {
     const name = clip(tag, LIMITS.tagName);
     if (name === undefined) continue;
-    if (tags.some((existing) => existing.toLowerCase() === name.toLowerCase())) continue;
+    if (tags.some((existing) => foldText(existing) === foldText(name))) continue;
     if (tags.length >= LIMITS.maxTags) break;
     tags.push(name);
   }

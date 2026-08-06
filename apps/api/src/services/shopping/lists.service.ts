@@ -24,7 +24,7 @@ import {
 import type { ShoppingListRow } from "../../db/schema.ts";
 import { ApiError } from "../../lib/errors.ts";
 import type { Membership } from "../../lib/types.ts";
-import { assertRole } from "../groups/membership.ts";
+import { assertCanModifyOwned } from "../groups/membership.ts";
 import { type DbLike, eqFolded, foldText, nowMs } from "../groups/support.ts";
 import { toShoppingCatalogEntry, toShoppingItem, toShoppingList } from "./mappers.ts";
 
@@ -132,7 +132,7 @@ export async function deleteShoppingList(
   listId: string,
 ): Promise<void> {
   const row = await loadShoppingListRow(db, membership.groupId, listId);
-  if (row.createdBy !== membership.userId) assertRole(membership, "admin");
+  assertCanModifyOwned(membership, row);
   await db.delete(shoppingLists).where(eq(shoppingLists.id, listId));
 }
 

@@ -24,7 +24,7 @@ import {
   WifiOff,
   X,
 } from "lucide-react";
-import { MAX_UPLOAD_BYTES } from "@toon/shared";
+import { isHttpUrl, MAX_UPLOAD_BYTES } from "@toon/shared";
 import { useT } from "@/lib/i18n";
 import {
   Button,
@@ -64,15 +64,6 @@ interface PickedPhoto {
   url: string;
 }
 
-function isValidHttpUrl(value: string): boolean {
-  try {
-    const parsed = new URL(value.trim());
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
 export default function ImportPage() {
   const t = useT();
   const { groupId, groupName, groups, switchGroup } = useActiveGroupState();
@@ -100,7 +91,8 @@ export default function ImportPage() {
   /* ------------------------------ url import ------------------------------ */
   const [urlValue, setUrlValue] = useState("");
   const urlTouched = urlValue.trim().length > 0;
-  const urlValid = isValidHttpUrl(urlValue);
+  // The shared helper, not a local copy — it is the same rule the server applies.
+  const urlValid = isHttpUrl(urlValue.trim());
 
   /* ----------------------------- photo import ----------------------------- */
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);

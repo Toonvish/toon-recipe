@@ -10,7 +10,7 @@
  */
 import { useId, useMemo, useRef, useState } from "react";
 import { Check, Plus, X } from "lucide-react";
-import type { Tag } from "@toon/shared";
+import { foldText, type Tag } from "@toon/shared";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
 import { Label } from "@/components/ui";
@@ -28,8 +28,16 @@ export interface TagComboboxProps {
   maxTags?: number;
 }
 
+/**
+ * Tag identity, folded exactly the way the server folds it.
+ *
+ * `getOrCreateTagIds` keys existing tags by `foldText()`, which folds umlauts and
+ * accents onto their base letter ("Käse" and "Kase" are both "kase"). A plain
+ * `toLowerCase()` here disagreed with that: the control offered "Kase" as a new tag
+ * next to an existing "Käse", and the server then silently merged the two on save.
+ */
 function sameName(a: string, b: string): boolean {
-  return a.trim().toLowerCase() === b.trim().toLowerCase();
+  return foldText(a.trim()) === foldText(b.trim());
 }
 
 export function TagCombobox({
@@ -51,10 +59,12 @@ export function TagCombobox({
   const listId = `${inputId}-list`;
 
   const suggestions = useMemo(() => {
-    const query = text.trim().toLowerCase();
+    // Folded too, or typing "Kase" would match nothing while `sameName` below has
+    // already decided it IS the existing "Käse" — no suggestion, and no way to create.
+    const query = foldText(text.trim());
     return available
       .filter((tag) => !value.some((name) => sameName(name, tag.name)))
-      .filter((tag) => query.length === 0 || tag.name.toLowerCase().includes(query))
+      .filter((tag) => query.length === 0 || foldText(tag.name).includes(query))
       .slice(0, 8);
   }, [available, text, value]);
 

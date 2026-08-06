@@ -13,7 +13,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useState,
   useSyncExternalStore,
 } from "react";
 import { CATALOGS, type MessageKey } from "./catalogs/index.ts";
@@ -71,7 +70,19 @@ export function useLocalePreference(): {
   setPreference: (preference: LocalePreference) => void;
 } {
   const locale = useLocale();
-  const [preference, setPreferenceState] = useState<LocalePreference>(() => readLocalePreference());
+  /*
+    DERIVED from the store, not a `useState` seeded once. `localStorage` is the
+    single source of truth for the preference and `setLocalePreference()` always
+    notifies, so every instance of this hook re-reads and agrees. A local copy
+    only stayed correct while exactly one component used the hook: a second one
+    would keep showing its own stale radio selection after the first switched,
+    because only the resolved `locale` travels through the store subscription.
+  */
+  const preference = useSyncExternalStore(
+    subscribeLocale,
+    readLocalePreference,
+    readLocalePreference,
+  );
 
   useEffect(() => {
     if (preference !== "system") return;
@@ -81,7 +92,6 @@ export function useLocalePreference(): {
   }, [preference]);
 
   const setPreference = useCallback((next: LocalePreference) => {
-    setPreferenceState(next);
     setLocalePreference(next);
   }, []);
 

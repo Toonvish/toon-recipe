@@ -25,6 +25,19 @@ export function assertRole(membership: Membership, required: GroupRole): void {
   }
 }
 
+/**
+ * Author or admin+ may change/delete a row the group owns.
+ *
+ * The one definition of that rule. Recipes, collections and shopping lists each
+ * used to inline it, which is three places to keep in step the day it grows an
+ * exception — and a permission rule that has silently diverged between two
+ * resources is not the kind of bug a test tends to be looking for.
+ */
+export function assertCanModifyOwned(membership: Membership, row: { createdBy: string }): void {
+  if (row.createdBy === membership.userId) return;
+  assertRole(membership, "admin");
+}
+
 /** Number of owners in a group — the guard behind the `last_owner` conflict. */
 export async function countOwners(db: DbLike, groupId: string): Promise<number> {
   const rows = await db

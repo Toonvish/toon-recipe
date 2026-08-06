@@ -116,10 +116,16 @@ const MULTIPLIER_RE = new RegExp(`^(\\d+)\\s*[x×]\\s*(?=${QT})`, "u");
 const PER_UNIT_RE = new RegExp(`^à\\s*(${QT})\\s*([\\p{L}]+\\.?)?\\s*`, "iu");
 const LEADING_UNIT_RE = /^([\p{L}]+\.?)/u;
 
+// Both ends strip the SAME characters. They used to disagree — the trailing class
+// omitted ".", "-", "–" and "—" — so "1 Pck. Vanillezucker." kept its full stop and
+// "250 g Butter -" its dash, straight into the stored name and every screen that
+// renders it. The note beside it was already trimmed, so one line could show a
+// cleaned note next to an uncleaned name.
+const NAME_EDGE_RE = /^[\s,;:.\-–—]+|[\s,;:.\-–—]+$/g;
+
 function cleanupName(value: string): string {
   return value
-    .replace(/^[\s,;:.\-–—]+/, "")
-    .replace(/[\s,;:]+$/, "")
+    .replace(NAME_EDGE_RE, "")
     .replace(/\s+/g, " ")
     .replace(/^von\s+/i, "")
     .trim();

@@ -59,6 +59,9 @@ export function useDraftAutosave(options: AutosaveOptions): AutosaveResult {
   const valueRef = useRef<ParsedRecipe | undefined>(value);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const inFlightRef = useRef<Promise<boolean> | undefined>(undefined);
+  // Lets the in-flight branch below re-enter the LATEST runSave without listing
+  // itself as its own dependency.
+  const runSaveRef = useRef<() => Promise<boolean>>(() => Promise.resolve(false));
 
   valueRef.current = value;
 
@@ -76,7 +79,22 @@ export function useDraftAutosave(options: AutosaveOptions): AutosaveResult {
       setState((old) => (old === "error" ? "error" : old === "idle" ? "idle" : "saved"));
       return true;
     }
-    if (inFlightRef.current !== undefined) return inFlightRef.current;
+    /*
+      A save is already on the wire, and it carries the value as it looked when it
+      LEFT — not `current`. Returning its promise (which this used to do) reported
+      somebody else's success for an edit that was never sent: the request resolves,
+      `savedRef` moves to the OLDER payload, the indicator says "saved" and
+      `useUnsavedWork` goes quiet, so a pending PWA update is free to reload over the
+      edit. `value` is a `useState` value in ImportReviewPage, so its identity does not
+      change on that re-render either and the debounce effect never reschedules.
+
+      So chain instead: wait for the in-flight request, then run again. The equality
+      check at the top of this function is the terminator — once the server holds the
+      current value the follow-up returns immediately without a request.
+    */
+    if (inFlightRef.current !== undefined) {
+      return inFlightRef.current.then(() => runSaveRef.current());
+    }
 
     setState("saving");
     setErrorText(undefined);
@@ -98,6 +116,8 @@ export function useDraftAutosave(options: AutosaveOptions): AutosaveResult {
     inFlightRef.current = promise;
     return promise;
   }, [draftId, groupId]);
+
+  runSaveRef.current = runSave;
 
   // debounce
   useEffect(() => {

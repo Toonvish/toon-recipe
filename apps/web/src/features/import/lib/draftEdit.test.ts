@@ -204,7 +204,10 @@ describe("normalizeParsedRecipe", () => {
     expect(normalized.prepMinutes).toBe(13);
     expect(normalized.cookMinutes).toBeUndefined();
     expect(normalized.difficulty).toBeUndefined();
-    expect(normalized.tags).toEqual(["Süß", "süss"]);
+    // All three collapse: foldText folds ß->ss and ü->u, so "Süß", "süss" and "süß"
+    // are ONE tag — the same identity the server's getOrCreateTagIds computes. This
+    // used to keep "süss" as a second tag, which the server then merged away on commit.
+    expect(normalized.tags).toEqual(["Süß"]);
     expect(normalized.ingredients).toHaveLength(2);
     expect(normalized.ingredients.map((item) => item.position)).toEqual([0, 1]);
     expect(normalized.ingredients[0]?.name).toBe("Mehl");
@@ -241,6 +244,21 @@ describe("tags and validation", () => {
     draft = addTag(draft, "vegan");
     draft = addTag(draft, "   ");
     expect(draft.tags).toEqual(["Vegan"]);
+  });
+
+  // The server keys tags by foldText(), so "Kase" IS "Käse" there. Deduping on
+  // toLowerCase() here let both into the draft and had the server merge them on
+  // commit — two chips in the review pane, one tag in the group.
+  test("addTag dedupes with the server's umlaut folding, not toLowerCase", () => {
+    let draft = emptyParsedRecipe();
+    draft = addTag(draft, "Käse");
+    draft = addTag(draft, "Kase");
+    draft = addTag(draft, "KÄSE");
+    expect(draft.tags).toEqual(["Käse"]);
+
+    draft = addTag(draft, "Grieß");
+    draft = addTag(draft, "griess");
+    expect(draft.tags).toEqual(["Käse", "Grieß"]);
   });
 
   test("only a missing title blocks saving", () => {

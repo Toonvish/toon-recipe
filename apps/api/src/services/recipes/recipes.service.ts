@@ -40,7 +40,7 @@ import { ApiError } from "../../lib/errors.ts";
 import type { Membership } from "../../lib/types.ts";
 import { normalizeStoredUploadUrl } from "../../lib/uploadUrls.ts";
 import { toPublicUser } from "../groups/mappers.ts";
-import { assertRole } from "../groups/membership.ts";
+import { assertCanModifyOwned, assertRole } from "../groups/membership.ts";
 import {
   type DbLike,
   foldText,
@@ -357,10 +357,9 @@ async function replaceCollections(
 /* writes                                                                     */
 /* -------------------------------------------------------------------------- */
 
-/** Author or admin+ may change/delete a recipe. */
+/** Author or admin+ may change/delete a recipe. Named alias for the shared rule. */
 export function assertCanModifyRecipe(membership: Membership, row: RecipeRow): void {
-  if (row.createdBy === membership.userId) return;
-  assertRole(membership, "admin");
+  assertCanModifyOwned(membership, row);
 }
 
 /**
@@ -473,12 +472,20 @@ export async function updateRecipe(
   const patch = recipePatch(input);
   // Only when the client did not speak about it at all — an explicit null stays a
   // deliberate "unknown".
-  if (input.totalMinutes === undefined) {
-    const derived = deriveTotalMinutes(
+  //
+  // Gated on prep/cook actually MOVING, and then assigned even when the derivation
+  // comes back null: clearing both times has to clear the total with them, or the row
+  // keeps a figure nothing supports any more (prep 30 + cook 45 = 75, both cleared,
+  // total stubbornly 75). The gate is what protects a total the user typed BY HAND —
+  // prep and cook empty, total 90 — from being wiped by an unrelated PATCH.
+  if (
+    input.totalMinutes === undefined &&
+    (input.prepMinutes !== undefined || input.cookMinutes !== undefined)
+  ) {
+    patch.totalMinutes = deriveTotalMinutes(
       patch.prepMinutes === undefined ? row.prepMinutes : patch.prepMinutes,
       patch.cookMinutes === undefined ? row.cookMinutes : patch.cookMinutes,
     );
-    if (derived !== null) patch.totalMinutes = derived;
   }
 
   await withTransaction(db, async (tx) => {
