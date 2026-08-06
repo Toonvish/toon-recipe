@@ -49,7 +49,12 @@ import { mediaUrl } from "@/lib/api";
 import { formatRelative, hostFromUrl, safeHttpUrl } from "@/lib/format";
 import { DIFFICULTY_LABEL_KEYS } from "./lib/difficultyLabels";
 import { useT } from "@/lib/i18n";
-import { useActiveGroup, useCurrentUser, useSession } from "@/lib/session";
+import {
+  useActiveGroup,
+  useCurrentUser,
+  useEmailVerificationBlock,
+  useSession,
+} from "@/lib/session";
 import { TagChip } from "@/features/tags/components/TagChip";
 import "./print.css";
 import { AppLink, useAppNavigate, useRouteParam } from "./lib/nav";
@@ -78,6 +83,7 @@ export default function RecipeDetailPage() {
   const recipeId = useRouteParam("recipeId");
   const { groupId, role } = useActiveGroup();
   const { isOnline } = useSession();
+  const unverified = useEmailVerificationBlock();
   const user = useCurrentUser();
   const navigate = useAppNavigate();
   const toast = useToast();
@@ -142,7 +148,13 @@ export default function RecipeDetailPage() {
   // Non-optional alias so the async callbacks below close over a narrowed value.
   const recipe: RecipeDetail = loaded;
 
-  const canEdit = canModifyOwn(role, user.id, recipe.createdBy);
+  // Role AND a confirmed e-mail address: an unconfirmed one makes the whole
+  // account read-only (lib/session.tsx), so Bearbeiten/Duplizieren/Löschen go
+  // with it — offering them would only produce a 403 after the confirm dialog.
+  // Deliberately NOT `useCanMutate()`, which also reports false offline: this
+  // screen has always kept its edit entry point visible without a signal, and the
+  // form itself is what refuses to save there.
+  const canEdit = canModifyOwn(role, user.id, recipe.createdBy) && unverified === undefined;
   const image = mediaUrl(recipe.imageUrl);
   const host = hostFromUrl(recipe.sourceUrl);
   // Never render a server-supplied link straight into an href — see safeHttpUrl.
@@ -376,6 +388,10 @@ export default function RecipeDetailPage() {
               variant="secondary"
               fullWidth
               leftIcon={<ShoppingBasket className="size-4" />}
+              // Disabled rather than hidden while the address is unconfirmed: the
+              // dialog's whole job is a write, and `title` says why.
+              disabled={unverified !== undefined}
+              title={unverified}
               onClick={() => setShoppingOpen(true)}
             >
               {t("recipes.detail.addToShoppingList")}

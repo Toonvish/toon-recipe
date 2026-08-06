@@ -31,7 +31,7 @@ import { db } from "../db/client.ts";
 import { created, json, noContent } from "../lib/http.ts";
 import type { AppEnv } from "../lib/types.ts";
 import { requireMembership, requireUser } from "../lib/types.ts";
-import { requireGroupRole, requireSession } from "../services/groups/access.ts";
+import { requireGroupRole, requireSession, requireVerifiedEmail } from "../services/groups/access.ts";
 import { onValidationError } from "../services/groups/validation.ts";
 import {
   addCatalogEntryToList,
@@ -55,6 +55,13 @@ export const shoppingRoutes = new Hono<AppEnv>();
 
 shoppingRoutes.use("*", requireSession());
 shoppingRoutes.use("*", requireGroupRole("member"));
+// Writes need a confirmed address (services/auth/verifiedEmail.ts). Note what
+// this does to the offline outbox: a queued mutation replayed by an unconfirmed
+// account gets a 403, which `networkMode: "offlineFirst"` treats as a real
+// failure rather than a pause — correct, since retrying cannot help until the
+// address is confirmed. The web client keeps such an account out of the outbox
+// in the first place by disabling the write UI.
+shoppingRoutes.use("*", requireVerifiedEmail());
 
 /* -------------------------------------------------------------------------- */
 /* lists                                                                      */

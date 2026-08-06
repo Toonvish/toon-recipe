@@ -34,7 +34,13 @@ import {
 import { formatDateTime, formatRelative, truncate } from "@/lib/format";
 import { invalidate, oauthProvidersQuery, sessionsQuery } from "@/lib/queries";
 import { useSearchParams } from "@/lib/navigation";
-import { useActiveGroup, useCurrentUser, useLogout, useSession } from "@/lib/session";
+import {
+  useActiveGroup,
+  useCurrentUser,
+  useEmailVerificationBlock,
+  useLogout,
+  useSession,
+} from "@/lib/session";
 import { useTheme, type ThemePreference } from "@/lib/theme";
 import { apiFieldErrors, validate, type FieldErrors } from "@/lib/validation";
 import { PageHeader } from "@/components/layout/AppShell";
@@ -118,11 +124,7 @@ export function AccountSettingsPage() {
 
       <GroupsCard count={groups.length} activeGroupName={activeGroup?.name ?? null} />
 
-      <EmailVerificationCard
-        email={user.email}
-        verified={user.emailVerified}
-        verifiedAt={user.emailVerifiedAt ?? null}
-      />
+      <EmailVerificationCard email={user.email} verifiedAt={user.emailVerifiedAt ?? null} />
 
       <AppearanceCard preference={theme.preference} onChange={theme.setPreference} />
 
@@ -198,18 +200,24 @@ function GroupsCard({
   );
 }
 
-function EmailVerificationCard({
-  email,
-  verified,
-  verifiedAt,
-}: {
-  email: string;
-  verified: boolean;
-  verifiedAt: string | null;
-}) {
+/**
+ * THE TIMESTAMP DECIDES WHAT THIS CARD SHOWS, not `user.emailVerified`.
+ *
+ * The boolean used to default to true for every self-registration (see the
+ * takeover described in the API's services/auth/emailVerification.ts), so on any
+ * deployment older than that fix EVERY legacy account reads
+ * `emailVerified: true, emailVerifiedAt: null`. Those accounts are exactly the
+ * ones the read-only gate holds, so branching on the boolean would show them a
+ * green checkmark on the very screen they were sent to in order to fix it.
+ * `emailVerified` is therefore no longer a prop — there is nothing it can
+ * correctly be used for here.
+ */
+function EmailVerificationCard({ email, verifiedAt }: { email: string; verifiedAt: string | null }) {
   const t = useT();
   const toast = useToast();
+  const blocked = useEmailVerificationBlock();
   const [sent, setSent] = useState(false);
+  const verified = verifiedAt !== null;
 
   const requestLink = useMutation({
     mutationFn: () => requestEmailVerification(),
@@ -253,11 +261,7 @@ function EmailVerificationCard({
       <Card padding="lg">
         <CardHeader
           title={t("auth.settings.email.title")}
-          description={
-            verifiedAt === null
-              ? t("auth.settings.email.confirmed")
-              : t("auth.settings.email.confirmedAt", { date: formatDateTime(verifiedAt) })
-          }
+          description={t("auth.settings.email.confirmedAt", { date: formatDateTime(verifiedAt) })}
         />
         <p className="flex items-center gap-2 text-sm text-success-soft-fg">
           <BadgeCheck aria-hidden className="size-4 shrink-0" />
@@ -284,6 +288,14 @@ function EmailVerificationCard({
           <MailWarning aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />
           <span>{t("auth.settings.email.confirmHint", { email })}</span>
         </p>
+        {/* Only where the server actually enforces it — on an install with no mail
+            transport nothing is gated, and promising a restriction that is not
+            there would be its own kind of wrong. */}
+        {blocked !== undefined ? (
+          <p className="rounded-xl bg-warning-soft px-3 py-2 text-sm text-warning-soft-fg">
+            {t("auth.settings.email.readOnlyUntilConfirmed")}
+          </p>
+        ) : null}
         <div className="flex justify-start">
           <Button
             variant="secondary"

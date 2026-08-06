@@ -10,3 +10,4 @@
  */
 export { requireGroupRole } from "../../middleware/group.ts";
 export { optionalSession, requireSession } from "../../middleware/session.ts";
+export { requireVerifiedEmail } from "../../middleware/verifiedEmail.ts";

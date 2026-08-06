@@ -9,6 +9,23 @@
  * The two fixed /invites/... routes are registered BEFORE the /:groupId routes,
  * otherwise "invites" would be captured as a groupId.
  *
+ * `requireVerifiedEmail()` is applied PER ROUTE here, not with `use("*")` as the
+ * recipe/import/shopping routers do, because this file's writes are deliberately
+ * NOT uniform (services/auth/verifiedEmail.ts explains the gate itself):
+ *
+ *   gated    POST /  ·  PATCH /:groupId  ·  DELETE /:groupId  ·  POST /:groupId/invites
+ *            — creating groups and mailing invitations is the spam surface.
+ *   ungated  POST /invites/accept — the one write an unconfirmed account MUST
+ *            keep, or an invited flatmate cannot get in at all.
+ *   ungated  the member routes — leaving a group ("Gruppe verlassen") and role
+ *            changes are neither spam nor content, and trapping somebody in a
+ *            group they cannot leave is a worse outcome than the thing gated.
+ *   ungated  DELETE /:groupId/invites/:inviteId — revoking is the UNDO for the
+ *            gated create; blocking it could only strand a live invitation.
+ *
+ * A `use("*")` here would silently swallow the accept route, i.e. the escape
+ * hatch, so a new write added below needs its own line and a decision.
+ *
  * Endpoint contract: docs/API.md (section "Groups").
  */
 import { zValidator } from "@hono/zod-validator";
@@ -25,7 +42,7 @@ import { db } from "../db/client.ts";
 import { created, json, noContent } from "../lib/http.ts";
 import type { AppEnv } from "../lib/types.ts";
 import { requireMembership, requireUser } from "../lib/types.ts";
-import { requireGroupRole, requireSession } from "../services/groups/access.ts";
+import { requireGroupRole, requireSession, requireVerifiedEmail } from "../services/groups/access.ts";
 import {
   createGroup,
   deleteGroup,
@@ -61,6 +78,7 @@ groupRoutes.get("/", requireSession(), async (c) => {
 groupRoutes.post(
   "/",
   requireSession(),
+  requireVerifiedEmail(),
   zValidator("json", CreateGroupRequestSchema, onValidationError),
   async (c) => {
     const user = requireUser(c);
@@ -106,6 +124,7 @@ groupRoutes.patch(
   "/:groupId",
   requireSession(),
   requireGroupRole("admin"),
+  requireVerifiedEmail(),
   zValidator("json", UpdateGroupRequestSchema, onValidationError),
   async (c) => {
     const membership = requireMembership(c);
@@ -115,7 +134,7 @@ groupRoutes.patch(
 );
 
 /** DELETE /api/groups/:groupId — owner only; all content cascades. */
-groupRoutes.delete("/:groupId", requireSession(), requireGroupRole("owner"), async (c) => {
+groupRoutes.delete("/:groupId", requireSession(), requireGroupRole("owner"), requireVerifiedEmail(), async (c) => {
   const membership = requireMembership(c);
   await deleteGroup(db, membership.groupId);
   return noContent(c);
@@ -187,6 +206,7 @@ groupRoutes.post(
   "/:groupId/invites",
   requireSession(),
   requireGroupRole("admin"),
+  requireVerifiedEmail(),
   zValidator("json", CreateInviteRequestSchema, onValidationError),
   async (c) => {
     const membership = requireMembership(c);

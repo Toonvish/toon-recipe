@@ -12,7 +12,7 @@ import { ChefHat, Plus, ScanText } from "lucide-react";
 import { Button, EmptyState, ErrorState, SkeletonList, Spinner } from "@/components/ui";
 import { buttonClasses } from "@/components/ui";
 import { useT } from "@/lib/i18n";
-import { useActiveGroup } from "@/lib/session";
+import { useActiveGroup, useEmailVerificationBlock } from "@/lib/session";
 import { useIsWideViewport } from "@/lib/viewport";
 import { useTags } from "@/features/tags/lib/queries";
 import { useCollections } from "@/features/collections/lib/queries";
@@ -26,6 +26,8 @@ import { RecipeFilters } from "./components/RecipeFilters";
 export default function RecipeListPage() {
   const t = useT();
   const { groupId, group } = useActiveGroup();
+  /** False while an unconfirmed e-mail address holds the account read-only. */
+  const canCreate = useEmailVerificationBlock() === undefined;
   /** Cards need width; a phone gets compact rows instead. */
   const wide = useIsWideViewport();
   const { searchText, setSearchText, filters, setFilters, effectiveFilters, hasFilters, reset } =
@@ -49,16 +51,22 @@ export default function RecipeListPage() {
             </p>
           ) : null}
         </div>
-        <div className="flex shrink-0 gap-2">
-          <AppLink to="/import" className={buttonClasses({ variant: "outline", size: "md" })}>
-            <ScanText aria-hidden="true" className="size-4" />
-            {t("recipes.list.importAction")}
-          </AppLink>
-          <AppLink to="/recipes/new" className={buttonClasses({ variant: "primary", size: "md" })}>
-            <Plus aria-hidden="true" className="size-4" />
-            {t("recipes.list.newAction")}
-          </AppLink>
-        </div>
+        {/* Hidden, not disabled, while the address is unconfirmed: these are
+            <a>s, and a link cannot carry a disabled state or a tooltip. The
+            banner in AppShell is what explains the absence, and both
+            destinations refuse the write themselves anyway. */}
+        {canCreate ? (
+          <div className="flex shrink-0 gap-2">
+            <AppLink to="/import" className={buttonClasses({ variant: "outline", size: "md" })}>
+              <ScanText aria-hidden="true" className="size-4" />
+              {t("recipes.list.importAction")}
+            </AppLink>
+            <AppLink to="/recipes/new" className={buttonClasses({ variant: "primary", size: "md" })}>
+              <Plus aria-hidden="true" className="size-4" />
+              {t("recipes.list.newAction")}
+            </AppLink>
+          </div>
+        ) : null}
       </header>
 
       <RecipeFilters
@@ -95,19 +103,23 @@ export default function RecipeListPage() {
             title={t("recipes.list.empty.none.title")}
             description={t("recipes.list.empty.none.description")}
             action={
-              <AppLink
-                to="/recipes/new"
-                className={buttonClasses({ variant: "primary", fullWidth: true })}
-              >
-                <Plus aria-hidden="true" className="size-4" />
-                {t("recipes.list.empty.createAction")}
-              </AppLink>
+              canCreate ? (
+                <AppLink
+                  to="/recipes/new"
+                  className={buttonClasses({ variant: "primary", fullWidth: true })}
+                >
+                  <Plus aria-hidden="true" className="size-4" />
+                  {t("recipes.list.empty.createAction")}
+                </AppLink>
+              ) : undefined
             }
             secondaryAction={
-              <AppLink to="/import" className={buttonClasses({ variant: "ghost", size: "sm" })}>
-                <ScanText aria-hidden="true" className="size-4" />
-                {t("recipes.list.empty.importAction")}
-              </AppLink>
+              canCreate ? (
+                <AppLink to="/import" className={buttonClasses({ variant: "ghost", size: "sm" })}>
+                  <ScanText aria-hidden="true" className="size-4" />
+                  {t("recipes.list.empty.importAction")}
+                </AppLink>
+              ) : undefined
             }
           />
         )

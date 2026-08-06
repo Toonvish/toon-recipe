@@ -32,8 +32,10 @@
  * ONE process, so a file that overrides this MUST hand it back
  * (`afterAll(() => setOcrImportEnabled(null))`) or the next file inherits it.
  */
+import type { ServerFeatures } from "@toon/shared";
 import { env } from "../../env.ts";
 import { ApiError } from "../../lib/errors.ts";
+import { isVerifiedEmailRequired } from "../auth/verifiedEmail.ts";
 
 /** Test overrides; `null` means "ask env". */
 let override: boolean | null = null;
@@ -112,7 +114,19 @@ export function assertAnyUploadImportEnabled(): void {
   throw new ApiError(501, "ocr_disabled", "server.import.ocrDisabled");
 }
 
-/** The capability block `/api/health` reports, so the UI can hide what is off. */
-export function serverFeatures(): { ocrImport: boolean; pdfImport: boolean } {
-  return { ocrImport: isOcrImportEnabled(), pdfImport: isPdfImportEnabled() };
+/**
+ * The capability block `/api/health` reports, so the UI can hide what is off.
+ *
+ * `verifiedEmailRequired` is the odd one out — it is an AUTHORISATION rule, not a
+ * build-time capability, and it lives in services/auth/verifiedEmail.ts. It rides
+ * along because `features` is already the "what is this server" probe the client
+ * reads once, and splitting it into a second field would mean a second request
+ * for one boolean.
+ */
+export function serverFeatures(): ServerFeatures {
+  return {
+    ocrImport: isOcrImportEnabled(),
+    pdfImport: isPdfImportEnabled(),
+    verifiedEmailRequired: isVerifiedEmailRequired(),
+  };
 }

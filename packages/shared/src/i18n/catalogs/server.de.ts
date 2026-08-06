@@ -108,6 +108,8 @@ export const serverDe = {
   "server.auth.oauthLastLoginMethod": "Das ist deine einzige Anmeldemöglichkeit. Lege zuerst ein Passwort fest.",
   "server.auth.verificationLinkInvalid": "Dieser Bestätigungslink ist nicht mehr gültig. Bitte fordere einen neuen an.",
   "server.auth.emailAlreadyVerified": "Diese E-Mail-Adresse ist schon bestätigt",
+  "server.auth.emailUnverified":
+    "Bitte bestätige zuerst deine E-Mail-Adresse. Bis dahin kannst du nur mitlesen und Einladungen annehmen.",
   "server.auth.userNotFound": "Benutzer nicht gefunden",
   "server.auth.googleNotConfigured": "Google-Login ist auf diesem Server nicht konfiguriert",
   "server.auth.githubNotConfigured": "GitHub-Login ist auf diesem Server nicht konfiguriert",

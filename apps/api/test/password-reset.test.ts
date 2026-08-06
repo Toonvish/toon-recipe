@@ -118,8 +118,10 @@ async function login(email: string, password: string): Promise<Response> {
 
 describe("POST /api/auth/password/forgot", () => {
   test("204 + a mail with a working link for a known address", async () => {
-    const recorder = useRecordingMailer();
+    // Registration mails its own confirmation link, so the recorder is installed
+    // AFTER it — otherwise `sent` holds two messages and the indexes below shift.
     const account = await register();
+    const recorder = useRecordingMailer();
 
     const response = await post("/api/auth/password/forgot", { email: account.email });
 
@@ -383,9 +385,46 @@ describe("e-mail verification", () => {
     expect(rows[0]?.emailVerifiedAt).toBeNull();
   });
 
-  test("request + confirm sets both the flag and its evidence timestamp", async () => {
+  /*
+    Registration mails the link ITSELF. Without that, an account created on a
+    deployment that holds unconfirmed users read-only
+    (services/auth/verifiedEmail.ts) would land in an app where nothing can be
+    saved and no mail ever explained why — the user would have to go and find the
+    resend button on /settings. A gate has to arrive with its own way out.
+  */
+  test("registering mails a confirmation link without being asked", async () => {
     const recorder = useRecordingMailer();
     const account = await register();
+
+    expect(recorder.sent).toHaveLength(1);
+    expect(recorder.sent[0]?.to).toBe(account.email);
+    expect(recorder.sent[0]?.text).toContain("/verify-email/");
+
+    // And the link in it actually works — it is a real, spendable token.
+    const confirmed = await post("/api/auth/email/verify/confirm", {
+      token: tokenFromLastMail("verify-email"),
+    });
+    expect(confirmed.status).toBe(200);
+  });
+
+  test("a failed confirmation mail does not fail the registration", async () => {
+    setMailer(new FakeRelay(true));
+    const response = await post("/api/auth/register", {
+      email: `bounce-${crypto.randomUUID()}@example.com`,
+      name: "Unzustellbar",
+      password: PASSWORD,
+    });
+    // 201, and a usable session: the account is committed, the mail is not part
+    // of the deal (same rule as every other send — see trySendMail).
+    expect(response.status).toBe(201);
+    expect(sessionCookie(response).length).toBeGreaterThan(0);
+  });
+
+  test("request + confirm sets both the flag and its evidence timestamp", async () => {
+    // Recorder AFTER registration: registering already mails a link (see below),
+    // and this test is about the one the resend endpoint produces.
+    const account = await register();
+    const recorder = useRecordingMailer();
 
     const requested = await post("/api/auth/email/verify/request", {}, account.cookie);
     expect(requested.status).toBe(200);
@@ -467,11 +506,14 @@ describe("e-mail verification", () => {
     expect(response.status).toBe(200);
     expect(((await response.json()) as { mailDelivery: string }).mailDelivery).toBe("failed");
 
+    // Two rows: the one registration minted (superseded, `usedAt` stamped) and the
+    // one this request minted. Exactly ONE is still spendable — that is the point,
+    // the refused mail must not have thrown the link away.
     const rows = await db
       .select()
       .from(emailVerificationTokens)
       .where(eq(emailVerificationTokens.userId, account.userId));
-    expect(rows).toHaveLength(1);
+    expect(rows.filter((row) => row.usedAt === null)).toHaveLength(1);
   });
 
   test("a token cannot be reused, and expired/unknown answer the same", async () => {

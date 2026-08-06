@@ -121,6 +121,12 @@ export const uiDe = {
 
   /* -------------------------------- lib/session.tsx --------------------------- */
   "ui.session.offlineSaveBlocked": "Offline — Änderungen können nicht gespeichert werden.",
+  "ui.session.emailUnverifiedBlocked":
+    "Bitte bestätige zuerst deine E-Mail-Adresse — bis dahin kannst du nur mitlesen.",
+  "ui.session.emailUnverifiedBannerTitle": "E-Mail-Adresse noch nicht bestätigt",
+  "ui.session.emailUnverifiedBannerBody":
+    "Wir haben dir einen Bestätigungslink geschickt. Bis du darauf klickst, kannst du Rezepte und Einkaufslisten nur ansehen — Einladungen annehmen geht trotzdem.",
+  "ui.session.emailUnverifiedBannerAction": "Zu den Einstellungen",
   "ui.session.checkingLogin": "Anmeldung wird geprüft …",
   "ui.session.serverUnreachable": "Server nicht erreichbar",
   "ui.session.redirectingToLogin": "Weiterleitung zur Anmeldung …",

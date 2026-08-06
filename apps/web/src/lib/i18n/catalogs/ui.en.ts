@@ -92,6 +92,12 @@ export const uiEn: LocaleCatalog<UiCatalog> = {
   "ui.label.optional": "(optional)",
 
   "ui.session.offlineSaveBlocked": "Offline — changes cannot be saved right now.",
+  "ui.session.emailUnverifiedBlocked":
+    "Please confirm your e-mail address first — until then you can only read along.",
+  "ui.session.emailUnverifiedBannerTitle": "E-mail address not confirmed yet",
+  "ui.session.emailUnverifiedBannerBody":
+    "We sent you a confirmation link. Until you click it you can only view recipes and shopping lists — accepting invitations still works.",
+  "ui.session.emailUnverifiedBannerAction": "Go to settings",
   "ui.session.checkingLogin": "Checking sign-in …",
   "ui.session.serverUnreachable": "Server unreachable",
   "ui.session.redirectingToLogin": "Redirecting to sign-in …",

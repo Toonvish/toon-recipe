@@ -159,7 +159,8 @@ export const authDe = {
   "auth.settings.groups.manageHint": "Mitglieder, Einladungen und Rollen",
 
   "auth.settings.email.title": "E-Mail-Adresse",
-  "auth.settings.email.confirmed": "Bestätigt.",
+  "auth.settings.email.readOnlyUntilConfirmed":
+    "Bis zur Bestätigung kannst du nur mitlesen: Rezepte anlegen, importieren und Einkaufslisten ändern ist gesperrt. Einladungen annehmen geht weiterhin.",
   "auth.settings.email.confirmedAt": "Bestätigt am {date}.",
   "auth.settings.email.confirmTitle": "E-Mail-Adresse bestätigen",
   "auth.settings.email.notConfirmed": "Noch nicht bestätigt.",

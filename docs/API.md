@@ -62,10 +62,43 @@ client can stop offering what the server cannot do instead of discovering it thr
 | --- | --- |
 | `features.ocrImport` | `/imports/image` (and `/imports/file` for an image) answer `501 ocr_disabled` (`IMPORT_OCR_ENABLED` unset, or an image built without `WITH_OCR=1`). URL and text import still work. |
 | `features.pdfImport` | `/imports/pdf` (and `/imports/file` for a PDF) answer `501 ocr_disabled` (`IMPORT_PDF_ENABLED=0`, or an image built without `WITH_PDF=1`). Separate from `ocrImport` because a scanned PDF is up to ten tesseract runs where a photo is one — a one-core deployment runs photos and withholds PDFs. Itself optional inside `features`, so a client newer than its server still parses the object; absent reads as unavailable. |
+| `features.verifiedEmailRequired` | Nothing is gated on e-mail confirmation — an account writes as soon as it exists. **When TRUE** an account whose `emailVerifiedAt` is null is READ-ONLY: see "Unconfirmed accounts" below. Follows whether a mail transport is configured, so it is `true` on a deployment with SMTP/Resend and `false` on the default console-only stack. |
 
 It is **optional** in the schema: a client must treat a missing `features` as "unknown", and unknown
 as unavailable — briefly hiding a working button is self-correcting, offering a missing one is not.
-The service worker never caches `/api`, so the answer is always the running server's.
+`verifiedEmailRequired` is the one field with the OPPOSITE default: unknown reads as `false`, because
+guessing "gated" would grey out every write in the app and demand a confirmation the server never
+asks for. The service worker never caches `/api`, so the answer is always the running server's.
+
+### Unconfirmed accounts are read-only
+
+Open registration means anybody can mint an account and start filling a group, so on a deployment
+that can send mail (`features.verifiedEmailRequired: true`) an account is held read-only until its
+address is confirmed. `users.emailVerifiedAt` — the TIMESTAMP, never the `emailVerified` boolean — is
+the only evidence that counts.
+
+Such an account gets **`403 { code: "email_unverified" }`** on:
+
+- every `POST`/`PATCH`/`PUT`/`DELETE` under `/api/groups/:groupId/recipes`, `/tags`, `/collections`,
+  `/imports` (all six sources, plus draft edit/delete and commit) and `/shopping-lists`,
+- `POST /api/groups` · `PATCH /api/groups/:groupId` · `DELETE /api/groups/:groupId` ·
+  `POST /api/groups/:groupId/invites`.
+
+Everything else is unchanged, and deliberately so:
+
+- **every `GET`** — the account browses its groups normally, which is what makes this read-ONLY
+  rather than locked out,
+- **`POST /api/groups/invites/accept`** — the one write that must never be gated, or an invited
+  flatmate could not get in at all,
+- **the member routes** (`PATCH`/`DELETE /api/groups/:groupId/members/:userId`) — leaving a group is
+  neither spam nor content, and being trapped in one is worse than what the gate prevents,
+- **`DELETE /api/groups/:groupId/invites/:inviteId`** — revoking is the undo for the gated create,
+- **every `/api/auth/*` route**, including `POST /api/auth/email/verify/request`, which is the way
+  out.
+
+`403`, not `401`: the session is valid and a client must not log the user out over this. Registering
+now mails the confirmation link by itself (`POST /api/auth/register`), so the gate always arrives
+with its own way out; the send is best-effort and never fails the registration.
 
 ## Auth — `apps/api/src/routes/auth.ts`
 
@@ -93,6 +126,13 @@ Notes
 - `RegisterRequest.inviteToken` joins that group instead of creating "Meine Rezepte".
 - **Registration stores `emailVerified: false`.** Self-registration proves nothing about who owns
   the address; the flag is earned afterwards through the confirmation flow below.
+- **Registration also MAILS the confirmation link**, without being asked. Best-effort: the send is
+  wrapped in `trySendMail` and a failure never changes the 201 or the session. It matters because on
+  a deployment with `features.verifiedEmailRequired` the new account lands in a read-only app, and a
+  gate has to arrive with its own way out rather than making the user hunt for the resend button.
+- **An unconfirmed address makes the account read-only** where the deployment can send mail — see
+  "Unconfirmed accounts are read-only" under Health for the exact endpoint list and the 403
+  `email_unverified` code.
 - **OAuth never auto-links on an e-mail match.** State + PKCE live in short-lived `HttpOnly`
   cookies. A known `oauth_accounts(provider, provider_user_id)` logs that user in; an unknown
   identity whose e-mail is free creates a user (`emailVerified` from the provider,

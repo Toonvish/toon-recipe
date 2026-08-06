@@ -70,6 +70,11 @@ import {
   resolveUploadPath,
 } from "../services/import/files.ts";
 import { requireGroupRole, requireSession } from "../services/import/middleware-bridge.ts";
+// Straight from the middleware, NOT through middleware-bridge.ts: that bridge
+// resolves its two imports lazily because they were being written concurrently
+// with this router and might not have existed yet (see its header). This one
+// does exist, so the indirection would buy nothing and hide the dependency.
+import { requireVerifiedEmail } from "../middleware/verifiedEmail.ts";
 import { importFromImage, importFromPdf, importFromText } from "../services/import/ocr/index.ts";
 import { importFromUrl } from "../services/import/url/index.ts";
 import { withOcrSlot } from "../services/ocr/index.ts";
@@ -80,6 +85,11 @@ export const importRoutes = new Hono<AppEnv>();
 // group from the path are required. Applied here so src/index.ts stays untouched.
 importRoutes.use("*", requireSession);
 importRoutes.use("*", requireGroupRole("member"));
+// Importing is the loudest write in the app — it fetches, OCRs and then creates
+// rows — so an account whose address was never confirmed gets 403
+// `email_unverified` on every non-GET here (drafts stay READABLE). This is the
+// anti-spam gate, not a capability: see services/auth/verifiedEmail.ts.
+importRoutes.use("*", requireVerifiedEmail());
 
 /* -------------------------------- helpers --------------------------------- */
 

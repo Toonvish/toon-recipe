@@ -27,7 +27,7 @@ import { db } from "../db/client.ts";
 import { created, json, noContent, parseCsvParam } from "../lib/http.ts";
 import type { AppEnv } from "../lib/types.ts";
 import { requireMembership, requireUser } from "../lib/types.ts";
-import { requireGroupRole, requireSession } from "../services/groups/access.ts";
+import { requireGroupRole, requireSession, requireVerifiedEmail } from "../services/groups/access.ts";
 import { keepOnlySentKeys, onValidationError } from "../services/groups/validation.ts";
 import {
   addRecipeToCollection,
@@ -55,6 +55,10 @@ export const recipeRoutes = new Hono<AppEnv>();
 // Session + membership for every recipe/tag/collection route of this group.
 recipeRoutes.use("*", requireSession());
 recipeRoutes.use("*", requireGroupRole("member"));
+// ...and a confirmed address for every WRITE among them (GETs pass through, so
+// an unconfirmed account still reads the whole group). Mounted once so a route
+// added below is gated by default — see middleware/verifiedEmail.ts.
+recipeRoutes.use("*", requireVerifiedEmail());
 
 /* -------------------------------------------------------------------------- */
 /* recipes                                                                    */

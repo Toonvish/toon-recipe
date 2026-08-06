@@ -400,7 +400,18 @@ EOF
 docker compose up -d
 ```
 
-Fünf Dinge dazu:
+Sechs Dinge dazu:
+
+- **Mit dem Transport schaltet sich die Bestätigungspflicht ein.** Sobald wirklich Mail rausgeht,
+  darf ein Konto mit **unbestätigter** Adresse nur noch lesen: Rezepte ansehen ja, anlegen,
+  importieren und Einkaufslisten ändern nein (`403 email_unverified`); Einladungen annehmen geht
+  weiterhin. Der Bestätigungslink geht schon bei der Registrierung raus. Eine eigene Variable dafür
+  gibt es absichtlich nicht — sie hängt direkt an `MAIL_TRANSPORT`, weil ein Schalter, den man ohne
+  funktionierenden Versand umlegen kann, die Instanz nur lahmlegen würde.
+  **Beim Nachrüsten auf einer bestehenden Installation aufpassen:** Konten aus der Zeit vor dem
+  Bestätigungs-Flow haben zwar `email_verified = 1`, aber keinen Zeitstempel — und nur der zählt.
+  Die sind ab dem Umschalten alle read-only, bis sie einmal auf den Link klicken (Profil →
+  E-Mail-Adresse bestätigen). Vorher Bescheid sagen.
 
 - **`MAIL_TRANSPORT=smtp` gehört dazu**, sonst bleibt es beim Log. Die Zeile ist leicht zu
   vergessen, weil die anderen Werte danach aussehen, als würden sie den Versand schon einschalten —

@@ -46,7 +46,7 @@ import {
 import { safeNextPath } from "./navigation";
 import { purgePersistedCache, setActiveCacheUser } from "./persist";
 import { useOnlineStatus } from "./pwa";
-import { invalidate, meQuery, queryKeys } from "./queries";
+import { healthQuery, invalidate, meQuery, queryKeys } from "./queries";
 import { readStorage, storageKeys, writeStorage } from "./storage";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -247,7 +247,43 @@ export function useRequiredGroupId(): string {
 }
 
 /**
+ * Whether an unconfirmed e-mail address is what is stopping this account writing.
+ *
+ * TWO conditions, and both are needed. The server only enforces the gate when it
+ * can actually send a confirmation link (`features.verifiedEmailRequired` on
+ * `/api/health`, see the API's services/auth/verifiedEmail.ts), and the account
+ * only fails it while `emailVerifiedAt` is null. Reading just the second would
+ * grey out every write on the default self-hosted stack, where no mail transport
+ * is configured and nothing is gated at all.
+ *
+ * UNKNOWN COUNTS AS "NOT REQUIRED" — the opposite bias from
+ * `useOcrImportAvailable`, on purpose. While the health probe is in flight, or
+ * against a server predating the field, guessing "gated" would disable the whole
+ * app and demand a confirmation that server never asks for; guessing "open" costs
+ * at worst one 403 that {@link useCanMutate}'s copy already explains. The server
+ * is the enforcement either way.
+ *
+ * THE TIMESTAMP, NOT THE FLAG. `emailVerified` was true for every account before
+ * the confirmation flow existed; `emailVerifiedAt` is the only evidence, exactly
+ * as on the server.
+ */
+export function useEmailVerificationBlock(): string | undefined {
+  const { user } = useSession();
+  const { data } = useQuery(healthQuery());
+  const t = useT();
+
+  if (data?.features?.verifiedEmailRequired !== true) return undefined;
+  if (user === null) return undefined;
+  if (user.emailVerifiedAt != null) return undefined;
+  return t("ui.session.emailUnverifiedBlocked");
+}
+
+/**
  * Whether the app may write right now.
+ *
+ * Two independent reasons it may not, and the ORDER matters: an unconfirmed
+ * address is reported first because it is the one the user can actually do
+ * something about, and it does not go away by walking towards the router.
  *
  * Offline support here is READ-ONLY on purpose: there is no conflict story for two
  * flatmates editing one recipe, so a "saved" that silently evaporates would be
@@ -259,7 +295,10 @@ export function useRequiredGroupId(): string {
  * that IS editable offline — its writes go through a persisted mutation outbox
  * (features/shopping/lib/offline.ts) and replay on reconnect — so `canMutate:
  * false` there is exactly backwards. Those screens gate only list
- * create/rename/delete on `isOnline`.
+ * create/rename/delete on `isOnline`, and take the verification half of this
+ * answer from {@link useEmailVerificationBlock} directly: a write the server will
+ * refuse with 403 must not enter the outbox, because a queued mutation that can
+ * never succeed just fails loudly on every reconnect.
  *
  * ```tsx
  * const { canMutate, reason } = useCanMutate();
@@ -268,7 +307,10 @@ export function useRequiredGroupId(): string {
  */
 export function useCanMutate(): { canMutate: boolean; reason: string | undefined } {
   const { isOnline } = useSession();
+  const unverified = useEmailVerificationBlock();
   const t = useT();
+
+  if (unverified !== undefined) return { canMutate: false, reason: unverified };
   return isOnline
     ? { canMutate: true, reason: undefined }
     : {

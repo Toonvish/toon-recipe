@@ -5,6 +5,7 @@ import { InstallPrompt } from "./InstallPrompt";
 import { OfflineBanner } from "./OfflineBanner";
 import { SideNav } from "./SideNav";
 import { TopBar } from "./TopBar";
+import { UnverifiedEmailBanner } from "./UnverifiedEmailBanner";
 import { UpdateBanner } from "./UpdateBanner";
 
 /**
@@ -30,6 +31,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="flex min-h-dvh flex-col lg:pl-64">
         <TopBar />
         <OfflineBanner />
+        <UnverifiedEmailBanner />
         <UpdateBanner />
         {/*
           The wider desktop gutter is `--gutter`, NOT `lg:px-8`: the hand-written

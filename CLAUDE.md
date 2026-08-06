@@ -35,6 +35,8 @@ still German-only on purpose; only the *chrome* speaks two languages.
    state/PKCE cookies. Provider linking is an EXPLICIT authenticated action — there is no auto-link
    on an e-mail match, verified or not (see the gotcha below).
    Password reset + e-mail confirmation use hashed, single-use tokens from a mailed link.
+   **An account with an UNCONFIRMED address is READ-ONLY** wherever the deployment can actually mail
+   the link — the anti-spam gate, see the gotcha below.
 5. **Every import produces an editable `import_draft`.** Nothing is written to `recipes` until
    `POST …/imports/:draftId/commit`. Three sources: URL (JSON-LD `@graph`/array → microdata → site
    selectors), image (server-side OCR), PDF (text layer first, rasterize+OCR fallback,
@@ -438,6 +440,45 @@ add to that panel instead.
   rasterizer in that file; keep its rendered-size assertion, which a leaked stub would otherwise
   satisfy. Everywhere else, stub via `setPdfRasterizer()` and reset it in `afterEach` — NOT
   `mock.module`, see the mock-leak gotcha below.
+- **AN UNCONFIRMED E-MAIL ADDRESS MAKES AN ACCOUNT READ-ONLY, AND THE GATE FOLLOWS THE MAILER — NOT
+  AN ENV VARIABLE.** `isVerifiedEmailRequired()` (`services/auth/verifiedEmail.ts`) is
+  `isMailConfigured()`, and `requireVerifiedEmail()` (`middleware/verifiedEmail.ts`) is the third
+  auth middleware after `requireSession` / `requireGroupRole`. It answers **403 `email_unverified`**.
+  - **WHY NO `REQUIRE_VERIFIED_EMAIL` VARIABLE.** `MAIL_TRANSPORT` is unset by default, in
+    `docker-compose.yml` too, so a fresh stack only ever logs the confirmation link. A flag an
+    operator could set without a transport is a flag that turns `docker compose up` into a
+    permanently read-only app whose only way out is grepping the log. No mail, no gate; configure
+    SMTP or Resend and it switches itself on. Do not "improve" this with an env override.
+  - **IT ONLY BLOCKS NON-GET.** The method check lives in the middleware, which is what lets
+    `recipeRoutes` / `importRoutes` / `shoppingRoutes` mount it once with `use("*")` and have every
+    later route gated by default. **`routes/groups.ts` applies it PER ROUTE on purpose** — a
+    `use("*")` there would swallow `POST /invites/accept`, the one write an unconfirmed account must
+    keep, and the member routes (leaving a group) with it. That file's header lists what is gated
+    and what is not, and why; a new write there needs its own line and a decision.
+  - **THE TIMESTAMP, NEVER THE BOOLEAN.** `emailVerified` defaulted to `true` for every
+    self-registration before the confirmation flow existed, so a gate reading it would be open to
+    exactly the accounts it exists to stop. `hasVerifiedEmail()` tests `emailVerifiedAt != null` —
+    `!=`, because the DTO types it `nullish()` and `!== null` would read an absent field as proof.
+  - **CONSEQUENCE FOR AN EXISTING INSTALL:** migration `0001` added `email_verified_at` nullable with
+    no backfill, so every pre-flow account is `email_verified = 1, email_verified_at = NULL`. The day
+    an operator configures a mail transport, all of them go read-only until they click a link. That
+    is honest (nobody ever confirmed those addresses) and self-service, but it is a surprise worth
+    naming in release notes. It is also why `EmailVerificationCard` branches on the TIMESTAMP: on the
+    boolean it would show those users a green checkmark on the screen they were sent to to fix it.
+  - **REGISTRATION MAILS THE LINK ITSELF** (`sendVerificationLinkQuietly` in `routes/auth.ts`),
+    best-effort and never failing the 201. Without it the gate would arrive with no way out.
+  - **OFF UNDER `bun test` UNLESS A FILE ASKS.** `bun test` runs every file in one process and
+    `uploads.test.ts` installs a mailer named `"test"` for its own reasons — deriving an
+    authorisation rule from that would 403 every write in every file after it. So `env.isTest`
+    forces the gate off and `setVerifiedEmailRequired()` is the seam, with the usual
+    `afterAll(() => setVerifiedEmailRequired(null))` discipline (same rule as `setMailer`).
+  - **The UI reads `features.verifiedEmailRequired` on `/api/health`** via
+    `useEmailVerificationBlock()` (`lib/session.tsx`), which `useCanMutate()` folds in.
+    **UNKNOWN COUNTS AS NOT-REQUIRED** — the OPPOSITE bias from `ocrImport`, because guessing "gated"
+    greys out the whole app and demands a confirmation an older server never asks for. The shopping
+    screens still must not use `useCanMutate()` (it is false offline); they take
+    `useEmailVerificationBlock()` directly, and they DO go read-only for it — a queued offline
+    mutation the server will 403 can never succeed, so it must not enter the outbox at all.
 - **OAuth never auto-links on an e-mail match, even a CONFIRMED one.** Auto-linking on the old
   always-true `emailVerified` let an attacker pre-register a victim's address and capture their later
   Google/GitHub login. Linking is explicit: `GET /api/auth/oauth/:provider/link` (session +
@@ -761,7 +802,7 @@ All five must be clean before calling anything done:
 ```bash
 bun install
 bun run typecheck    # tsc for packages/shared, apps/api, apps/web
-bun test             # 934 tests
+bun test             # 962 tests
 bun run build        # vite build + PWA
 bun run i18n:check   # German catalog parity + no German left in a ported tree
 ```

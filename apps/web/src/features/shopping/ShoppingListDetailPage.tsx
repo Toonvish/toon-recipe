@@ -14,10 +14,13 @@
  *     not jump when the response lands.
  *
  * `useCanMutate()` is deliberately NOT used here — it reports false when offline, which
- * is the opposite of what this feature needs.
+ * is the opposite of what this feature needs. Its OTHER half is used, though:
+ * `useEmailVerificationBlock()` is the one condition under which this screen does go
+ * read-only, because the server answers 403 to an unconfirmed account's writes and a
+ * queued mutation that can never succeed would just fail again on every reconnect.
  */
 import { useState } from "react";
-import { CheckCheck, ChevronLeft, Trash2, WifiOff } from "lucide-react";
+import { CheckCheck, ChevronLeft, MailWarning, Trash2, WifiOff } from "lucide-react";
 import { useIsMutating } from "@tanstack/react-query";
 import type { ShoppingItem } from "@toon/shared";
 import {
@@ -30,7 +33,7 @@ import {
 } from "@/components/ui";
 import { errorMessage } from "@/lib/api";
 import { useT } from "@/lib/i18n";
-import { useActiveGroup, useSession } from "@/lib/session";
+import { useActiveGroup, useEmailVerificationBlock, useSession } from "@/lib/session";
 import { AppLink, useRouteParam } from "@/features/recipes/lib/nav";
 import { AddItemBar } from "./components/AddItemBar";
 import { EditItemDialog } from "./components/EditItemDialog";
@@ -51,6 +54,8 @@ export default function ShoppingListDetailPage() {
   const t = useT();
   const { groupId } = useActiveGroup();
   const { isOnline } = useSession();
+  const unverified = useEmailVerificationBlock();
+  const canMutate = unverified === undefined;
   const listId = useRouteParam("listId") ?? "";
   const toast = useToast();
 
@@ -117,7 +122,7 @@ export default function ShoppingListDetailPage() {
               ) : null}
             </p>
           </div>
-          {items.length > 0 ? (
+          {items.length > 0 && canMutate ? (
             <IconButton
               label={t("shopping.detail.clearList")}
               variant="ghost"
@@ -128,7 +133,15 @@ export default function ShoppingListDetailPage() {
         </div>
       </header>
 
-      {!isOnline ? (
+      {/* The unconfirmed-address notice wins over the offline one: offline is
+          temporary and this screen keeps working through it, while the 403 does
+          not resolve itself by finding a signal. */}
+      {unverified !== undefined ? (
+        <p className="mb-3 flex items-center gap-2 rounded-xl bg-warning-soft px-3 py-2 text-sm text-warning-soft-fg">
+          <MailWarning aria-hidden="true" className="size-4 shrink-0" />
+          {unverified}
+        </p>
+      ) : !isOnline ? (
         <p className="mb-3 flex items-center gap-2 rounded-xl bg-warning-soft px-3 py-2 text-sm text-warning-soft-fg">
           <WifiOff aria-hidden="true" className="size-4 shrink-0" />
           {t("shopping.detail.offlineBanner")}
@@ -152,7 +165,7 @@ export default function ShoppingListDetailPage() {
               <ShoppingItemCard
                 key={item.id}
                 item={item}
-                canMutate
+                canMutate={canMutate}
                 onCheck={check.check}
                 onRemove={remove.remove}
                 onEdit={setEditing}
@@ -163,7 +176,7 @@ export default function ShoppingListDetailPage() {
 
         <FrequentlyUsed
           entries={detail.catalog}
-          canMutate
+          canMutate={canMutate}
           onAdd={(entry) => suggestion.addSuggestion(entry.id, entry.name)}
           onDismiss={(entryId) =>
             dismiss.mutate(entryId, {
@@ -174,7 +187,7 @@ export default function ShoppingListDetailPage() {
         />
       </div>
 
-      <AddItemBar onAdd={(newItems) => add.add(newItems)} />
+      <AddItemBar onAdd={(newItems) => add.add(newItems)} disabled={!canMutate} />
 
       <EditItemDialog
         item={editing}

@@ -60,6 +60,17 @@ export const ERROR_CODES = [
   /** An e-mail-confirmation token is unknown, expired or already used. */
   "verification_token_invalid",
   "last_owner",
+  /**
+   * The account's e-mail address has never been confirmed, and this deployment
+   * makes such an account READ-ONLY (see `features.verifiedEmailRequired`).
+   *
+   * 403, not 401: the session is perfectly valid and every GET still works, so
+   * a client must not react by logging the user out. Distinct from `forbidden`,
+   * which means "this account may never do this" — here the user can lift it
+   * themselves by clicking the link in their confirmation mail, and the UI keys
+   * off the code to offer exactly that.
+   */
+  "email_unverified",
   "payload_too_large",
   "unsupported_media_type",
   "rate_limited",
@@ -168,6 +179,20 @@ export const ServerFeaturesSchema = z.object({
    * therefore reads as "unavailable", the same bias `ocrImport` already has.
    */
   pdfImport: z.boolean().optional(),
+  /**
+   * This deployment makes an account with an UNCONFIRMED address read-only:
+   * every write answers 403 `email_unverified` until the address is confirmed.
+   * It follows whether mail is configured at all — a server that cannot send a
+   * confirmation link must not gate anything on clicking one.
+   *
+   * UNKNOWN READS AS `false`, which is the opposite bias from `ocrImport`, and
+   * deliberately so. Guessing "off" for a capability hides one button until the
+   * probe lands; guessing "on" for this would grey out every write in the app
+   * and tell the user to confirm an address a server of that vintage never asks
+   * about. The 403 remains the enforcement either way — this field only decides
+   * what the UI offers, never what the server allows.
+   */
+  verifiedEmailRequired: z.boolean().optional(),
 });
 export type ServerFeatures = z.infer<typeof ServerFeaturesSchema>;
 

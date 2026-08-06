@@ -103,6 +103,8 @@ export const serverEn: LocaleCatalog<ServerCatalog> = {
   "server.auth.githubProfileUnavailable": "The GitHub profile could not be loaded",
   "server.auth.githubProfileIncomplete": "The GitHub profile was incomplete",
   "server.auth.resetLinkInvalid": "This link is no longer valid. Please request a new one.",
+  "server.auth.emailUnverified":
+    "Please confirm your e-mail address first. Until then you can only read along and accept invitations.",
 
   /* -------------------------------- import ----------------------------------- */
   "server.import.pastedTextEmpty": "The pasted text is empty.",

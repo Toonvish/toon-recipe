@@ -150,7 +150,8 @@ export const authEn: LocaleCatalog<AuthCatalog> = {
   "auth.settings.groups.manageHint": "Members, invites and roles",
 
   "auth.settings.email.title": "E-mail address",
-  "auth.settings.email.confirmed": "Confirmed.",
+  "auth.settings.email.readOnlyUntilConfirmed":
+    "Until you confirm, you can only read along: creating recipes, importing and changing shopping lists are blocked. Accepting invitations still works.",
   "auth.settings.email.confirmedAt": "Confirmed on {date}.",
   "auth.settings.email.confirmTitle": "Confirm e-mail address",
   "auth.settings.email.notConfirmed": "Not confirmed yet.",

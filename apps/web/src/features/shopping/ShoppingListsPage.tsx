@@ -6,7 +6,10 @@
  *
  * Creating, renaming and deleting a list needs a connection (see the note in
  * lib/offline.ts), so this screen — unlike the list detail — really is read-only
- * offline, and says so.
+ * offline, and says so. An unconfirmed e-mail address blocks the same three
+ * actions for a different reason (the server answers 403), so both conditions
+ * fold into one `canManage`, with the address taking precedence in the copy: a
+ * signal will come back on its own, a confirmation click will not.
  */
 import { useState } from "react";
 import { ListPlus, Pencil, ShoppingBasket, Trash2 } from "lucide-react";
@@ -25,7 +28,7 @@ import {
 } from "@/components/ui";
 import { errorMessage } from "@/lib/api";
 import { useT } from "@/lib/i18n";
-import { useActiveGroup, useSession } from "@/lib/session";
+import { useActiveGroup, useEmailVerificationBlock, useSession } from "@/lib/session";
 import { apiFieldErrors, validate, type FieldErrors } from "@/lib/validation";
 import { AppLink } from "@/features/recipes/lib/nav";
 import {
@@ -39,6 +42,9 @@ export default function ShoppingListsPage() {
   const t = useT();
   const { groupId } = useActiveGroup();
   const { isOnline } = useSession();
+  const unverified = useEmailVerificationBlock();
+  const canManage = isOnline && unverified === undefined;
+  const manageHint = unverified ?? (isOnline ? undefined : t("shopping.lists.offlineHint"));
   const lists = useShoppingLists(groupId);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -59,8 +65,8 @@ export default function ShoppingListsPage() {
         <Button
           onClick={() => setCreateOpen(true)}
           leftIcon={<ListPlus className="size-4" />}
-          disabled={!isOnline}
-          title={isOnline ? undefined : t("shopping.lists.offlineHint")}
+          disabled={!canManage}
+          title={manageHint}
         >
           {t("shopping.lists.create")}
         </Button>
@@ -85,7 +91,7 @@ export default function ShoppingListsPage() {
           title={t("shopping.lists.empty.title")}
           description={t("shopping.lists.empty.description")}
           action={
-            <Button onClick={() => setCreateOpen(true)} fullWidth disabled={!isOnline}>
+            <Button onClick={() => setCreateOpen(true)} fullWidth disabled={!canManage}>
               {t("shopping.lists.empty.action")}
             </Button>
           }
@@ -116,14 +122,14 @@ export default function ShoppingListsPage() {
                   label={t("shopping.lists.rename")}
                   variant="ghost"
                   icon={<Pencil />}
-                  disabled={!isOnline}
+                  disabled={!canManage}
                   onClick={() => setRenaming(list)}
                 />
                 <IconButton
                   label={t("shopping.lists.delete")}
                   variant="ghost"
                   icon={<Trash2 />}
-                  disabled={!isOnline}
+                  disabled={!canManage}
                   onClick={() => setDeleting(list)}
                 />
               </span>

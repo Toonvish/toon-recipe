@@ -228,6 +228,21 @@ fails the action that triggered it (an invite still returns its `inviteUrl`; `PO
 /api/auth/password/forgot` still answers 204) — the caller learns what happened from `mailDelivery`
 instead, and the UI reports the two non-deliveries as a warning/error rather than a success.
 
+**Configuring a mail transport also switches on the anti-spam gate.** Registration is open, so an
+account whose e-mail address has never been confirmed is held READ-ONLY: it browses everything and
+can accept a group invitation, but every write answers `403 email_unverified` until it clicks the
+link registration mails it. There is no separate variable for this — it follows `MAIL_TRANSPORT`
+exactly, because a switch that can be turned on without a way to deliver the link would just brick
+the install. The default console-only stack is not gated at all, and `/api/health` reports which of
+the two you are running as `features.verifiedEmailRequired`.
+
+> **Upgrading an existing install:** `email_verified_at` was added as a nullable column with no
+> backfill, and the old code stored `email_verified = 1` for every self-registration. So every
+> account created before the confirmation flow has the flag but no timestamp — and the timestamp is
+> the only thing that counts. The first time you configure a transport, those users go read-only
+> until they confirm. They can do it themselves from **Profil → E-Mail-Adresse bestätigen**; tell
+> them before you flip it.
+
 `TRUST_PROXY=1` makes the rate limiter believe `X-Forwarded-For` / `X-Real-IP` / `CF-Connecting-IP`.
 **Set it only behind a proxy that overwrites those headers.** Without it the socket address is used,
 because a client-supplied header would otherwise hand out a fresh rate-limit bucket per request and

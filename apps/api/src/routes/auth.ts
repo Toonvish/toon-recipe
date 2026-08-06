@@ -17,6 +17,7 @@ import {
   type EmailVerificationRequestResponse,
   ForgotPasswordRequestSchema,
   LoginRequestSchema,
+  type MailDelivery,
   type MeResponse,
   type OAuthProvidersResponse,
   OAuthProviderSchema,
@@ -32,6 +33,7 @@ import {
 import { Hono } from "hono";
 import type { z } from "zod";
 import { db } from "../db/client.ts";
+import type { UserRow } from "../db/schema.ts";
 import { env } from "../env.ts";
 import {
   clearOAuthCookies,
@@ -185,9 +187,57 @@ authRoutes.post("/register", async (c) => {
     await createOwnedGroup(db, user.id, body.groupName ?? DEFAULT_GROUP_NAME);
   }
 
+  // Mail the confirmation link straight away. Without this the new account would
+  // land on a read-only app (services/auth/verifiedEmail.ts) and have to go and
+  // find the "resend" button on /settings to discover why — a gate has to arrive
+  // with its own way out. Always attempted, never awaited for its verdict: a
+  // failed send must not fail the registration, and on a ConsoleMailer install
+  // the gate is off anyway, so the logged link is a convenience rather than the
+  // only route in.
+  await sendVerificationLinkQuietly(c, user);
+
   await startSession(c, user.id);
   return created(c, await authPayload(user.id));
 });
+
+/**
+ * Mails an already-minted confirmation link and reports what became of it.
+ *
+ * Split from the minting on purpose: `/email/verify/request` must let
+ * `createEmailVerificationToken`'s 409 ("already confirmed") reach the client,
+ * while registration must swallow everything. Sharing the send half keeps the two
+ * mails byte-identical without forcing one error policy on both.
+ */
+async function mailVerificationLink(user: UserRow, token: string): Promise<MailDelivery> {
+  const sent = await trySendMail(
+    verifyEmailMail({
+      to: user.email,
+      name: user.name,
+      verifyUrl: webUrl(`/verify-email/${token}`),
+      expiresInHours: EMAIL_VERIFICATION_TTL_HOURS,
+      locale: isLocale(user.locale) ? user.locale : env.defaultLocale,
+    }),
+  );
+  return mailDeliveryOf(sent);
+}
+
+/**
+ * Registration's fire-and-forget variant: mints and mails, and lets nothing
+ * escape. The account exists and the session is about to be issued — a mail
+ * problem must not undo either (same rule as every other send in this codebase,
+ * see the trySendMail contract in services/mail/index.ts).
+ */
+async function sendVerificationLinkQuietly(c: AppContext, user: UserRow): Promise<void> {
+  try {
+    const { token } = await createEmailVerificationToken(db, user, { requestedIp: clientIp(c) });
+    await mailVerificationLink(user, token);
+  } catch (error) {
+    // English, like every other ops line here — one language in a log is a feature.
+    console.error(
+      `[auth] Could not send the confirmation link: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
 
 /* -------------------------------- login ---------------------------------- */
 
@@ -378,18 +428,10 @@ authRoutes.post("/email/verify/request", requireSession(), async (c) => {
   if (!row) throw ApiError.unauthorized();
 
   const { token } = await createEmailVerificationToken(db, row, { requestedIp: clientIp(c) });
-  const sent = await trySendMail(
-    verifyEmailMail({
-      to: row.email,
-      name: row.name,
-      verifyUrl: webUrl(`/verify-email/${token}`),
-      expiresInHours: EMAIL_VERIFICATION_TTL_HOURS,
-      locale: isLocale(row.locale) ? row.locale : env.defaultLocale,
-    }),
-  );
   // The token is stored either way — a failed mail must not invalidate a link the
   // operator can still fish out of the log.
-  return json(c, { mailDelivery: mailDeliveryOf(sent) } satisfies EmailVerificationRequestResponse);
+  const mailDelivery = await mailVerificationLink(row, token);
+  return json(c, { mailDelivery } satisfies EmailVerificationRequestResponse);
 });
 
 /**
