@@ -229,8 +229,18 @@ sudo ufw status
 > für „kein Zertifikat“ in [Schritt 9](#9--starten-und-ersten-account-anlegen), und im App-Log ist
 > davon nichts zu sehen.
 
-Swap, damit ein Ausreißer nicht sofort den OOM-Killer holt. `swapon --show` zuerst — manche Images
-bringen schon welchen oder `zram` mit, dann diesen Teil überspringen:
+Swap, damit ein Ausreißer nicht sofort den OOM-Killer holt. Erst nachsehen, ob schon welcher da ist
+— manche Images bringen welchen oder `zram` mit, dann diesen Teil überspringen:
+
+```bash
+free -h            # die Swap-Zeile; total 0B heißt: keiner da
+```
+
+(Nicht `swapon --show`: das Programm liegt in `/usr/sbin` und ist im `PATH` eines normalen Benutzers
+unter Debian/Ubuntu nicht drin — es antwortet dann mit `command not found`, was wie ein fehlendes
+Paket aussieht. `sudo swapon --show` ginge auch, `free -h` braucht gar nichts.)
+
+Ist keiner da:
 
 ```bash
 sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile
