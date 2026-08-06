@@ -129,6 +129,8 @@ export const serverEn: LocaleCatalog<ServerCatalog> = {
   "server.import.draftNotFound": "This import draft no longer exists.",
   "server.import.ocrDisabled":
     "Import by photo or PDF is not enabled on this server. Recipes can be imported from a web address or as pasted text.",
+  "server.import.pdfDisabled":
+    "PDF import is not enabled on this server. Photos, web addresses and pasted text still work.",
   "server.import.sessionMiddlewareUnavailable": "Authentication is not available (session middleware is missing).",
   "server.import.groupMiddlewareUnavailable": "The group check is not available (group middleware is missing).",
   "server.import.urlInvalid": "The URL is invalid.",

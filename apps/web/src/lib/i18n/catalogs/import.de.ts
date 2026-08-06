@@ -49,12 +49,20 @@ export const importDe = {
 
   "import.page.document.heading": "PDF oder Bilddatei",
   "import.page.document.subtitle": "Bei PDFs wird zuerst die Textebene gelesen – das ist exakt und schnell.",
+  // Der kleine Build: Foto-Erkennung an, PDF-Import aus (IMPORT_PDF_ENABLED=0).
+  "import.page.document.headingImageOnly": "Bilddatei",
+  "import.page.document.subtitleImageOnly":
+    "PDF-Import ist auf diesem Server aus – Bilddateien werden gelesen.",
   "import.page.document.dragHint": "Datei hierher ziehen oder",
   "import.page.document.pick": "Datei auswählen",
   "import.page.document.formats": "PDF, JPEG, PNG, WebP oder HEIC · max. {size}",
+  "import.page.document.formatsImageOnly": "JPEG, PNG, WebP oder HEIC · max. {size}",
   "import.page.document.remove": "Datei entfernen",
   "import.page.document.submit": "Datei importieren",
   "import.page.document.invalid": "Bitte eine PDF-Datei oder ein Bild auswählen.",
+  "import.page.document.invalidImageOnly": "Bitte ein Bild auswählen.",
+  "import.page.document.pdfUnavailable":
+    "PDF-Import ist auf diesem Server aus. Ein Foto der Seite funktioniert.",
   "import.page.document.retryPhoto": "Stattdessen Foto aufnehmen",
 
   "import.page.text.heading": "Text einfügen",

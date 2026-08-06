@@ -41,10 +41,13 @@ still German-only on purpose; only the *chrome* speaks two languages.
    `422 pdf_no_text_layer` when rasterization is unavailable).
 6. **OCR is server-side** (NATIVE `tesseract` in a subprocess, `deu+eng`, German first, `sharp`
    preprocessing; PDFs rasterized by poppler's `pdftoppm`) behind the
-   swappable `OcrEngine` interface in `src/services/ocr/`, and **photo/PDF import is OPT-IN**:
-   `IMPORT_OCR_ENABLED` is off by default and the Docker image only carries the binaries for
-   `--build-arg WITH_OCR=1`, so the app fits a small VPS on URL + text import alone. See
-   `services/import/capabilities.ts` and the gotcha below.
+   swappable `OcrEngine` interface in `src/services/ocr/`, and **photo and PDF import are OPT-IN
+   SEPARATELY**: `IMPORT_OCR_ENABLED` (photos) and `IMPORT_PDF_ENABLED` (PDFs, unset = follows the
+   first) are both off by default, and the Docker image carries the binaries only for
+   `--build-arg WITH_OCR=1` / `WITH_PDF=1`. So the app fits a small VPS on URL + text alone, and a
+   1 GB one-core box can run **German photo import with PDFs off** — measured 140 MB peak and 2.3 s
+   for a 12 MP photo through the real pipeline. See `services/import/capabilities.ts` and the
+   gotcha below.
    **Mail uses the same shape**: `Mailer`
    interface in `src/services/mail/`, `ConsoleMailer` as the no-config default, then `SmtpMailer`
    (dependency-free, `node:net`/`node:tls`) and `ResendMailer`. **SMTP is the self-hosted transport**
@@ -336,35 +339,59 @@ add to that panel instead.
   in `consider()`, i.e. BEFORE the merge.
 - **`parseDuration` / `parseServings` return the UPPER bound** of a range (`"20-25 Minuten"` → 25).
   `scaleIngredients` throws `RangeError` for factor ≤ 0 and leaves `raw` untouched (provenance).
-- **PHOTO/PDF IMPORT IS A FEATURE FLAG, AND IT IS OFF BY DEFAULT** (`IMPORT_OCR_ENABLED` →
-  `env.ocrImportEnabled`, read only through `isOcrImportEnabled()` in
-  `services/import/capabilities.ts`). URL and text import are pure fetch-and-parse; OCR needs
-  `tesseract` + `pdftoppm` (~120 MB with language data) and holds sharp, a ~2000 px bitmap and
-  `unpdf`'s parsed document per job, which is what a small VPS cannot spare. Five things hang
-  together and all five matter:
-  - **Only the three upload routes are gated** (`/imports/image`, `/pdf`, `/file` → **501
-    `ocr_disabled`**). `/url`, `/text`, drafts, review and commit stay available, so a draft an
-    earlier photo import created is still reviewable and committable. The services are NOT gated —
-    they keep their unit tests, and an unreached route never loads sharp/unpdf.
-  - **`assertOcrImportEnabled()` runs FIRST in the handler**, before `enforceRateLimit` and before
-    the multipart body is read. Otherwise a disabled endpoint would buffer 15 MB and burn a
-    rate-limit slot to produce a 501 — `test/import/ocr-disabled.test.ts` pins both.
+- **PHOTO AND PDF IMPORT ARE TWO FEATURE FLAGS, BOTH OFF BY DEFAULT, AND CONFLATING THEM UNDOES THE
+  ONE DEPLOYMENT THIS SPLIT EXISTS FOR.** `IMPORT_OCR_ENABLED` → `env.ocrImportEnabled` →
+  `isOcrImportEnabled()` is PHOTOS; `IMPORT_PDF_ENABLED` → `env.pdfImportEnabled` →
+  `isPdfImportEnabled()` is PDFs; both live in `services/import/capabilities.ts` and are read
+  nowhere else. URL and text import are pure fetch-and-parse; OCR needs `tesseract` (~105 MB
+  installed) and holds sharp plus a ~2000 px bitmap per job.
+  - **WHY TWO.** A photo is ONE tesseract run; a scanned PDF is up to `MAX_PDF_PAGES` of them plus
+    poppler, and even a digital one hands `unpdf` the whole parsed document. On one core a ten-page
+    scan cannot finish inside `OCR_TIMEOUT_MS` **however much RAM the box has** — so "photos yes,
+    PDFs no" is a real configuration (the 1 GB netcup pico), not a half-finished one.
+  - **UNSET PDF FOLLOWS THE PHOTO FLAG** (`value.IMPORT_PDF_ENABLED ?? value.IMPORT_OCR_ENABLED`),
+    so every pre-split deployment and every `--build-arg WITH_OCR=1` image behaves exactly as it
+    did. Only an explicit `0` splits them.
+  - **Only the three upload routes are gated** (`/imports/image` → photo flag, `/pdf` → PDF flag,
+    `/file` → whichever kind was **sniffed** → **501 `ocr_disabled`**). `/url`, `/text`, drafts,
+    review and commit stay available, so a draft an earlier photo import created is still reviewable
+    and committable. The services are NOT gated — they keep their unit tests, and an unreached route
+    never loads sharp/unpdf.
+  - **The guard runs FIRST in the handler**, before `enforceRateLimit` and before the multipart body
+    is read. Otherwise a disabled endpoint would buffer 15 MB and burn a rate-limit slot to produce a
+    501 — `test/import/ocr-disabled.test.ts` pins both. THE ONE EXCEPTION IS `/file` on a server
+    offering only one kind: the up-front guard can only rule out "neither", so the precise one runs
+    after the sniff. Gating it on the declared MIME type instead would let a renamed PDF through.
   - **501, not 503 or 404.** It is how the server was built, not an outage, and retrying cannot
-    help; 404 would also make a stale PWA look like a routing bug.
-  - **The UI hides it via `features.ocrImport` on `/api/health`** (`useOcrImportAvailable()`), and
-    **unknown counts as unavailable** — while the probe is in flight, offline, or against a server
-    predating the field. Briefly hiding a working button is self-correcting; offering a missing one
-    sends the user through an upload to a 501. The 501 is still the enforcement, because an
-    installed PWA can be running a bundle from before the flag was flipped.
-  - **The seam is `setOcrImportEnabled()`**, because `env` is frozen at module load. Same rule as
-    `setMailer`: a test file that sets it MUST hand it back in `afterAll`, or every later file
-    inherits it. `test/import/routes.test.ts` turns it ON; `ocr-disabled.test.ts` asserts OFF is the
-    default and sets it explicitly rather than trusting env.
-- **The Dockerfile installs the OCR binaries only for `--build-arg WITH_OCR=1`**, and
-  `IMPORT_OCR_ENABLED` DEFAULTS TO THAT ARG (`ENV IMPORT_OCR_ENABLED=${WITH_OCR}`), so a slim image
-  cannot advertise a feature it lacks. Setting the flag on a slim image is not a crash — it degrades
-  to the documented 422 naming the missing binary — but it is pointless. `tini` stays in both
-  variants: it is PID 1 for the container, not just the tesseract reaper.
+    help; 404 would also make a stale PWA look like a routing bug. Both flags share the code
+    `ocr_disabled` (a wire contract) and differ only in MESSAGE — `assertPdfImportEnabled()` picks
+    `server.import.pdfDisabled` when photos work and the broader `ocrDisabled` when they do not,
+    because "photos still work" is a lie on a lean server.
+  - **The UI hides each via `features.{ocrImport,pdfImport}` on `/api/health`**
+    (`useOcrImportAvailable()` / `usePdfImportAvailable()`), and **unknown counts as unavailable** —
+    while the probe is in flight, offline, or against a server predating the field. `pdfImport` is
+    optional INSIDE `features` for exactly that reason: a required field would make a new client
+    fail to parse an old server's health and lose `ocrImport` with it. Briefly hiding a working
+    button is self-correcting; offering a missing one sends the user through an upload to a 501. The
+    501 is still the enforcement, because an installed PWA can be running a bundle from before the
+    flag was flipped. The document section stays visible when EITHER flag is on — it accepts image
+    files too — and only its PDF half disappears.
+  - **The seams are `setOcrImportEnabled()` / `setPdfImportEnabled()`**, because `env` is frozen at
+    module load. Same rule as `setMailer`: a test file that sets one MUST hand it back in `afterAll`,
+    or every later file inherits it. `test/import/routes.test.ts` turns OCR ON; `ocr-disabled.test.ts`
+    asserts OFF is the default, sets both explicitly rather than trusting env, and covers the
+    image-only build as its own `describe`.
+- **The Dockerfile installs the OCR binaries only for `--build-arg WITH_OCR=1` / `WITH_PDF=1`**, and
+  the runtime flags DEFAULT TO THOSE ARGS (`ENV IMPORT_OCR_ENABLED=${WITH_OCR}`,
+  `IMPORT_PDF_ENABLED=${WITH_PDF}`), so an image cannot advertise a feature it lacks. `WITH_PDF`
+  defaults to `WITH_OCR` (`ARG WITH_PDF=${WITH_OCR}`), so the old one-arg invocation still builds the
+  old image. Setting a flag without its binary is not a crash — it degrades to the documented 422
+  naming it — but it is pointless. **Debian's `tesseract-ocr` HARD-DEPENDS on `tesseract-ocr-eng`**
+  and pulls `-osd`, so English data is in the image whether or not it is asked for: dropping `eng`
+  from the install list saves nothing, and `TESSERACT_LANGS` is a RUNTIME lever (two models = double
+  the work per page) rather than a build-time one. Measured: tesseract + deu = 105 MB,
+  poppler-utils = 28 MB. `tini` stays in every variant: it is PID 1 for the container, not just the
+  tesseract reaper.
 - **OCR AND PDF RASTERIZATION ARE NATIVE SUBPROCESSES, not libraries.** `services/ocr/tesseract.ts`
   spawns `tesseract`, `services/ocr/pdf.ts` spawns poppler's `pdftoppm`, and the Docker image
   installs `tesseract-ocr`, `tesseract-ocr-deu`, `tesseract-ocr-eng` and `poppler-utils`. This
@@ -384,9 +411,20 @@ add to that panel instead.
   - **`parseTesseractOutput` is pure so `bun test` can cover it without the binary** — no test runs
     real OCR, and most dev machines have no `tesseract`. Verify the binary itself by building and
     running the image.
-  - **`MAX_CONCURRENT_OCR` is now the ONLY bound on OCR concurrency** (the tesseract.js engine also
-    serialized internally, because one WASM worker cannot recognise twice at once). It is therefore
-    directly the peak number of concurrent tesseract processes.
+  - **`IMPORT_OCR_CONCURRENCY` is now the ONLY bound on OCR concurrency** (the tesseract.js engine
+    also serialized internally, because one WASM worker cannot recognise twice at once). It is
+    therefore directly the peak number of concurrent tesseract processes, i.e. the memory ceiling —
+    which is why it **defaults to 1** and raising it wants a `docker stats` measurement. It used to
+    be a hardcoded `MAX_CONCURRENT_OCR = 2` that `docs/deployment.md` already told operators to
+    lower, naming a variable that did not exist.
+  - **A full gate makes the request WAIT (`OCR_SLOT_WAIT_MS`, 30 s) before it 429s**, with at most
+    two waiters per slot queued and an immediate 429 beyond that. This reverses the earlier
+    reject-immediately decision, and only because the default became one slot: with two, a collision
+    needed two simultaneous uploads and "try again" was fair; with one, a second person photographing
+    a recipe collides routinely. The old objection — that a queue hides the timeout — is answered by
+    bounding the wait AND by `OCR_TIMEOUT_MS` starting only after acquisition, so queueing never eats
+    the recognition's own budget. `releaseOcrSlot()` HANDS the slot to the next waiter rather than
+    decrementing, or an arriving request could overtake a queued one indefinitely.
   - **The abort signal is now real for OCR** — aborting kills the child — but `withOcrTimeout` must
     STILL be a `Promise.race`, because `unpdf` remains cooperative-only.
 - **`test/import/pdf-rasterize.test.ts` is the only test that uses the REAL rasterizer**, it needs

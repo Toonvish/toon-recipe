@@ -37,10 +37,10 @@ function retryPolicy(failureCount: number, error: unknown): boolean {
 }
 
 /**
- * Whether THIS server offers photo/PDF import (`features.ocrImport` on
- * `/api/health`). A deployment can be built without tesseract/poppler to stay
- * small — see IMPORT_OCR_ENABLED — and then those uploads answer 501, so the UI
- * must not offer them.
+ * Whether THIS server offers PHOTO import (`features.ocrImport` on
+ * `/api/health`). A deployment can be built without tesseract to stay small — see
+ * IMPORT_OCR_ENABLED — and then those uploads answer 501, so the UI must not
+ * offer them.
  *
  * UNKNOWN COUNTS AS UNAVAILABLE, deliberately. While the probe is in flight, or
  * when it failed (offline, or a server predating the field), this returns false:
@@ -51,6 +51,20 @@ function retryPolicy(failureCount: number, error: unknown): boolean {
 export function useOcrImportAvailable(): boolean {
   const { data } = useQuery(healthQuery());
   return data?.features?.ocrImport === true;
+}
+
+/**
+ * Whether THIS server offers PDF import (`features.pdfImport`).
+ *
+ * A SEPARATE ANSWER FROM {@link useOcrImportAvailable}, because the small build
+ * runs photos and withholds PDFs — one core cannot OCR ten scanned pages inside
+ * the server's 60 s deadline. Same unknown-is-unavailable bias, which also covers
+ * a server old enough to predate the field: it advertises `ocrImport` alone, so
+ * PDF import hides until it is upgraded. Self-correcting, and the safe direction.
+ */
+export function usePdfImportAvailable(): boolean {
+  const { data } = useQuery(healthQuery());
+  return data?.features?.pdfImport === true;
 }
 
 export function useDraftList(

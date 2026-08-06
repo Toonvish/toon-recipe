@@ -149,10 +149,25 @@ export type PaginationQuery = z.infer<typeof PaginationQuerySchema>;
  */
 export const ServerFeaturesSchema = z.object({
   /**
-   * `POST /imports/{image,pdf,file}` are available. False on a lean deployment
-   * (IMPORT_OCR_ENABLED unset), where URL and text import still work.
+   * PHOTO import: `POST /imports/image` (and `/file` for an image) are available.
+   * False on a lean deployment (IMPORT_OCR_ENABLED unset), where URL and text
+   * import still work.
    */
   ocrImport: z.boolean(),
+  /**
+   * PDF import: `POST /imports/pdf` (and `/file` for a PDF) are available.
+   *
+   * SEPARATE FROM `ocrImport` BECAUSE THE TWO COST DIFFERENT AMOUNTS. A photo is
+   * one tesseract run; a scanned PDF is up to ten, plus poppler and `unpdf`'s
+   * whole parsed document. On a one-core box the second cannot finish inside
+   * OCR_TIMEOUT_MS at all, so a deployment must be able to offer photos and
+   * withhold PDFs — that is exactly what the small build does.
+   *
+   * OPTIONAL, so a client newer than its server still parses `features` instead
+   * of failing the whole health response and losing `ocrImport` with it. Absent
+   * therefore reads as "unavailable", the same bias `ocrImport` already has.
+   */
+  pdfImport: z.boolean().optional(),
 });
 export type ServerFeatures = z.infer<typeof ServerFeaturesSchema>;
 

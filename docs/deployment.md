@@ -92,8 +92,9 @@ Passwort-Reset funktionieren vollständig.
   starten.
 - **RAM: hängt am Foto-/PDF-Import.** Ohne ihn — dem Standard, siehe
   [Import per Foto/PDF](#import-per-fotopdf-ist-optional) — bleiben Bun, die libSQL-Datei und das
-  Ausliefern der PWA übrig; das läuft in **512 MB bis 1 GB**. Mit OCR gilt **mindestens 2 GB mit
-  Reserve**: die Texterkennung ist der Speicherfresser.
+  Ausliefern der PWA übrig; das läuft in **512 MB bis 1 GB**. Mit Foto-Import (ohne PDF) geht es ab
+  **1 GB mit Swap**, mit PDF-Import gilt weiter **mindestens 2 GB mit Reserve**: die Texterkennung
+  ist der Speicherfresser, und ein PDF ist bis zu zehn Seiten davon.
 - **1–2 GB Swap.** Nicht für den Normalbetrieb, sondern damit ein Ausreißer nicht sofort den
   OOM-Killer holt — [Schritt 4](#4--firewall-und-swap).
 - **SSD, ab ~10 GB.** Die App selbst ist klein, der Rest ist Platz für Rezeptbilder. SQLite auf
@@ -830,42 +831,100 @@ Dazu ein Caddy-Image mit dem DNS-Plugin bauen (`caddy:builder`, Modul
 
 Standardmäßig **aus**, und das veröffentlichte Image enthält die Binaries nicht. Import per
 Webadresse und per eingefügtem Text ist reines Abrufen und Parsen; OCR ist der einzige Teil dieser
-App mit echtem Appetit: `tesseract` und `pdftoppm` sind mit Sprachdaten ~120 MB, und ein laufender
-Job hält `sharp`, ein dekodiertes ~2000-px-Bild und bei einem PDF das komplette geparste Dokument
-von `unpdf` im Speicher. Genau deshalb ist es abschaltbar — so passt die App auf einen 1-GB-VPS.
+App mit echtem Appetit: `tesseract` ist mit den Sprachpaketen ~105 MB, `poppler-utils` weitere
+~28 MB, und ein laufender Job hält `sharp`, ein dekodiertes ~2000-px-Bild und bei einem PDF das
+komplette geparste Dokument von `unpdf` im Speicher. Genau deshalb ist es abschaltbar — so passt die
+App auf einen 1-GB-VPS.
 
-**Es sind zwei Schalter, und beide gehören zusammen:**
+**Foto und PDF sind getrennt schaltbar**, und das ist der Unterschied zwischen "geht auf 1 GB" und
+"geht nicht": ein Foto ist EIN tesseract-Lauf, ein gescanntes PDF sind bis zu zehn. Auf einem Kern
+läuft der Scan in jedem Fall in die 60-s-Grenze des Servers — auch mit 4 GB RAM. Ein Kern schafft
+Fotos und schafft keine Scans, deshalb kann man genau das konfigurieren.
+
+**Vier Schalter, paarweise:**
 
 | | wo | Wirkung |
 | --- | --- | --- |
-| `--build-arg WITH_OCR=1` | `docker build` | installiert `tesseract-ocr`, `tesseract-ocr-deu`, `tesseract-ocr-eng`, `poppler-utils` ins Image |
-| `IMPORT_OCR_ENABLED=1` | Laufzeit (`.env`) | schaltet die Endpunkte frei. **Standard ist der Wert des Build-Args**, das Image ist also von sich aus konsistent. |
+| `--build-arg WITH_OCR=1` | `docker build` | installiert `tesseract-ocr` + `tesseract-ocr-deu` (~105 MB) ins Image |
+| `IMPORT_OCR_ENABLED=1` | Laufzeit (`.env`) | schaltet den **Foto**-Import frei. **Standard ist der Wert des Build-Args**, das Image ist also von sich aus konsistent. |
+| `--build-arg WITH_PDF=1` | `docker build` | installiert `poppler-utils` (~28 MB). **Standard ist der Wert von `WITH_OCR`**, der alte Aufruf baut also weiter dasselbe Image. |
+| `IMPORT_PDF_ENABLED=1` | Laufzeit (`.env`) | schaltet den **PDF**-Import frei. **Leer heißt "wie `IMPORT_OCR_ENABLED`"**, ein bestehendes `.env` ändert sein Verhalten also nicht. |
 
 ```bash
 # schlank (Standard, und was in GHCR liegt): kein tesseract, kein poppler
 docker build -t toon-recipe:local .
 
-# mit Foto-/PDF-Import
+# NUR Foto-Import, deutsch — die Variante für einen Ein-Kern-VPS mit 1 GB
+docker build --build-arg WITH_OCR=1 --build-arg WITH_PDF=0 -t toon-recipe:local .
+
+# Foto UND PDF
 docker build --build-arg WITH_OCR=1 -t toon-recipe:local .
 ```
 
-Wer OCR auf dem Server will, braucht also ein eigenes Image (auf dem Laptop bauen und in eine
-Registry pushen oder per `docker save | ssh … docker load` übertragen — auf einem Ein-Kern-VPS zu
-bauen ist Geduldsarbeit) **und ab 2 GB RAM**, plus `MAX_CONCURRENT_OCR=1` am unteren Ende.
+Wer OCR auf dem Server will, braucht in jedem Fall ein eigenes Image (auf dem Laptop bauen und in
+eine Registry pushen oder per `docker save | ssh … docker load` übertragen — auf einem Ein-Kern-VPS
+zu bauen ist Geduldsarbeit). Dazu **ab 2 GB RAM für PDF**, oder **1 GB mit Swap für Fotos allein**.
+
+### Deutscher Foto-Import auf 1 GB und einem Kern
+
+Die Kombination, die auf einem netcup VPS pico (1 Kern, 1 GB) trägt — `.env` des Stacks:
+
+```dotenv
+IMPORT_OCR_ENABLED=1        # Fotos an
+IMPORT_PDF_ENABLED=0        # PDFs bewusst aus: passen nicht in 60 s auf einen Kern
+TESSERACT_LANGS=deu         # ein Sprachmodell statt zwei
+IMPORT_OCR_CONCURRENCY=1    # ein tesseract-Prozess, das ist die Speicherobergrenze
+```
+
+`TOON_MEM_LIMIT` bleibt auf dem Standard `768m` — Foto-OCR braucht kein höheres Limit, siehe die
+Messung unten. Dazu die **2 GB Swap aus [Schritt 4](#4--firewall-und-swap)** — nicht als
+Arbeitsspeicher, sondern damit ein Ausreißer wartet statt erschossen zu werden.
+
+**Gemessen** im Container mit `--memory=1g --cpus=1`, echtes 12-MP-Foto durch die reale Pipeline
+(sharp → natives tesseract → Segmenter):
+
+| | |
+| --- | --- |
+| Dauer eines Fotos | **2,3 s** auf einem schnellen Desktop-Kern |
+| Speicher-Spitze, ganzer Job | **140 MB** (Bun + sharp + tesseract-Kind zusammen) |
+| davon der tesseract-Prozess | ~44 MB (`deu`, 2000 px), ~59 MB mit `deu+eng` |
+| Image | 527 MB statt 421 MB schlank (tesseract + deu = 105 MB) |
+
+Der vCore eines billigen VPS ist deutlich langsamer als der Testkern; realistisch sind **eher
+5–15 s pro Foto**, der Speicherbedarf bleibt gleich. Was das im Betrieb bedeutet:
+
+- Die restliche App bleibt währenddessen bedienbar, weil tesseract ein eigener Prozess ist und die
+  Event-Loop nicht blockiert — sie wird nur langsamer.
+- Importiert eine zweite Person gleichzeitig, **wartet** ihr Job bis zu 30 s auf einen freien Slot
+  und läuft dann; erst danach kommt `429`. Zwei gleichzeitige tesseract-Prozesse teilen sich auf
+  einem Kern nur denselben Kern — beide würden doppelt so lange brauchen und eher in den 60-s-Timeout
+  laufen, deshalb `IMPORT_OCR_CONCURRENCY=1` statt „warum nicht 2".
+- `TESSERACT_LANGS=deu` heißt nicht, dass englische Rezepte nicht mehr gehen — die Rezept-Parser
+  sind ohnehin deutsch. Es heißt, dass ein englisches FOTO schlechter erkannt wird. `deu+eng` kostet
+  gemessen ~30 % mehr Zeit und ~15 MB mehr Speicher pro Seite.
+- Die Oberfläche blendet den PDF-Teil aus (`features.pdfImport` auf `/api/health`), der Abschnitt
+  „Bilddatei" bleibt. Ein PDF, das trotzdem hochgeladen wird, bekommt `501` mit einer Meldung, die
+  auf das Foto verweist.
 
 Ist es aus, verhält sich die App durchgehend so:
 
 - `POST /imports/{image,pdf,file}` antworten **`501 ocr_disabled`** mit einer Meldung, die auf
   Webadresse und Text verweist. Die Prüfung läuft **vor** dem Rate-Limit und **vor** dem Lesen des
   Bodys — eine abgelehnte 15-MB-Datei wird also nie gepuffert.
-- `/api/health` meldet `features.ocrImport: false`, und die Weboberfläche **blendet die Abschnitte
-  „Foto vom Rezept“ und „PDF oder Bilddatei“ aus** statt einen Knopf anzubieten, der nicht kann.
+- `/api/health` meldet `features.ocrImport: false` und `features.pdfImport: false`, und die
+  Weboberfläche **blendet die Abschnitte „Foto vom Rezept“ und „PDF oder Bilddatei“ aus** statt
+  einen Knopf anzubieten, der nicht kann.
 - Alles andere bleibt: Webadresse, Text, Entwurfsprüfung, Speichern — und ein Entwurf, den ein
   früherer Foto-Import erzeugt hat, bleibt prüf- und speicherbar.
 
-`IMPORT_OCR_ENABLED=1` auf einem schlanken Image ist kein Absturz, sondern der dokumentierte 422,
-der das fehlende Binary nennt (`tesseract_unavailable` bzw. `rasterization_unavailable`). Sinnvoll
-ist es trotzdem nicht — dann lieber neu bauen.
+Ist nur PDF aus (die 1-GB-Variante oben), gilt dasselbe für `/imports/pdf` — und für `/imports/file`
+genau dann, wenn die hochgeladene Datei **inhaltlich** ein PDF ist; entschieden wird nach Magic
+Bytes, nicht nach Dateiname. Die Meldung ist dann eine andere: sie verweist aufs Foto, nicht auf die
+Webadresse.
+
+`IMPORT_OCR_ENABLED=1` bzw. `IMPORT_PDF_ENABLED=1` auf einem Image ohne das jeweilige Binary ist
+kein Absturz, sondern der dokumentierte 422, der es benennt (`tesseract_unavailable` bzw.
+`rasterization_unavailable`). Sinnvoll ist es trotzdem nicht — dann lieber neu bauen.
 
 ## Lokal testen, ohne Server
 
@@ -874,6 +933,7 @@ Der Stack läuft auch auf einem Laptop, mit `rezepte.test` als Hostname. Dort gi
 
 ```bash
 docker build -t toon-recipe:local .          # ohne OCR (Standard)
+# nur Foto-Import:       docker build --build-arg WITH_OCR=1 --build-arg WITH_PDF=0 -t toon-recipe:local .
 # mit Foto-/PDF-Import:  docker build --build-arg WITH_OCR=1 -t toon-recipe:local .
 echo "127.0.0.1 rezepte.test" | sudo tee -a /etc/hosts
 
@@ -931,7 +991,8 @@ docker compose -p toonstack down -v
 | `501 ocr_disabled` beim Foto-Import | Erwartet: das GHCR-Image ist die schlanke Variante. Eigenes Image mit `--build-arg WITH_OCR=1` bauen. |
 | `ocr_failed` bei jedem Foto-Import | `IMPORT_OCR_ENABLED=1` auf einem Image ohne die Binaries. `docker compose exec app tesseract --list-langs` muss `deu` und `eng` zeigen. `reason` sagt, was fehlt: `tesseract_unavailable` (Binary) oder `language_data_missing` (Sprachpaket). Nichts wird zur Laufzeit nachgeladen. |
 | `pdf_no_text_layer` bei jedem gescannten PDF | poppler fehlt: `docker compose exec app pdftoppm -v`. |
-| Container wird beim Import/Build „killed“ | Speicher. Swap prüfen ([Schritt 4](#4--firewall-und-swap)) und `TOON_MEM_LIMIT`; unter 2 GB RAM ist OCR nicht vorgesehen. |
+| Container wird beim Import/Build „killed“ | Speicher. Swap prüfen ([Schritt 4](#4--firewall-und-swap)) und `TOON_MEM_LIMIT`. Auf 1 GB gehört `IMPORT_PDF_ENABLED=0` und `IMPORT_OCR_CONCURRENCY=1` dazu — siehe [Deutscher Foto-Import auf 1 GB](#deutscher-foto-import-auf-1-gb-und-einem-kern). |
+| Foto-Import antwortet `429`, obwohl niemand sonst importiert | Ein früherer Job hängt noch in seinem Slot. `IMPORT_OCR_CONCURRENCY` ist die Slot-Zahl; ein neuer Import wartet 30 s auf einen freien und meldet erst dann `429`. Nach spätestens 60 s (`OCR_TIMEOUT_MS`) gibt jeder Job seinen Slot zurück. |
 | App langsam, `docker stats` unauffällig | Platte. SQLite auf langsamem Speicher ist der häufigste Grund. |
 
 ### Auto-Deploy
@@ -951,9 +1012,10 @@ docker compose -p toonstack down -v
 
 - **Foto-/PDF-Import ist aus.** `IMPORT_OCR_ENABLED` steht auf `0`, und das veröffentlichte Image
   ist die schlanke Variante **ohne** `tesseract`/`pdftoppm` — die Flag dort zu setzen bringt nur die
-  dokumentierten 422er. Es braucht ~2 GB RAM und ein selbst gebautes Image
-  (`--build-arg WITH_OCR=1`), siehe [Import per Foto/PDF](#import-per-fotopdf-ist-optional). Import
-  per URL und Text funktioniert vollständig.
+  dokumentierten 422er. Beides braucht ein selbst gebautes Image: Fotos ab 1 GB mit Swap
+  (`--build-arg WITH_OCR=1 --build-arg WITH_PDF=0`), PDFs ab ~2 GB (`--build-arg WITH_OCR=1`), siehe
+  [Import per Foto/PDF](#import-per-fotopdf-ist-optional). Import per URL und Text funktioniert
+  vollständig.
 - **Google-/GitHub-Login ist aus.** E-Mail + Passwort ist der selbstgehostete Weg; Registrierung,
   Login, Einladungen, E-Mail-Bestätigung und Passwort-Reset funktionieren ohne OAuth vollständig.
 - **Ohne eigene Domain** läuft es auch, dann aber mit `TOON_TLS_ISSUER=internal`,

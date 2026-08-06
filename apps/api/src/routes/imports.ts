@@ -11,18 +11,22 @@
  *   importRoutes.use("*", requireGroupRole("member"))
  * so that src/index.ts never has to be edited (no merge conflicts).
  *
- * PHOTO/PDF IMPORT IS OPT-IN. `/image`, `/pdf` and `/file` answer 501
- * `ocr_disabled` unless IMPORT_OCR_ENABLED is set — see
- * services/import/capabilities.ts for why (native binaries + memory a small VPS
- * should not have to pay for). `/url`, `/text`, the draft endpoints and commit are
- * always available, and a draft that OCR produced earlier stays reviewable.
+ * PHOTO/PDF IMPORT IS OPT-IN, AND THE TWO ARE SEPARATE FLAGS. `/image` needs
+ * IMPORT_OCR_ENABLED, `/pdf` needs IMPORT_PDF_ENABLED (which follows the first
+ * unless set), `/file` needs whichever kind was actually uploaded; otherwise 501
+ * `ocr_disabled` — see services/import/capabilities.ts for why (native binaries +
+ * memory a small VPS should not have to pay for, and a PDF costs an order of
+ * magnitude more than a photo). `/url`, `/text`, the draft endpoints and commit
+ * are always available, and a draft that OCR produced earlier stays reviewable.
  *
  * OCR IS SYNCHRONOUS but bounded on three axes, because one member must not be
  * able to flatten a self-hosted box with a loop of 15 MB uploads:
  *   - IMPORT_RULE  10 imports per user per minute (429 rate_limited),
- *   - withOcrSlot  at most MAX_CONCURRENT_OCR pipelines process-wide (429),
- *   - OCR_TIMEOUT_MS  a raced deadline, so the request is answered at 60 s even
- *     when tesseract/unpdf ignore the abort signal (504 ocr_failed).
+ *   - withOcrSlot  at most IMPORT_OCR_CONCURRENCY pipelines process-wide; beyond
+ *     that a request WAITS up to OCR_SLOT_WAIT_MS and only then 429s,
+ *   - OCR_TIMEOUT_MS  a raced deadline that starts AFTER the slot is acquired, so
+ *     queueing never eats the recognition's own budget and the request is answered
+ *     at 60 s even when unpdf ignores the abort signal (504 ocr_failed).
  * The natural next step is a job queue plus a draft the client polls.
  */
 import { existsSync } from "node:fs";
@@ -43,7 +47,11 @@ import { ApiError } from "../lib/errors.ts";
 import { created, json, noContent } from "../lib/http.ts";
 import { type AppEnv, requireMembership, requireUser } from "../lib/types.ts";
 import { IMPORT_RULE, enforceRateLimit } from "../services/auth/rateLimit.ts";
-import { assertOcrImportEnabled } from "../services/import/capabilities.ts";
+import {
+  assertAnyUploadImportEnabled,
+  assertOcrImportEnabled,
+  assertPdfImportEnabled,
+} from "../services/import/capabilities.ts";
 import { commitDraft } from "../services/import/commit.ts";
 import { importDb } from "../services/import/db.ts";
 import {
@@ -114,25 +122,44 @@ importRoutes.post("/url", async (c) => {
 
 /* -------------------- OCR uploads: image / pdf / file --------------------- */
 
+/** The up-front guard: what this route accepts, against what the server offers. */
+function assertAcceptedKindEnabled(accept: readonly ImportFileKind[]): void {
+  if (accept.length > 1) return assertAnyUploadImportEnabled();
+  return assertUploadKindEnabled(accept[0]!);
+}
+
+/** The precise guard, once the kind is known (sniffed content, never the name). */
+function assertUploadKindEnabled(kind: ImportFileKind): void {
+  if (kind === "pdf") assertPdfImportEnabled();
+  else assertOcrImportEnabled();
+}
+
 /**
  * The three multipart OCR endpoints, which differ ONLY in which sniffed kinds
  * they accept — the pipeline is picked from the sniffed content either way, so
  * `/file` is `/image` and `/pdf` with a wider `accept`.
  *
- * ORDER INSIDE THE HANDLER IS PART OF THE CONTRACT: `assertOcrImportEnabled()`
- * runs FIRST, before the rate limit and before the body is read, so a deployment
+ * ORDER INSIDE THE HANDLER IS PART OF THE CONTRACT: the capability guard runs
+ * FIRST, before the rate limit and before the body is read, so a deployment
  * without OCR never spends a bucket slot or buffers 15 MB to produce a 501.
  * `test/import/ocr-disabled.test.ts` pins both.
+ *
+ * PHOTOS AND PDFS ARE GATED SEPARATELY, so `/file` needs TWO guards: the one up
+ * front can only rule out "neither kind is available", and the kind that actually
+ * arrived is not known until the body has been sniffed. A PDF sent to an
+ * image-only server therefore does get buffered before its 501 — unavoidable, and
+ * the reason the single-kind routes keep their own precise guard.
  */
 function ocrUploadHandler(accept: readonly ImportFileKind[]) {
   return async (c: Context<AppEnv>) => {
     const user = requireUser(c);
     const { groupId } = requireMembership(c);
 
-    assertOcrImportEnabled();
+    assertAcceptedKindEnabled(accept);
     enforceRateLimit(c, "import", user.id, IMPORT_RULE);
 
     const file = await readUploadedFile(c.req.raw, { accept });
+    assertUploadKindEnabled(file.kind);
     // Omitted rather than undefined: the option types are exactOptionalPropertyTypes-shaped.
     const named = file.originalName === undefined ? {} : { originalName: file.originalName };
     const result = await withOcrSlot(() =>

@@ -90,20 +90,43 @@ const EnvSchema = z
     UPLOAD_DIR: z.string().default("./data/uploads"),
 
     /**
-     * FEATURE FLAG for photo/PDF import. **Off unless set**, which is the whole
+     * FEATURE FLAG for PHOTO import. **Off unless set**, which is the whole
      * point: URL import is pure fetch-and-parse, while OCR needs the `tesseract`
-     * and `pdftoppm` binaries (~120 MB of packages and language data) plus `sharp`
-     * and `unpdf` resident whenever a job runs. A small VPS runs the app
-     * comfortably without them; turning this on is an explicit decision to pay for
-     * them. See services/import/capabilities.ts for what it gates.
+     * binary (~105 MB with the language packs Debian pulls in) plus `sharp`
+     * resident whenever a job runs. A small VPS runs the app comfortably without
+     * it; turning this on is an explicit decision to pay for it. See
+     * services/import/capabilities.ts for what it gates.
      *
-     * Enabling it on an image built WITHOUT those binaries is not a crash: the
+     * Enabling it on an image built WITHOUT the binary is not a crash: the
      * pipeline answers the documented 422 (`ocr_failed` /
-     * `reason: "tesseract_unavailable"`, `pdf_no_text_layer` /
-     * `"rasterization_unavailable"`). The Docker image derives its default from
-     * the `WITH_OCR` build arg, so a slim image ships with this off.
+     * `reason: "tesseract_unavailable"`). The Docker image derives its default
+     * from the `WITH_OCR` build arg, so a slim image ships with this off.
      */
     IMPORT_OCR_ENABLED: BooleanishSchema,
+
+    /**
+     * FEATURE FLAG for PDF import, separate from photos because it costs an order
+     * of magnitude more: a scan is up to MAX_PDF_PAGES tesseract runs plus poppler,
+     * and even a digital PDF hands `unpdf` the whole parsed document. On one core
+     * a ten-page scan cannot finish inside OCR_TIMEOUT_MS, so a small box wants
+     * photos WITHOUT PDFs.
+     *
+     * UNSET FOLLOWS `IMPORT_OCR_ENABLED`, so an existing deployment that turned OCR
+     * on keeps PDF import exactly as before and only an explicit `0` takes it away.
+     */
+    IMPORT_PDF_ENABLED: BooleanishSchema,
+
+    /**
+     * How many OCR pipelines may run at once, process-wide. This is directly the
+     * peak number of concurrent `tesseract` processes, i.e. the app's memory
+     * ceiling — see MAX_CONCURRENT_OCR's seat in services/ocr/index.ts.
+     *
+     * DEFAULT 1, because one job already saturates a one-core VPS and two peaked
+     * past what a 1 GB box has. Raise it only with a `docker stats` measurement of
+     * two parallel photo imports. A request that finds every slot taken now WAITS
+     * (bounded) instead of failing immediately.
+     */
+    IMPORT_OCR_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(1),
 
     TESSERACT_LANGS: z.string().default("deu+eng"),
     /**
@@ -212,11 +235,19 @@ const EnvSchema = z
       allowPrivateImportHosts:
         value.IMPORT_ALLOW_PRIVATE_HOSTS === true && value.NODE_ENV !== "production",
       /**
-       * Whether photo/PDF import is offered at all (see IMPORT_OCR_ENABLED).
+       * Whether PHOTO import is offered at all (see IMPORT_OCR_ENABLED).
        * Read through `isOcrImportEnabled()` in services/import/capabilities.ts,
        * never directly, so tests can flip it.
        */
       ocrImportEnabled: value.IMPORT_OCR_ENABLED === true,
+      /**
+       * Whether PDF import is offered (see IMPORT_PDF_ENABLED). Unset FOLLOWS the
+       * photo flag, so `IMPORT_OCR_ENABLED=1` alone keeps the pre-split behaviour
+       * and only an explicit `IMPORT_PDF_ENABLED=0` splits them apart.
+       */
+      pdfImportEnabled: (value.IMPORT_PDF_ENABLED ?? value.IMPORT_OCR_ENABLED) === true,
+      /** Peak concurrent OCR pipelines; see IMPORT_OCR_CONCURRENCY. */
+      ocrConcurrency: value.IMPORT_OCR_CONCURRENCY,
       /** Which mail adapter services/mail/index.ts builds. Always "console" in tests. */
       mailTransport: (value.NODE_ENV === "test" ? "console" : value.MAIL_TRANSPORT ?? "console") as
         | "console"

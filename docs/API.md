@@ -60,7 +60,8 @@ client can stop offering what the server cannot do instead of discovering it thr
 
 | Field | Meaning when false |
 | --- | --- |
-| `features.ocrImport` | `/imports/{image,pdf,file}` answer `501 ocr_disabled` (`IMPORT_OCR_ENABLED` unset, or an image built without `WITH_OCR=1`). URL and text import still work. |
+| `features.ocrImport` | `/imports/image` (and `/imports/file` for an image) answer `501 ocr_disabled` (`IMPORT_OCR_ENABLED` unset, or an image built without `WITH_OCR=1`). URL and text import still work. |
+| `features.pdfImport` | `/imports/pdf` (and `/imports/file` for a PDF) answer `501 ocr_disabled` (`IMPORT_PDF_ENABLED=0`, or an image built without `WITH_PDF=1`). Separate from `ocrImport` because a scanned PDF is up to ten tesseract runs where a photo is one — a one-core deployment runs photos and withholds PDFs. Itself optional inside `features`, so a client newer than its server still parses the object; absent reads as unavailable. |
 
 It is **optional** in the schema: a client must treat a missing `features` as "unknown", and unknown
 as unavailable — briefly hiding a working button is self-correcting, offering a missing one is not.
@@ -231,14 +232,20 @@ edits in the review screen; nothing is written to `recipes` until `/commit`.
 | DELETE | `/api/groups/:groupId/imports/:draftId` | group:member | – | – | 204, 403, 404 |
 
 Notes
-- **PHOTO/PDF IMPORT IS OPT-IN.** `/imports/image`, `/imports/pdf` and `/imports/file` answer
-  **`501 { code: "ocr_disabled" }`** unless `IMPORT_OCR_ENABLED` is set, because OCR needs the
-  `tesseract`/`pdftoppm` binaries and the memory a job holds — a lean deployment omits both (see
-  README and `docs/deployment.md`). 501 rather than 503: it is how the server was built, not a
-  temporary outage, so retrying cannot help. The check runs BEFORE the rate limiter and before the
-  body is read, so a rejected upload costs neither a bucket slot nor 15 MB of buffering. `/imports/url`,
+- **PHOTO AND PDF IMPORT ARE OPT-IN, AND SEPARATELY SO.** `/imports/image` needs
+  `IMPORT_OCR_ENABLED`, `/imports/pdf` needs `IMPORT_PDF_ENABLED` (which follows the first unless
+  set), and `/imports/file` needs whichever kind was actually uploaded — decided by SNIFFED content,
+  so renaming a PDF does not get it past the gate. Otherwise **`501 { code: "ocr_disabled" }`**,
+  because OCR needs the `tesseract`/`pdftoppm` binaries and the memory a job holds, and a scanned PDF
+  costs an order of magnitude more than a photo (see README and `docs/deployment.md`). 501 rather
+  than 503: it is how the server was built, not a temporary outage, so retrying cannot help. Both
+  cases share the `ocr_disabled` code — a wire contract, and the client's handling is identical —
+  but the MESSAGE differs, since a server with photos on should say so rather than send the user to
+  a URL. The check runs BEFORE the rate limiter and before the body is read, so a rejected upload
+  costs neither a bucket slot nor 15 MB of buffering; the one exception is `/imports/file` on a
+  server offering only one kind, where the content must be sniffed first. `/imports/url`,
   `/imports/text`, the draft endpoints and commit are unaffected, and a draft OCR produced earlier
-  stays reviewable and committable. Clients discover this from `HealthResponse.features.ocrImport`
+  stays reviewable and committable. Clients discover all this from `HealthResponse.features`
   rather than by probing — but the 501 is the enforcement, since an installed PWA can be running a
   bundle from before the flag was flipped.
 - `sourceType`: `url` for URL imports, `ocr` for image **and** PDF imports, `manual` for pasted text.
@@ -257,11 +264,15 @@ Notes
   the regression test (`apps/api/test/import/pdf-rasterize.test.ts`) uses the real one and asserts the
   rendered page size, so a leaked stub cannot make it pass.
 - Every import endpoint is rate limited (`IMPORT_RULE`, 10 per user per minute → 429 `rate_limited`),
-  and the OCR/PDF paths additionally hold one of `MAX_CONCURRENT_OCR` (2) process-wide slots → 429
-  when full. Since the engine went native that gate is also the cap on concurrent `tesseract`
-  processes, i.e. the memory ceiling. `OCR_TIMEOUT_MS` (60 s) is a `Promise.race`, so an extraction
-  that ignores the abort signal still yields `504 ocr_failed` on time — OCR itself now honours it
-  (aborting kills the child), but `unpdf` does not.
+  and the OCR/PDF paths additionally hold one of `IMPORT_OCR_CONCURRENCY` (default **1**)
+  process-wide slots. A request that finds them all taken **waits** up to `OCR_SLOT_WAIT_MS` (30 s)
+  and only then answers 429 — with at most two waiters per slot queued, beyond which the 429 is
+  immediate. Since the engine went native that gate is also the cap on concurrent `tesseract`
+  processes, i.e. the memory ceiling, which is why the default is one and raising it wants a
+  measurement. `OCR_TIMEOUT_MS` (60 s) is a `Promise.race` that starts AFTER the slot is acquired
+  (so queueing never eats the recognition's budget), and an extraction that ignores the abort signal
+  still yields `504 ocr_failed` on time — OCR itself now honours it (aborting kills the child), but
+  `unpdf` does not.
 - `ParsedRecipe.sourceUrl` and `CreateRecipeRequest.sourceUrl` accept **http(s) only**
   (`HttpUrlSchema`); anything else is 422. They are rendered into `<a href>`, and a `javascript:`
   value stored by a member would run on the app origin with the reader's session.

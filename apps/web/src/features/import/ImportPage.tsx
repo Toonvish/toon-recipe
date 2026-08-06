@@ -40,7 +40,7 @@ import {
 import { useImportNavigation } from "./lib/navigation";
 import { importFromText, importFromUrl, importImage, importPdf } from "./lib/importApi";
 import { checkFileSize, formatBytes, isImageFile, isPdfFile, prepareImageForUpload, stitchImagesForUpload } from "./lib/image";
-import { useDeleteDraft, useDraftList, useOcrImportAvailable } from "./lib/queries";
+import { useDeleteDraft, useDraftList, useOcrImportAvailable, usePdfImportAvailable } from "./lib/queries";
 import ImageCaptureButton from "./components/ImageCaptureButton";
 import OcrProgressPanel, { type ImportPhase } from "./components/OcrProgressPanel";
 import UploadProgress from "./components/UploadProgress";
@@ -137,6 +137,14 @@ export default function ImportPage() {
    * simply not offered rather than failing with a 501 after an upload.
    */
   const ocrAvailable = useOcrImportAvailable();
+  /**
+   * PDFs are a SEPARATE capability: the small build runs photo OCR and withholds
+   * PDF import, because one core cannot OCR ten scanned pages inside the server's
+   * deadline. So the document section stays available for image FILES whenever
+   * photo OCR is on, and only its PDF half disappears.
+   */
+  const pdfAvailable = usePdfImportAvailable();
+  const documentAvailable = ocrAvailable || pdfAvailable;
   const deleteDraft = useDeleteDraft();
   const [deletingDraftId, setDeletingDraftId] = useState<string | undefined>(undefined);
 
@@ -299,8 +307,14 @@ export default function ImportPage() {
     setDocumentNotice(undefined);
     const file = files[0];
     if (file === undefined) return;
+    // A PDF dropped on an image-only server is caught here rather than at the 501:
+    // the server is the enforcement, this is only what saves the upload.
+    if (isPdfFile(file) && !pdfAvailable) {
+      setDocumentNotice(t("import.page.document.pdfUnavailable"));
+      return;
+    }
     if (!isPdfFile(file) && !isImageFile(file)) {
-      setDocumentNotice(t("import.page.document.invalid"));
+      setDocumentNotice(t(pdfAvailable ? "import.page.document.invalid" : "import.page.document.invalidImageOnly"));
       return;
     }
     const problem = checkFileSize(file);
@@ -309,7 +323,7 @@ export default function ImportPage() {
       return;
     }
     setDocumentFile(file);
-  }, [t]);
+  }, [pdfAvailable, t]);
 
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -575,15 +589,19 @@ export default function ImportPage() {
       ) : null}
 
       {/* --------------------------- c) DOKUMENT --------------------------- */}
-      {ocrAvailable ? (
+      {documentAvailable ? (
       <section className="rounded-xl border border-line bg-surface p-4">
         <div className="mb-3 flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-soft text-brand-soft-fg">
             <FileUp aria-hidden className="h-4 w-4" />
           </span>
           <div>
-            <h2 className="text-sm font-semibold text-fg">{t("import.page.document.heading")}</h2>
-            <p className="text-xs text-fg-muted">{t("import.page.document.subtitle")}</p>
+            <h2 className="text-sm font-semibold text-fg">
+              {t(pdfAvailable ? "import.page.document.heading" : "import.page.document.headingImageOnly")}
+            </h2>
+            <p className="text-xs text-fg-muted">
+              {t(pdfAvailable ? "import.page.document.subtitle" : "import.page.document.subtitleImageOnly")}
+            </p>
           </div>
         </div>
 
@@ -607,7 +625,7 @@ export default function ImportPage() {
             {t("import.page.document.pick")}
             <input
               type="file"
-              accept="application/pdf,image/*"
+              accept={pdfAvailable ? "application/pdf,image/*" : "image/*"}
               className="hidden"
               disabled={busy}
               onChange={(event) => {
@@ -618,7 +636,9 @@ export default function ImportPage() {
             />
           </label>
           <p className="mt-2 text-[11px] text-fg-muted">
-            {t("import.page.document.formats", { size: formatBytes(MAX_UPLOAD_BYTES) })}
+            {t(pdfAvailable ? "import.page.document.formats" : "import.page.document.formatsImageOnly", {
+              size: formatBytes(MAX_UPLOAD_BYTES),
+            })}
           </p>
         </div>
 

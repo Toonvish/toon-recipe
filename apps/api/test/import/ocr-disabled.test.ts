@@ -26,7 +26,9 @@ import { groupMembers, groups, users } from "../../src/db/schema.ts";
 import { app } from "../../src/index.ts";
 import {
   isOcrImportEnabled,
+  isPdfImportEnabled,
   setOcrImportEnabled,
+  setPdfImportEnabled,
 } from "../../src/services/import/capabilities.ts";
 import { setImportDbForTests } from "../../src/services/import/db.ts";
 import { createDraft } from "../../src/services/import/drafts.ts";
@@ -82,6 +84,7 @@ afterAll(() => {
   setImportDbForTests(null);
   setAuthMiddlewareForTests(null, null);
   setOcrImportEnabled(null);
+  setPdfImportEnabled(null);
   client.close();
   rmSync(tempDir, { recursive: true, force: true });
 });
@@ -220,5 +223,98 @@ describe("photo/PDF import disabled (the default)", () => {
     } finally {
       setOcrImportEnabled(false);
     }
+  });
+});
+
+/**
+ * THE SMALL BUILD: photo OCR on, PDF import off.
+ *
+ * This is the 1 GB / one-core deployment. A photo is one tesseract run and fits;
+ * a scanned PDF is up to ten of them and cannot finish inside OCR_TIMEOUT_MS
+ * whatever the box has, so the two capabilities are separate flags rather than
+ * one. What this pins is that the split is real end to end — the routes, the
+ * message the user is given, and what `/api/health` advertises to the UI.
+ */
+describe("image-only build (photos yes, PDFs no)", () => {
+  const PDF_BYTES = new TextEncoder().encode("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n%%EOF\n");
+
+  beforeAll(() => {
+    setOcrImportEnabled(true);
+    setPdfImportEnabled(false);
+  });
+
+  afterAll(() => {
+    setOcrImportEnabled(false);
+    setPdfImportEnabled(null);
+  });
+
+  test("PDF import defaults to FOLLOWING the photo flag, so nothing splits unasked", () => {
+    setPdfImportEnabled(null);
+    // env has neither set in tests, so the derived value is off — the point is
+    // that it reads the PDF flag's own default rather than a separate literal.
+    expect(isPdfImportEnabled()).toBe(false);
+    setPdfImportEnabled(false);
+  });
+
+  test("POST /image is available", async () => {
+    const response = await app.request(`${base}/image`, {
+      method: "POST",
+      body: multipart(new Uint8Array([1, 2, 3]), "x.png", "image/png"),
+    });
+    expect(response.status).not.toBe(501);
+  });
+
+  test("POST /pdf answers 501 ocr_disabled, and says photos still work", async () => {
+    const response = await app.request(`${base}/pdf`, {
+      method: "POST",
+      body: multipart(PDF_BYTES, "rezept.pdf", "application/pdf"),
+    });
+    expect(response.status).toBe(501);
+    const body = (await response.json()) as ErrorBody;
+    expect(body.error.code).toBe("ocr_disabled");
+    // The lean server's message tells the user to use a URL instead; this one must
+    // not, because the camera is right there and does work.
+    expect(body.error.message).toContain("Fotos");
+  });
+
+  test("a lean server keeps the BROADER message on /pdf", async () => {
+    setOcrImportEnabled(false);
+    try {
+      const response = await app.request(`${base}/pdf`, {
+        method: "POST",
+        body: multipart(PDF_BYTES, "rezept.pdf", "application/pdf"),
+      });
+      expect(response.status).toBe(501);
+      const body = (await response.json()) as ErrorBody;
+      // "Fotos funktionieren weiterhin" would be a lie here — they are off too.
+      expect(body.error.message).not.toContain("Fotos");
+      expect(body.error.message).toContain("Webadresse");
+    } finally {
+      setOcrImportEnabled(true);
+    }
+  });
+
+  test("POST /file takes an image and refuses a PDF, decided by SNIFFED content", async () => {
+    const image = await app.request(`${base}/file`, {
+      method: "POST",
+      body: multipart(new Uint8Array([1, 2, 3]), "x.png", "image/png"),
+    });
+    expect(image.status).not.toBe(501);
+
+    // Named .png and declared image/png, but the bytes are a PDF — the gate has to
+    // follow the content, or the flag is bypassed by renaming a file.
+    const disguised = await app.request(`${base}/file`, {
+      method: "POST",
+      body: multipart(PDF_BYTES, "getarnt.png", "image/png"),
+    });
+    expect(disguised.status).toBe(501);
+    expect(((await disguised.json()) as ErrorBody).error.code).toBe("ocr_disabled");
+  });
+
+  test("/api/health advertises the two capabilities separately", async () => {
+    const body = (await (await app.request("/api/health")).json()) as HealthResponse;
+    expect(body.features?.ocrImport).toBe(true);
+    expect(body.features?.pdfImport).toBe(false);
+    expect(isOcrImportEnabled()).toBe(true);
   });
 });

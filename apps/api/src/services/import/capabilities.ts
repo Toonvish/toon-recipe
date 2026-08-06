@@ -9,8 +9,13 @@
  * difference between comfortable and swapping, so it is opt-in: `IMPORT_OCR_ENABLED`
  * is **off unless set**.
  *
- * WHAT IT GATES. Only the three upload endpoints (`/imports/image`, `/imports/pdf`,
- * `/imports/file`), which answer **501 `ocr_disabled`** when it is off. Everything
+ * TWO FLAGS, NOT ONE. `IMPORT_OCR_ENABLED` is photos and `IMPORT_PDF_ENABLED` is
+ * PDFs, because a one-core box can serve the first and provably cannot serve the
+ * second (see `isPdfImportEnabled`). The PDF flag DEFAULTS to the photo flag, so a
+ * deployment that never asks for the split behaves exactly as it did before.
+ *
+ * WHAT THEY GATE. Only the three upload endpoints (`/imports/image`, `/imports/pdf`,
+ * `/imports/file`), which answer **501 `ocr_disabled`** when off. Everything
  * else is untouched: `/imports/url`, `/imports/text`, drafts, review and commit all
  * work, and a draft created earlier by OCR stays reviewable and committable. The
  * services themselves are NOT gated — they keep their unit tests, and a route that
@@ -30,24 +35,46 @@
 import { env } from "../../env.ts";
 import { ApiError } from "../../lib/errors.ts";
 
-/** Test override; `null` means "ask env". */
+/** Test overrides; `null` means "ask env". */
 let override: boolean | null = null;
+let pdfOverride: boolean | null = null;
 
-/** True when photo/PDF import is available on this deployment. */
+/** True when PHOTO import is available on this deployment. */
 export function isOcrImportEnabled(): boolean {
   return override ?? env.ocrImportEnabled;
 }
 
 /**
- * Forces the flag for a test. Pass `null` to restore the environment's value —
- * and do it in `afterAll`, or every later test file inherits this one's setting.
+ * True when PDF import is available.
+ *
+ * SEPARATE FROM PHOTOS ON PURPOSE. A photo is one tesseract run on one bitmap; a
+ * scanned PDF is up to MAX_PDF_PAGES of them plus poppler, and even a digital one
+ * hands `unpdf` the whole parsed document. On a one-core VPS the scan cannot
+ * finish inside OCR_TIMEOUT_MS however much RAM it has, so "photos yes, PDFs no"
+ * is a real deployment and not a half-configured one. `IMPORT_PDF_ENABLED` unset
+ * follows `IMPORT_OCR_ENABLED`, so nothing changes for a deployment that never
+ * asks for the split.
+ */
+export function isPdfImportEnabled(): boolean {
+  return pdfOverride ?? env.pdfImportEnabled;
+}
+
+/**
+ * Forces the photo flag for a test. Pass `null` to restore the environment's
+ * value — and do it in `afterAll`, or every later test file inherits this one's
+ * setting.
  */
 export function setOcrImportEnabled(value: boolean | null): void {
   override = value;
 }
 
+/** Forces the PDF flag for a test. Same `afterAll` discipline as above. */
+export function setPdfImportEnabled(value: boolean | null): void {
+  pdfOverride = value;
+}
+
 /**
- * Guard for the upload endpoints. Call it FIRST in the handler — before the rate
+ * Guard for the photo endpoints. Call it FIRST in the handler — before the rate
  * limiter and before the multipart body is read — so a disabled server does not
  * accept 15 MB it is only going to throw away.
  */
@@ -56,7 +83,36 @@ export function assertOcrImportEnabled(): void {
   throw new ApiError(501, "ocr_disabled", "server.import.ocrDisabled");
 }
 
+/**
+ * Guard for the PDF endpoints.
+ *
+ * The MESSAGE depends on the other flag, because the two configurations need
+ * different advice: on a lean server (neither) the broad "photo or PDF is off,
+ * use a web address" is the true one, while on the image-only build the user
+ * should be told that photos DO work. Same `ocr_disabled` code either way — it is
+ * a wire contract, and the client's handling is identical.
+ */
+export function assertPdfImportEnabled(): void {
+  if (isPdfImportEnabled()) return;
+  throw new ApiError(
+    501,
+    "ocr_disabled",
+    isOcrImportEnabled() ? "server.import.pdfDisabled" : "server.import.ocrDisabled",
+  );
+}
+
+/**
+ * Guard for `/imports/file`, which accepts either kind. It can only rule out the
+ * case where NEITHER is available — that is the one worth catching early, since
+ * it is the whole lean deployment. Which specific kind arrived is not known until
+ * the body has been sniffed, so the per-kind guard runs after the read.
+ */
+export function assertAnyUploadImportEnabled(): void {
+  if (isOcrImportEnabled() || isPdfImportEnabled()) return;
+  throw new ApiError(501, "ocr_disabled", "server.import.ocrDisabled");
+}
+
 /** The capability block `/api/health` reports, so the UI can hide what is off. */
-export function serverFeatures(): { ocrImport: boolean } {
-  return { ocrImport: isOcrImportEnabled() };
+export function serverFeatures(): { ocrImport: boolean; pdfImport: boolean } {
+  return { ocrImport: isOcrImportEnabled(), pdfImport: isPdfImportEnabled() };
 }

@@ -86,13 +86,21 @@ services:
       # Resend's own smtp.resend.com (there the key is MAIL_PASSWORD).
       MAIL_API_KEY: ${MAIL_API_KEY:-}
 
-      # Photo/PDF import. Off by default, matching an image built WITHOUT the
-      # `WITH_OCR=1` build arg: the binaries are not installed, so there is nothing
-      # to enable. It also wants ~2 GB of RAM, which the cheap end of the VPS market
-      # does not have. Set both (build arg AND this) to turn it on — see
-      # docs/deployment.md.
+      # Photo and PDF import, two separate flags. Both off by default, matching an
+      # image built WITHOUT the `WITH_OCR=1` / `WITH_PDF=1` build args: the binaries
+      # are not installed, so there is nothing to enable. Set the build arg AND the
+      # variable to turn one on — see docs/deployment.md.
+      #
+      # The 1 GB combination is `IMPORT_OCR_ENABLED=1` with `IMPORT_PDF_ENABLED=0`:
+      # German photo import fits one core, a ten-page scan does not.
       IMPORT_OCR_ENABLED: ${IMPORT_OCR_ENABLED:-0}
-      TESSERACT_LANGS: ${TESSERACT_LANGS:-deu+eng}
+      # Empty passes through as unset, which FOLLOWS IMPORT_OCR_ENABLED — so an
+      # existing .env that only knows the old flag keeps its old behaviour.
+      IMPORT_PDF_ENABLED: ${IMPORT_PDF_ENABLED:-}
+      TESSERACT_LANGS: ${TESSERACT_LANGS:-deu}
+      # Peak concurrent tesseract processes, i.e. the memory ceiling. 1 is right for
+      # one core; raise it only after measuring with `docker stats`.
+      IMPORT_OCR_CONCURRENCY: ${IMPORT_OCR_CONCURRENCY:-1}
 
       # --- OAuth (optional, third party by definition) ---------------------
       # Left empty by default: e-mail + password is the self-hosted path and needs

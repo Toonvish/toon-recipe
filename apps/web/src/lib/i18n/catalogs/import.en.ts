@@ -45,12 +45,17 @@ export const importEn: LocaleCatalog<ImportCatalog> = {
 
   "import.page.document.heading": "PDF or image file",
   "import.page.document.subtitle": "For PDFs the text layer is read first – that's exact and fast.",
+  "import.page.document.headingImageOnly": "Image file",
+  "import.page.document.subtitleImageOnly": "PDF import is off on this server – image files are read.",
   "import.page.document.dragHint": "Drag a file here or",
   "import.page.document.pick": "Choose file",
   "import.page.document.formats": "PDF, JPEG, PNG, WebP or HEIC · max. {size}",
+  "import.page.document.formatsImageOnly": "JPEG, PNG, WebP or HEIC · max. {size}",
   "import.page.document.remove": "Remove file",
   "import.page.document.submit": "Import file",
   "import.page.document.invalid": "Please choose a PDF file or an image.",
+  "import.page.document.invalidImageOnly": "Please choose an image.",
+  "import.page.document.pdfUnavailable": "PDF import is off on this server. A photo of the page works.",
   "import.page.document.retryPhoto": "Take a photo instead",
 
   "import.page.text.heading": "Paste text",

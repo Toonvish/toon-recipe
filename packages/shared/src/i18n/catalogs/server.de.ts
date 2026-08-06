@@ -144,6 +144,8 @@ export const serverDe = {
   "server.import.draftNotFound": "Dieser Import-Entwurf existiert nicht (mehr).",
   "server.import.ocrDisabled":
     "Import per Foto oder PDF ist auf diesem Server nicht aktiviert. Rezepte lassen sich über eine Webadresse oder als eingefügter Text importieren.",
+  "server.import.pdfDisabled":
+    "PDF-Import ist auf diesem Server nicht aktiviert. Fotos, Webadressen und eingefügter Text funktionieren weiterhin.",
   "server.import.sessionMiddlewareUnavailable": "Die Authentifizierung ist nicht verfügbar (Session-Middleware fehlt).",
   "server.import.groupMiddlewareUnavailable": "Die Gruppenprüfung ist nicht verfügbar (Group-Middleware fehlt).",
   "server.import.urlInvalid": "Die URL ist ungültig.",

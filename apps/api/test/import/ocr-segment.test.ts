@@ -32,8 +32,9 @@ import {
   setPdfRasterizer,
 } from "../../src/services/ocr/pdf.ts";
 import {
-  MAX_CONCURRENT_OCR,
   ocrInFlight,
+  ocrQueued,
+  setOcrConcurrencyForTests,
   withOcrSlot,
   withOcrTimeout,
 } from "../../src/services/ocr/index.ts";
@@ -452,24 +453,132 @@ describe("withOcrTimeout", () => {
   });
 });
 
+/**
+ * The gate is the app's memory ceiling: it is directly the peak number of
+ * concurrent `tesseract` processes. Since the default dropped to ONE slot, a
+ * collision between two family members is routine rather than exotic, so a
+ * request that finds the gate full WAITS instead of failing — bounded twice over,
+ * by the wait budget and by the queue depth.
+ *
+ * Every test sets the limit explicitly through the seam and hands it back in
+ * `afterEach`, because `env` is frozen at module load and `bun test` shares one
+ * process across every file.
+ */
 describe("withOcrSlot", () => {
-  test("allows MAX_CONCURRENT_OCR pipelines and 429s the rest", async () => {
+  afterEach(() => {
+    setOcrConcurrencyForTests(null);
+  });
+
+  test("runs up to the configured limit at once", async () => {
+    setOcrConcurrencyForTests(2);
     expect(ocrInFlight()).toBe(0);
 
     let release: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const held = Array.from({ length: MAX_CONCURRENT_OCR }, () => withOcrSlot(() => gate));
-    expect(ocrInFlight()).toBe(MAX_CONCURRENT_OCR);
+    const held = Array.from({ length: 2 }, () => withOcrSlot(() => gate));
+    expect(ocrInFlight()).toBe(2);
+
+    release();
+    await Promise.all(held);
+    expect(ocrInFlight()).toBe(0);
+  });
+
+  test("a request that finds the gate full WAITS for a slot instead of failing", async () => {
+    setOcrConcurrencyForTests(1);
+
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const first = withOcrSlot(() => gate);
+    expect(ocrInFlight()).toBe(1);
+
+    // The second one is queued, not rejected — and has not started.
+    let secondRan = false;
+    const second = withOcrSlot(async () => {
+      secondRan = true;
+      return "zweiter";
+    });
+    await Promise.resolve();
+    expect(ocrQueued()).toBe(1);
+    expect(secondRan).toBe(false);
+
+    release();
+    await first;
+    expect(await second).toBe("zweiter");
+    expect(ocrInFlight()).toBe(0);
+    expect(ocrQueued()).toBe(0);
+  });
+
+  test("429s once the queue itself is full, rather than backing up without bound", async () => {
+    setOcrConcurrencyForTests(1);
+
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const running = withOcrSlot(() => gate);
+    // MAX_WAITERS_PER_SLOT is 2, so two may wait behind the single running job.
+    const queued = [withOcrSlot(() => gate), withOcrSlot(() => gate)];
+    await Promise.resolve();
+    expect(ocrQueued()).toBe(2);
 
     const error = await expectApiError(withOcrSlot(async () => "nope"));
     expect(error.status).toBe(429);
     expect(error.code).toBe("rate_limited");
 
     release();
-    await Promise.all(held);
+    await Promise.all([running, ...queued]);
     expect(ocrInFlight()).toBe(0);
+  });
+
+  test("gives up with 429 when the wait budget expires", async () => {
+    setOcrConcurrencyForTests(1);
+
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const running = withOcrSlot(() => gate);
+
+    // 20 ms stands in for OCR_SLOT_WAIT_MS; the branch is the same one.
+    const error = await expectApiError(withOcrSlot(async () => "zu spät", 20));
+    expect(error.status).toBe(429);
+    expect(error.code).toBe("rate_limited");
+    // The waiter is gone, so it cannot be handed a slot after it has answered.
+    expect(ocrQueued()).toBe(0);
+
+    release();
+    await running;
+    expect(ocrInFlight()).toBe(0);
+  });
+
+  test("hands a freed slot to the WAITER, not to a request that just arrived", async () => {
+    setOcrConcurrencyForTests(1);
+
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const order: string[] = [];
+    const running = withOcrSlot(() => gate);
+
+    const queued = withOcrSlot(async () => {
+      order.push("queued");
+    });
+    await Promise.resolve();
+
+    release();
+    await running;
+    // Arrives after the slot was freed; without the baton pass it could overtake.
+    const latecomer = withOcrSlot(async () => {
+      order.push("latecomer");
+    });
+
+    await Promise.all([queued, latecomer]);
+    expect(order).toEqual(["queued", "latecomer"]);
   });
 
   test("releases the slot when the operation throws", async () => {

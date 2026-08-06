@@ -38,12 +38,16 @@ These are **fixed** — do not redesign them.
    (schema.org JSON-LD incl. `@graph`, microdata fallback, then site selectors — must work for
    chefkoch.de and biancazapatka.com/WP Recipe Maker), image (server-side OCR), PDF (embedded text
    layer first, rasterize + OCR as fallback, clear actionable error if rasterization is unavailable).
-   **Photo and PDF import are OPT-IN** (`IMPORT_OCR_ENABLED`, off by default) so a small VPS can run
-   the app on URL + text import alone; see "Photo/PDF import is optional" below.
+   **Photo and PDF import are OPT-IN, and separately so** (`IMPORT_OCR_ENABLED` /
+   `IMPORT_PDF_ENABLED`, both off by default) so a small VPS can run the app on URL + text import
+   alone — or run photos with PDFs off, which is what fits a one-core box; see "Photo/PDF import is
+   optional" below.
 6. **OCR runs server-side** by spawning the NATIVE `tesseract` binary (`deu+eng`, German first),
    preprocessed with `sharp` (grayscale, normalize, ~2000px wide), behind a swappable `OcrEngine`
    interface. PDFs are rasterized by poppler's `pdftoppm`. Both are OS packages, not npm ones —
-   which is what keeps the memory footprint small enough for a 2 GB VPS.
+   which is what keeps the footprint small: measured 140 MB peak for a whole 12 MP photo import
+   (Bun + sharp + the tesseract child together), so photo import fits a 1 GB VPS. PDFs are the
+   expensive half — up to ten pages of that — and want 2 GB.
 7. **Shopping lists ("Einkaufslisten") are group-owned and Bring-like.** Several named lists per
    group; a recipe can be put on a list at any portion count and the amounts are rescaled; identical
    articles are summed (`200 g + 200 g Mehl` = one `400 g` line, `1 kg + 200 g` = `1.2 kg`). Ticking
@@ -238,35 +242,46 @@ the Vite config must therefore set `envDir: "../../"` and `envPrefix: ["VITE_", 
 
 ## Photo/PDF import is optional
 
-`IMPORT_OCR_ENABLED` is a feature flag, **off unless set to `1`**. URL and text import are pure
-fetch-and-parse; OCR is the one part of this app with a real appetite — the `tesseract` and
-`pdftoppm` binaries are ~120 MB with language data, and a running job holds `sharp`, a decoded
-~2000 px bitmap and, for a PDF, `unpdf`'s whole parsed document. Leaving it off is what makes the app
-comfortable on a very small VPS.
+Two feature flags, **both off unless set to `1`**: `IMPORT_OCR_ENABLED` for photos and
+`IMPORT_PDF_ENABLED` for PDFs (unset follows the photo flag, so nothing splits unasked). URL and text
+import are pure fetch-and-parse; OCR is the one part of this app with a real appetite — `tesseract` is
+~105 MB installed and `poppler-utils` another ~28 MB, and a running job holds `sharp`, a decoded
+~2000 px bitmap and, for a PDF, `unpdf`'s whole parsed document.
 
-With it off, end to end:
+**They are separate because a PDF costs an order of magnitude more than a photo.** A photo is one
+tesseract run (measured: 140 MB peak, 2.3 s for a 12 MP image); a scanned PDF is up to ten of them
+plus poppler, and on a one-core box that cannot finish inside the server's 60 s deadline however much
+RAM it has. So `IMPORT_OCR_ENABLED=1` with `IMPORT_PDF_ENABLED=0` is a supported deployment — German
+photo import on a 1 GB VPS, PDFs honestly switched off rather than offered and timing out.
 
-- `POST /imports/{image,pdf,file}` answer **`501 ocr_disabled`** with a message naming the
-  alternatives, in the locale the request negotiated. The check runs before the rate limiter and before the body is read, so a rejected
-  upload costs neither a bucket slot nor 15 MB of buffering.
-- `/api/health` reports `features.ocrImport: false`, and the web app **hides the photo and document
-  sections** on `/import` (and the "Trotzdem als Foto importieren" fallback) instead of offering a
-  button that cannot work.
+With a flag off, end to end:
+
+- The matching upload endpoint answers **`501 ocr_disabled`** with a message naming the
+  alternatives, in the locale the request negotiated — and it differs by case: a server with photos
+  on points at the camera, a lean one points at URL and text. The check runs before the rate limiter
+  and before the body is read, so a rejected upload costs neither a bucket slot nor 15 MB of
+  buffering. `/imports/file` is the exception: it accepts either kind, so which one arrived is only
+  known after sniffing the content (never the filename — a renamed PDF does not get through).
+- `/api/health` reports `features.ocrImport` / `features.pdfImport`, and the web app **hides what is
+  off** on `/import` — the photo section, the "Trotzdem als Foto importieren" fallback, or just the
+  PDF half of the document section — instead of offering a button that cannot work.
 - Everything else is untouched: URL import, pasted text, the draft review screen, commit — and any
   draft an earlier photo import created stays reviewable and committable.
 
-To turn it on you need **both** the binaries and the flag:
+To turn them on you need **both** the binaries and the flags:
 
 ```bash
-sudo apt install tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng poppler-utils
+sudo apt install tesseract-ocr tesseract-ocr-deu     # photos (pulls -eng and -osd)
+sudo apt install poppler-utils                       # PDFs
 IMPORT_OCR_ENABLED=1          # in .env
+IMPORT_PDF_ENABLED=1          # omit or 0 to run photos only
 ```
 
-In Docker the image only contains the binaries when built with `--build-arg WITH_OCR=1`, and that
-build arg becomes the image's default for `IMPORT_OCR_ENABLED` — so a slim image cannot accidentally
-advertise a feature it does not have. Setting the flag on a slim image is not a crash either: the
-pipeline answers the documented 422 naming the missing binary (`tesseract_unavailable` /
-`rasterization_unavailable`).
+In Docker the image only contains the binaries when built with `--build-arg WITH_OCR=1` (photos) and
+`WITH_PDF=1` (PDFs, defaulting to `WITH_OCR`), and those build args become the image's defaults for
+the two flags — so an image cannot accidentally advertise a feature it does not have. Setting a flag
+without its binary is not a crash either: the pipeline answers the documented 422 naming the missing
+one (`tesseract_unavailable` / `rasterization_unavailable`).
 
 ## Scripts
 
