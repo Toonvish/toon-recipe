@@ -306,7 +306,7 @@ installation, mail, then operations, update, backup and rollback:
 
 ```bash
 docker build -t toon-recipe:local .          # one image: API + PWA, one port
-docker compose up -d                         # app + caddy (TLS) + mailpit (SMTP)
+docker compose up -d                         # two services: app + caddy (TLS)
 ```
 
 Three things about this setup are worth knowing before you touch it:
@@ -315,10 +315,11 @@ Three things about this setup are worth knowing before you touch it:
   (`WEB_DIST_DIR`, `apps/api/src/middleware/staticWeb.ts`), so `PUBLIC_API_URL` is **empty** in the
   image and the client uses relative URLs. That is what lets a single build run behind any hostname
   with no CORS entry, and it makes the session cookie first-party by construction.
-- **No API key is required anywhere.** The Resend key was replaced by an SMTP adapter
-  (`services/mail/smtp.ts`, no dependency) — pointed at the Mailpit container on the private compose
-  network by default (mail readable in its web UI, nothing leaves the machine), or at any mail
-  provider's SMTP access for real delivery, set in the `.env`. The database was already a local
+- **No API key is required anywhere.** The Resend key was made optional by an SMTP adapter
+  (`services/mail/smtp.ts`, no dependency) that talks to any mail provider's submission access, set
+  in the `.env`. Configure nothing and the stack still runs: the `ConsoleMailer` writes each
+  invite/reset link to the container log and the UI reports it as *not configured* rather than as
+  sent. The database was already a local
   libSQL file, and OCR is a local `tesseract` process whose language data is an OS package inside the
   image. Google/GitHub OAuth stays third-party and is deliberately **off**; e-mail + password is the
   self-hosted path.
@@ -427,8 +428,8 @@ Honest list of what is **not** finished. Nothing here blocks the flows above.
 > honest remainder.
 
 **Auth / accounts**
-- **Mail delivery is opt-in.** Two real transports ship — `MAIL_TRANSPORT="smtp"`
-  (`services/mail/smtp.ts`, dependency-free, the Docker default and the self-hosted path) and
+- **Mail delivery is opt-in**, in the Docker stack too. Two real transports ship —
+  `MAIL_TRANSPORT="smtp"` (`services/mail/smtp.ts`, dependency-free, the self-hosted path) and
   `MAIL_TRANSPORT="resend"` (`services/mail/resend.ts`, one `fetch`, needs `MAIL_API_KEY`) — and a
   third provider is a new file implementing the same `Mailer` interface. With nothing configured the
   `ConsoleMailer` logs every message instead of sending it, which means on such an install invites

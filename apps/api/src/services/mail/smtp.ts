@@ -2,10 +2,10 @@
  * SMTP adapter — the transport for a self-hosted install.
  *
  * This is the "one more file" the {@link Mailer} seam was designed for (see
- * services/mail/index.ts), and it is what replaces the Resend API key: the compose
- * stack runs Mailpit next door, so mail is delivered to a container on the private
- * network and read in its web UI. Point the same config at a real relay
- * (`MAIL_SECURITY=starttls`, port 587, user + password) and nothing else changes.
+ * services/mail/index.ts), and it is what makes the Resend API key optional: any
+ * mail provider's submission access does the job (`MAIL_SECURITY=starttls`, port
+ * 587, user + password), Resend's own `smtp.resend.com` included — there the
+ * username is literally `resend` and the API key is the password.
  *
  * WHY THERE IS NO DEPENDENCY HERE: the same reason `Bun.password` does the argon2
  * hashing and the Resend adapter is a bare `fetch`. What this app sends is one
@@ -48,10 +48,11 @@ export interface SmtpConfig {
   /**
    * `tls`      — TLS from the first byte (submissions, port 465),
    * `starttls` — plaintext greeting, then a MANDATORY STARTTLS upgrade (port 587),
-   * `none`     — plaintext for the whole session (Mailpit on the compose network).
+   * `none`     — plaintext for the whole session (only for a relay on the same
+   *              private network, which is why env.ts refuses it with credentials).
    */
   security: SmtpSecurity;
-  /** Omitted for a relay that does not authenticate (Mailpit). */
+  /** Omitted for a relay that does not authenticate. */
   user?: string;
   password?: string;
   /** Envelope sender + `From:` header, "Name <address>" or a bare address. */

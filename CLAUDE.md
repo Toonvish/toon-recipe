@@ -47,8 +47,12 @@ still German-only on purpose; only the *chrome* speaks two languages.
    `services/import/capabilities.ts` and the gotcha below.
    **Mail uses the same shape**: `Mailer`
    interface in `src/services/mail/`, `ConsoleMailer` as the no-config default, then `SmtpMailer`
-   (dependency-free, `node:net`/`node:tls`) and `ResendMailer`. **SMTP is the self-hosted transport
-   and the default in Docker** — it talks to a Mailpit container, so a deployment needs no API key.
+   (dependency-free, `node:net`/`node:tls`) and `ResendMailer`. **SMTP is the self-hosted transport**
+   — any provider's submission access, so a deployment needs no API key — but **no transport is
+   configured by default, in Docker either**: `MAIL_TRANSPORT` is unset in `docker-compose.yml`, so a
+   fresh stack logs its links via `ConsoleMailer` and the UI reports `not_configured`. There used to
+   be a Mailpit container in compose as a local SMTP sink; it is GONE (2026-08-06), and setting
+   `MAIL_HOST` alone no longer switches anything — `MAIL_TRANSPORT=smtp` has to be set with it.
 9. **Deployment is ONE container serving ONE origin.** `WEB_DIST_DIR` makes the API serve the built
    PWA from its own port (`middleware/staticWeb.ts`), so the image has `PUBLIC_API_URL=""`, the
    client uses relative URLs, and there is no CORS entry, no second web server and no hostname baked
@@ -680,15 +684,22 @@ add to that panel instead.
   installed per device (`http://<host>/toon-root-ca.crt`, served over plain http on purpose — a device
   that does not trust the CA yet cannot fetch it over the HTTPS that CA signed). With `acme` none of
   this applies.
-- **Mailpit is bound to `127.0.0.1` in compose, never to a public interface.** Its UI shows every
-  password-reset and invite link, so exposing it is account takeover for anyone who can reach it.
-  Reach it via `ssh -L 8025:127.0.0.1:8025`. Note `ufw` does NOT protect a published container port
-  (Docker's chain runs first) — the loopback bind in the compose file is the actual control.
-- **Every `MAIL_*` value is overridable from the compose `.env`**, with the Mailpit defaults
-  (`mailpit:1025`, `MAIL_SECURITY=none`, empty credentials) as the fallback. `SmtpMailer` skips AUTH
-  entirely for an empty user, so the empty defaults are not a broken auth attempt — and `env.ts`
-  still refuses `MAIL_SECURITY=none` TOGETHER with credentials, which is what keeps a real relay from
-  being configured in plaintext by half-editing the file.
+- **The compose stack is TWO services, `app` + `caddy`, and any mail container you add back belongs
+  on `127.0.0.1`.** A Mailpit sink used to be the third; it was only a viewer for mail that went
+  nowhere, so a deployment with a relay carried it for nothing. If you re-add one for a test, publish
+  it as `127.0.0.1:8025:8025` and never on a public or LAN address — its UI shows every
+  password-reset and invite link, so reaching it is account takeover. `ufw` does NOT protect a
+  published container port (Docker's chain runs first); the loopback bind is the actual control.
+  Deleting the service also means deleting `app`'s `depends_on`, or compose refuses to start at all.
+- **Every `MAIL_*` value comes from the compose `.env` and passes through EMPTY by default**, which
+  `env.ts`'s `rawEnv()` treats as unset — so the defaults (`starttls`, port 587) live in `env.ts`
+  alone and are not duplicated in YAML. Two consequences. `MAIL_TRANSPORT` defaults to `console`, so
+  **`MAIL_HOST` on its own silently changes nothing** — a relay needs `MAIL_TRANSPORT=smtp` next to
+  it, and the only evidence of the mistake is `[mail] NOT SENT` in the log (a boot-time refusal for
+  "MAIL_HOST set but transport isn't smtp" would be a reasonable addition and does not exist yet).
+  And `MAIL_SECURITY=none` is no longer any kind of default: there is no relay on the private network
+  any more, and `env.ts` still refuses `none` TOGETHER with credentials, which is what keeps a real
+  relay from being configured in plaintext by half-editing the file.
 - **`/app/data` is a VOLUME, so anything written there at build time is invisible at runtime.**
   Nothing in the image relies on that today, and the reason is worth keeping: the OCR language data
   used to be prefetched at build time and had to be baked to `/app/seed/tessdata` and copied in by

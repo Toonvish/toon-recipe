@@ -41,8 +41,8 @@ aus — das ist der Standard und der Grund, warum die App auf diese Klasse passt
   [Auto-Deploy (optional)](#12--auto-deploy-per-github-actions-optional)
 - [Abschluss-Checkliste](#abschluss-checkliste)
 - [Betrieb](#betrieb): [Update](#update) · [Rollback](#rollback) · [Backup](#backup) ·
-  [Logs](#logs) · [Mails ansehen](#mails-ansehen-mailpit) ·
-  [Caddy und Mailpit aktualisieren](#caddy-und-mailpit-aktualisieren)
+  [Logs](#logs) · [Mailversand prüfen](#mailversand-prüfen) ·
+  [Caddy aktualisieren](#caddy-aktualisieren)
 - [Varianten](#varianten): [Ohne eigene Domain (im LAN)](#ohne-eigene-domain-im-lan) ·
   [Import per Foto/PDF](#import-per-fotopdf-ist-optional) ·
   [Lokal testen, ohne Server](#lokal-testen-ohne-server)
@@ -60,20 +60,20 @@ aus — das ist der Standard und der Grund, warum die App auf diese Klasse passt
     │ caddy               │  TLS (Let's Encrypt), 80 + 443
     └──────────┬──────────┘
                │ http, nur im Docker-Netz
-    ┌──────────▼──────────┐        ┌──────────────────────┐
-    │ app                 │───────►│ mailpit              │
-    │ API + PWA, ein Port │  SMTP  │ SMTP-Senke + Web-UI  │
-    └──────────┬──────────┘        └──────────────────────┘
-               │                    (oder ein echter Relay,
-        Volume toon-data              siehe Schritt 10)
+    ┌──────────▼──────────┐   SMTP oder HTTPS   ┌──────────────────────┐
+    │ app                 │ ··················► │ Mailanbieter         │
+    │ API + PWA, ein Port │                     │ optional, Schritt 10 │
+    └──────────┬──────────┘                     └──────────────────────┘
+               │                     ohne Angaben: die App schreibt
+        Volume toon-data             Reset-/Einladungslinks nur ins Log
         (Datenbank · Uploads)
 ```
 
-**Kein einziger API-Key ist nötig, um das zu starten.** Was einmal extern war:
+**Zwei Container, und kein einziger API-Key ist nötig, um das zu starten.** Was einmal extern war:
 
 | vorher | jetzt |
 | --- | --- |
-| Resend (`MAIL_API_KEY`) | derselbe SMTP-Adapter — gegen `mailpit` im Stack oder gegen den SMTP-Zugang eines beliebigen Mailanbieters. Kein API-Key nötig. |
+| Resend (`MAIL_API_KEY`) | optional. Ohne Mail-Angaben protokolliert die App die Links nur; für echte Zustellung genügt der SMTP-Zugang eines beliebigen Mailanbieters — kein API-Key nötig. Resend geht weiterhin, per SMTP oder per HTTP-Adapter. |
 | Turso (`DATABASE_AUTH_TOKEN`) | war schon optional — eine libSQL-Datei im Volume |
 | OCR | lief schon serverseitig; **jetzt optional** — nur mit `--build-arg WITH_OCR=1` im Image (siehe unten) |
 | Google-/GitHub-Login | **bleibt extern und ist bewusst aus.** E-Mail + Passwort ist der selbstgehostete Weg. |
@@ -206,8 +206,8 @@ sudo dpkg-reconfigure -plow unattended-upgrades
 
 ## 4 — Firewall und Swap
 
-Offen müssen nur 22 (SSH), 80 und 443 (Caddy) sein. Sonst nichts — die App-Ports liegen im
-Docker-Netz, und Mailpit hängt bewusst auf `127.0.0.1`.
+Offen müssen nur 22 (SSH), 80 und 443 (Caddy) sein. Sonst nichts — die App selbst veröffentlicht
+keinen Port, sie ist nur im Docker-Netz erreichbar.
 
 ```bash
 sudo apt install -y ufw
@@ -218,8 +218,9 @@ sudo ufw status
 
 > **`ufw` schützt keine veröffentlichten Container-Ports.** Docker schreibt seine Regeln in die
 > `DOCKER`-Chain, die vor den ufw-Regeln greift: was in der compose-Datei unter `ports:` steht, ist
-> erreichbar, auch wenn ufw es verbietet. Deshalb steht dort `127.0.0.1:8025:8025` für Mailpit und
-> nur 80/443 ohne Adresse. Wer weitere Ports veröffentlicht, muss die Adresse selbst begrenzen.
+> erreichbar, auch wenn ufw es verbietet. Deshalb stehen dort nur 80/443 ohne Adresse. Wer weitere
+> Ports veröffentlicht — ein Debug-UI, ein Datenbank-Port —, muss die Adresse selbst auf
+> `127.0.0.1:` begrenzen und per SSH-Tunnel drangehen; ufw erledigt das nicht.
 >
 > **Hat der Anbieter eine eigene Firewall vor der VM** (netcup, Hetzner Cloud, AWS), ist die der
 > bessere Ort für dieselbe Regel — sie greift, bevor das Paket die Kiste erreicht. Dann müssen 80
@@ -365,13 +366,15 @@ Zertifikat, das hier von selbst da ist.
 
 ## 10 — Mailversand einrichten
 
-Optional, aber **vor dem ersten Passwort-Reset**. Ohne weitere Angaben liefert die App an den
-**Mailpit**-Container im Stack: der sammelt Mails und schickt **nichts** raus — gut für den ersten
-Blick, unbrauchbar für einen Reset an eine echte Adresse. Für echte Zustellung gehört der
-SMTP-Zugang eines Mailanbieters in die `.env`:
+Optional, aber **vor dem ersten Passwort-Reset**. Ohne weitere Angaben verschickt die App **gar
+keine** Mail: sie schreibt jeden Reset- und Einladungslink ins Container-Log und meldet das der UI
+auch so („nicht eingerichtet“, nicht „verschickt“). Gut für den ersten Blick, unbrauchbar für einen
+Reset an eine echte Adresse. Für echte Zustellung gehört der SMTP-Zugang eines Mailanbieters in die
+`.env`:
 
 ```bash
 cat >> .env <<'EOF'
+MAIL_TRANSPORT=smtp
 MAIL_HOST=mx.example.net
 MAIL_PORT=465
 MAIL_SECURITY=tls
@@ -381,7 +384,13 @@ EOF
 docker compose up -d
 ```
 
-Es ist derselbe Adapter wie für Mailpit, nur ein anderes Ziel. Vier Dinge dazu:
+Fünf Dinge dazu:
+
+- **`MAIL_TRANSPORT=smtp` gehört dazu**, sonst bleibt es beim Log. Die Zeile ist leicht zu
+  vergessen, weil die anderen Werte danach aussehen, als würden sie den Versand schon einschalten —
+  ein Relay ohne diese Zeile wird stillschweigend nie benutzt. Zu sehen ist es an der ersten Mail:
+  `docker compose logs app | grep '\[mail\]'` zeigt dann
+  `NOT SENT — MAIL_TRANSPORT is not configured`.
 
 - **`MAIL_SECURITY`**: `tls` = implizites TLS auf Port 465 (empfohlen), `starttls` = Upgrade auf
   Port 587. `none` ist nur für einen Relay im eigenen Netz gedacht, und **`none` zusammen mit
@@ -416,6 +425,7 @@ der API-Key das Passwort:
 
 ```bash
 cat >> .env <<'EOF'
+MAIL_TRANSPORT=smtp
 MAIL_HOST=smtp.resend.com
 MAIL_PORT=465
 MAIL_SECURITY=tls
@@ -445,8 +455,9 @@ Server, die älter ist als diese Zeile, tut das nicht und muss vorher neu geholt
 
 ### Ohne Mail
 
-**Alles funktioniert**, nur unbequemer: Einladungslinks zeigt die UI direkt an, und ein
-ausgesperrter Account wird so entsperrt:
+Das ist der Standard, und **alles funktioniert**, nur unbequemer: Einladungslinks zeigt die UI
+direkt an, jeder verschickte Text steht außerdem in `docker compose logs app` (ein Kasten mit
+`[mail] NOT SENT`), und ein ausgesperrter Account wird so entsperrt:
 
 ```bash
 docker compose exec app bun apps/api/scripts/reset-password.ts <email>
@@ -574,11 +585,11 @@ was in GitHub noch gespeichert ist. Secrets und Environment danach in Ruhe aufr�
 - [ ] `sudo ufw status` zeigt 22, 80, 443 — und sonst nichts; die Anbieter-Firewall passt dazu.
 - [ ] `free -h` zeigt Swap.
 - [ ] `dig +short <hostname>` liefert die Server-IP.
-- [ ] `docker compose ps` zeigt `app` als `healthy`, `caddy` und `mailpit` als `running`.
+- [ ] `docker compose ps` zeigt `app` als `healthy` und `caddy` als `running` — und sonst nichts.
 - [ ] `https://<hostname>` öffnet die App **ohne** Zertifikatswarnung.
 - [ ] Ein Account ist registriert, und die App lässt sich auf dem Handy installieren.
-- [ ] Eine Passwort-Reset-Mail an eine externe Adresse kommt an (oder Mailpit ist bewusst der
-      Endpunkt).
+- [ ] Eine Passwort-Reset-Mail an eine externe Adresse kommt an (oder der Versand ist bewusst nicht
+      eingerichtet — dann steht der Link im App-Log).
 - [ ] Ein erstes Backup des `toon-data`-Volumes liegt außerhalb des Servers.
 
 ---
@@ -693,23 +704,36 @@ docker compose logs -f caddy      # TLS, Zertifikate
 docker compose ps                 # Health-Status
 ```
 
-## Mails ansehen (Mailpit)
+## Mailversand prüfen
 
-Mailpit hört **nur auf dem Loopback-Interface des Servers**, nicht öffentlich. Das ist Absicht: die
-Mails enthalten Passwort-Reset- und Einladungslinks — wer das UI öffnen kann, kann jedes Konto
-übernehmen. Zugriff per SSH-Tunnel, **vom Laptop**:
+Es gibt kein Mail-UI im Stack — der Beweis steht im App-Log:
 
 ```bash
-ssh -N -L 8025:127.0.0.1:8025 toon@<server-ip>
-# dann http://localhost:8025 im Browser
+docker compose logs app | grep '\[mail\]'
 ```
 
-Mit einem echten Relay ist Mailpit nur noch Beiwerk; wer es loswerden will, löscht den Service und
-das `depends_on` aus der `docker-compose.yml`.
+Drei Ausgaben, drei Bedeutungen:
 
-## Caddy und Mailpit aktualisieren
+| Zeile | heißt |
+| --- | --- |
+| *nichts* | Der Versand hat funktioniert — oder es wurde noch keine Mail ausgelöst. Ein erfolgreicher Versand schreibt absichtlich nichts ins Log. |
+| `[mail] NOT SENT — MAIL_TRANSPORT is not configured` + der ganze Mailtext | Kein Versand eingerichtet. Der Link im Kasten ist gültig und kann von Hand weitergegeben werden ([Schritt 10](#10--mailversand-einrichten)). |
+| `[mail] Sending to … failed (smtp)` / `(resend)` | Ein konfigurierter Relay hat abgelehnt. Das ist ein kaputtes Deployment: die Aktion selbst ist absichtlich trotzdem durchgelaufen, die Mail aber weg. |
 
-Beide sind in der `docker-compose.yml` **auf eine Version festgenagelt** und wandern deshalb bei
+Dieselben drei Zustände zeigt die UI: das Einladungs-Panel und die E-Mail-Bestätigung färben
+„verschickt“, „nicht eingerichtet“ und „fehlgeschlagen“ unterschiedlich — ein `docker compose logs`
+ist also nur für den letzten Fall nötig.
+
+**Wer Mails im Browser lesen will**, kann für einen Test einen Mailpit-Container dazustellen
+(`axllent/mailpit`, `MAIL_TRANSPORT=smtp` / `MAIL_HOST=mailpit` / `MAIL_PORT=1025` /
+`MAIL_SECURITY=none`). Dann aber **nur** mit `ports: ["127.0.0.1:8025:8025"]` und Zugriff per
+`ssh -N -L 8025:127.0.0.1:8025 toon@<server-ip>`: das UI zeigt jeden Passwort-Reset- und
+Einladungslink, wer es öffnen kann, übernimmt jedes Konto. Auf einer Produktionsinstallation mit
+echtem Relay hat es nichts zu suchen.
+
+## Caddy aktualisieren
+
+Caddy ist in der `docker-compose.yml` **auf eine Version festgenagelt** und wandert deshalb bei
 einem `docker compose pull` nicht mit. Das ist Absicht: ein gleitendes `caddy:2-alpine` kann die
 TLS-Terminierung unter einer laufenden Installation austauschen, und wenn dabei etwas schiefgeht,
 ist die Seite weg, über die du den Server erreichst. Sicherheitsupdates muss man dafür selbst
@@ -717,10 +741,9 @@ einspielen — ein bis zwei Mal im Jahr nachsehen genügt:
 
 ```bash
 curl -s https://api.github.com/repos/caddyserver/caddy/releases/latest  | grep '"tag_name"'
-curl -s https://api.github.com/repos/axllent/mailpit/releases/latest    | grep '"tag_name"'
 ```
 
-Dann die `image:`-Zeilen in `docker-compose.yml` im Repo anpassen, pushen und die Datei auf dem
+Dann die `image:`-Zeile in `docker-compose.yml` im Repo anpassen, pushen und die Datei auf dem
 Server neu holen (siehe [Update](#update)). Vorher lokal gegenprüfen:
 
 ```bash
@@ -897,7 +920,7 @@ docker compose -p toonstack down -v
 
 | Symptom | Ursache / Behebung |
 | --- | --- |
-| Mails kommen nicht an | Ohne `MAIL_HOST` liefert die App an Mailpit, das nichts zustellt ([Schritt 10](#10--mailversand-einrichten)). Mit Relay: `docker compose logs app \| grep '\[mail\]'`, und SPF/DKIM/DMARC prüfen, bevor du dem Spam-Ordner misstraust. |
+| Mails kommen nicht an | Zuerst `docker compose logs app \| grep '\[mail\]'` ([Mailversand prüfen](#mailversand-prüfen)). Steht dort `NOT SENT`, ist gar kein Versand eingerichtet — meist fehlt `MAIL_TRANSPORT=smtp`, obwohl `MAIL_HOST` & Co. gesetzt sind ([Schritt 10](#10--mailversand-einrichten)). Steht dort nichts, ging die Mail raus: dann SPF/DKIM/DMARC prüfen, bevor du dem Spam-Ordner misstraust. |
 | API startet nicht, meckert über `MAIL_SECURITY` | `none` zusammen mit `MAIL_USER`/`MAIL_PASSWORD` ist absichtlich verboten — `tls` (465) oder `starttls` (587) benutzen. |
 | Container startet nicht, `MAIL_API_KEY` fehlt | `MAIL_TRANSPORT=resend` ohne Key. Entweder den Key setzen oder auf den SMTP-Weg wechseln; eine zu alte `docker-compose.yml` auf dem Server gibt den Wert nicht durch. |
 

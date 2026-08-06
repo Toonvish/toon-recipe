@@ -7,17 +7,20 @@
 # For the default setup — a small VPS with a domain — only TOON_HOSTNAME,
 # SESSION_SECRET and the mail relay need a value.
 #
-# THREE SERVICES, AND NO API KEY REQUIRED BETWEEN THEM:
+# TWO SERVICES, AND NO API KEY REQUIRED BETWEEN THEM:
 #   app      the API + the PWA, one origin, one port (see Dockerfile)
 #   caddy    TLS termination, so the PWA gets the secure context it needs
-#   mailpit  a local SMTP sink + a web UI, used until a real relay is configured
 #
-# Mail is the one thing with a choice to make: out of the box `app` talks SMTP to
-# `mailpit` over the private compose network, which COLLECTS mail and delivers
-# nothing — fine for a first look, useless for a password reset to an actual
-# inbox. Point MAIL_HOST/MAIL_USER/… at a real relay in the `.env` when you want
-# delivery; the adapter is the same either way. The database was always a local
-# libSQL file, so there is still no third-party account needed to run this.
+# Mail is the one thing with a choice to make, and with NO mail values set the app
+# logs every reset/invite link instead of sending it (the ConsoleMailer) — a
+# working install without a mail account, and one the UI reports honestly as
+# "not configured" rather than as a successful send. Point MAIL_HOST/MAIL_USER/…
+# at any provider's SMTP access, or set MAIL_TRANSPORT=resend + MAIL_API_KEY, when
+# you want delivery to a real inbox; the adapter is the same either way. There used
+# to be a third service here, a Mailpit container acting as a local SMTP sink — it
+# was only ever a viewer for mail that went nowhere, so a deployment with a relay
+# configured carried it for nothing. The database was always a local libSQL file,
+# so there is still no third-party account NEEDED to run this.
 # =============================================================================
 
 name: toon-recipe
@@ -26,9 +29,6 @@ services:
   app:
     image: ${TOON_IMAGE:-ghcr.io/toonvish/toon-recipe:latest}
     restart: unless-stopped
-    depends_on:
-      mailpit:
-        condition: service_started
     environment:
       NODE_ENV: production
       API_PORT: "3001"
@@ -55,16 +55,26 @@ services:
       TRUST_PROXY: "1"
 
       # --- mail ------------------------------------------------------------
-      # The defaults are the Mailpit container next door: it needs no credentials
-      # and nothing leaves the machine, so plaintext SMTP is acceptable on that hop
-      # and ONLY there — which is why env.ts refuses to combine MAIL_SECURITY=none
-      # with a user/password. For real delivery set MAIL_HOST/MAIL_PORT/
-      # MAIL_SECURITY/MAIL_USER/MAIL_PASSWORD in the `.env`; see
+      # Unset means the ConsoleMailer: reset and invite links go to the container
+      # log and nothing is delivered. That is a deliberate state, not a silent
+      # failure — `mailDeliveryOf()` reports it as `not_configured` and the UI
+      # says so instead of claiming a mail went out.
+      #
+      # For real delivery, either any provider's SMTP access (MAIL_TRANSPORT=smtp
+      # plus MAIL_HOST and, if the relay authenticates, MAIL_USER/MAIL_PASSWORD)
+      # or Resend's HTTP API (MAIL_TRANSPORT=resend plus MAIL_API_KEY). See
       # docs/deployment.md ("Mailversand einrichten").
-      MAIL_TRANSPORT: ${MAIL_TRANSPORT:-smtp}
-      MAIL_HOST: ${MAIL_HOST:-mailpit}
-      MAIL_PORT: ${MAIL_PORT:-1025}
-      MAIL_SECURITY: ${MAIL_SECURITY:-none}
+      #
+      # These pass through EMPTY rather than carrying a default: an empty value
+      # counts as unset (env.ts `rawEnv()`), so the defaults live in one place —
+      # MAIL_SECURITY=starttls on port 587, or 465 with MAIL_SECURITY=tls. There is
+      # no relay on the private network any more, so `none` is no longer a sensible
+      # default: it would now put credentials on the wire in cleartext, which
+      # env.ts refuses to do at all.
+      MAIL_TRANSPORT: ${MAIL_TRANSPORT:-console}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-}
+      MAIL_SECURITY: ${MAIL_SECURITY:-}
       MAIL_USER: ${MAIL_USER:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-Rezepte <rezepte@localhost>}
@@ -143,37 +153,12 @@ services:
       - toon
     logging: *logging
 
-  mailpit:
-    # Pinned for the same reason as Caddy. `:latest` would also let a future major
-    # (v2) arrive on a `docker compose pull` and change the SMTP or UI behaviour
-    # this deployment depends on.
-    image: axllent/mailpit:v1.30.6
-    restart: unless-stopped
-    environment:
-      # Keep the mailbox bounded; these are notifications, not an archive.
-      MP_MAX_MESSAGES: "500"
-      MP_DATABASE: /data/mailpit.db
-      MP_SMTP_AUTH_ACCEPT_ANY: "true"
-      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
-    ports:
-      # ⚠ 127.0.0.1 ON PURPOSE — NOT a public or LAN port.
-      #
-      # This UI shows every mail the app sends, and those mails contain PASSWORD
-      # RESET AND INVITE LINKS. Anyone who can open it can take over any account by
-      # requesting a reset. Bound to the server's loopback interface it is
-      # reachable only over SSH:
-      #
-      #     ssh -N -L 8025:127.0.0.1:8025 <user>@<server>
-      #     then open http://localhost:8025
-      #
-      # If you would rather have it reachable directly, understand that trade-off
-      # first and put a password in front of it (Caddy `basic_auth`).
-      - "127.0.0.1:8025:8025"
-    volumes:
-      - mailpit-data:/data
-    networks:
-      - toon
-    logging: *logging
+  # There is deliberately no local SMTP sink here any more. If you ever add one
+  # back to look at outgoing mail on a test box, publish it as
+  # "127.0.0.1:8025:8025" and NEVER on a public or LAN address: its UI shows every
+  # password-reset and invite link, so whoever can open it can take over any
+  # account. Note that `ufw` does not protect a published container port — the
+  # loopback address in the `ports:` entry is the actual control.
 
 networks:
   toon:
@@ -183,4 +168,3 @@ volumes:
   toon-data:
   caddy-data:
   caddy-config:
-  mailpit-data:

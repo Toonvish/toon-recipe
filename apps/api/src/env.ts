@@ -133,10 +133,10 @@ const EnvSchema = z
      *
      * "console" (default) | "smtp" | "resend"
      *
-     * "smtp" is the self-hosted transport and needs no API key at all: the Docker
-     * compose stack points it at Mailpit on the private network, which accepts
-     * every message and shows it in a web UI. The same setting drives a real
-     * relay — see MAIL_HOST below.
+     * "smtp" is the self-hosted transport and needs no API key at all — any mail
+     * provider's submission access will do; see MAIL_HOST below. The Docker stack
+     * leaves this UNSET, so a deployment that never configures mail logs its links
+     * rather than pretending to send them.
      */
     MAIL_TRANSPORT: z.enum(["console", "smtp", "resend"]).optional(),
     /** Sender, "Name <address>" or a bare address. Required for a real transport. */
@@ -144,19 +144,19 @@ const EnvSchema = z
     /** Resend API key (re_…). Required when MAIL_TRANSPORT=resend. */
     MAIL_API_KEY: z.string().optional(),
 
-    /** SMTP relay host. Required when MAIL_TRANSPORT=smtp ("mailpit" in compose). */
+    /** SMTP relay host, e.g. "smtp.resend.com". Required when MAIL_TRANSPORT=smtp. */
     MAIL_HOST: z.string().optional(),
-    /** Defaults to 465 for MAIL_SECURITY=tls, otherwise 587. Mailpit listens on 1025. */
+    /** Defaults to 465 for MAIL_SECURITY=tls, otherwise 587. */
     MAIL_PORT: z.coerce.number().int().min(1).max(65535).optional(),
-    /** Omit both for a relay that does not authenticate (Mailpit). */
+    /** Omit both for a relay that does not authenticate. */
     MAIL_USER: z.string().optional(),
     MAIL_PASSWORD: z.string().optional(),
     /**
      * "starttls" (default) — plaintext greeting then a MANDATORY upgrade, port 587,
      * "tls"                — TLS from the first byte, port 465,
      * "none"               — plaintext, only defensible for a relay on the same
-     *                        private network (that is Mailpit's case, and env.ts
-     *                        refuses to combine it with credentials).
+     *                        private network, and env.ts refuses to combine it
+     *                        with credentials.
      */
     MAIL_SECURITY: z.enum(["starttls", "tls", "none"]).optional(),
     /** Accept a self-signed relay certificate. Off unless you know why you need it. */
@@ -252,11 +252,11 @@ const EnvSchema = z
   )
   .refine(
     (value) => value.mailTransport !== "smtp" || (value.MAIL_HOST ?? "").length > 0,
-    'MAIL_HOST is required for MAIL_TRANSPORT=smtp (in the Docker stack: "mailpit")',
+    "MAIL_HOST is required for MAIL_TRANSPORT=smtp (your mail provider's submission host)",
   )
   // Credentials over an unencrypted session would be readable by anything on the
-  // path. The only setup that legitimately uses MAIL_SECURITY=none is a relay in
-  // the same compose network, and that one needs no login — so this combination is
+  // path. The only setup that legitimately uses MAIL_SECURITY=none is a relay on
+  // the same private network, and that one needs no login — so this combination is
   // always a mistake, and it is one that looks like it works.
   .refine(
     (value) =>
