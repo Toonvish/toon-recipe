@@ -120,11 +120,20 @@ export const shoppingDe = {
   "shopping.frequentlyUsed.dismissAriaLabel": "{name} nicht mehr vorschlagen",
   "shopping.frequentlyUsed.dismissTitle": "Nicht mehr vorschlagen",
 
-  // ShoppingItemCard
+  // ShoppingItemCard (desktop row) + ShoppingItemTile (phone grid)
   "shopping.item.checkAriaLabel": "{name} abhaken",
   "shopping.item.sources": "aus {sources}",
   "shopping.item.edit": "Bearbeiten",
   "shopping.item.remove": "Von der Liste entfernen",
+  "shopping.item.check": "Abhaken",
+  "shopping.item.details": "Details zu {name}",
+  "shopping.item.longPressHint": "Lange auf eine Karte tippen für Details.",
+
+  // ItemDetailDialog
+  "shopping.item.detail.amount": "Menge",
+  "shopping.item.detail.note": "Notiz",
+  "shopping.item.detail.sources": { one: "Aus Rezept", other: "Aus Rezepten" },
+  "shopping.item.detail.empty": "Keine weiteren Angaben.",
 } as const satisfies NamespaceCatalog<"shopping">;
 
 export type ShoppingCatalog = typeof shoppingDe;

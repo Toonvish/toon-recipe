@@ -7,6 +7,12 @@
  *     it off, and every edit works with no signal: the mutations are queued and
  *     replayed (features/shopping/lib/offline.ts), so this screen never disables itself
  *     for being offline the way the rest of the app does.
+ *     Below `sm` that card is a TILE in a two-column grid (`ShoppingItemTile`): a name
+ *     in large type, one muted subtitle, no source and no buttons, with a long press
+ *     opening `ItemDetailDialog` for the rest. From `sm` up it is the wider
+ *     `ShoppingItemCard` row with its edit/remove buttons in place. The branch is JS
+ *     (`useIsWideViewport`) and not `sm:hidden`, because rendering both would give every
+ *     item two check-off buttons and read it twice to a screen reader.
  *  2. **Checked items LEAVE the list** and reappear as one-tap chips under "Häufig
  *     gekauft", so the list only ever shows what is still missing.
  *  3. **No optimistic flicker.** Adding merges locally with the same algebra the server
@@ -32,13 +38,17 @@ import {
   useToast,
 } from "@/components/ui";
 import { errorMessage } from "@/lib/api";
+import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
 import { useActiveGroup, useEmailVerificationBlock, useSession } from "@/lib/session";
+import { useIsWideViewport } from "@/lib/viewport";
 import { AppLink, useRouteParam } from "@/features/recipes/lib/nav";
 import { AddItemBar } from "./components/AddItemBar";
 import { EditItemDialog } from "./components/EditItemDialog";
 import { FrequentlyUsed } from "./components/FrequentlyUsed";
+import { ItemDetailDialog } from "./components/ItemDetailDialog";
 import { ShoppingItemCard } from "./components/ShoppingItemCard";
+import { ShoppingItemTile } from "./components/ShoppingItemTile";
 import {
   useAddShoppingItems,
   useAddShoppingSuggestion,
@@ -58,6 +68,7 @@ export default function ShoppingListDetailPage() {
   const canMutate = unverified === undefined;
   const listId = useRouteParam("listId") ?? "";
   const toast = useToast();
+  const wide = useIsWideViewport();
 
   const list = useShoppingList(groupId, listId);
   const add = useAddShoppingItems(groupId ?? "", listId);
@@ -69,6 +80,13 @@ export default function ShoppingListDetailPage() {
   const dismiss = useDismissShoppingSuggestion(groupId ?? "", listId);
 
   const [editing, setEditing] = useState<ShoppingItem | null>(null);
+  /**
+   * The tile whose long press opened the detail sheet (phones only). Held as an ID and
+   * looked up again on every render, so the sheet follows a merge and closes itself
+   * when the line leaves the list — a captured snapshot would keep rendering a row that
+   * no longer exists.
+   */
+  const [detailsId, setDetailsId] = useState<string | null>(null);
   const [clearOpen, setClearOpen] = useState(false);
 
   /** How many writes are still waiting to reach the server. */
@@ -76,14 +94,18 @@ export default function ShoppingListDetailPage() {
 
   const detail = list.data;
   const items = detail?.items ?? [];
+  const detailsItem = items.find((item) => item.id === detailsId) ?? null;
 
   if (list.isPending && !detail) {
     return (
       <div className="flex flex-col gap-3">
         <Skeleton className="h-8 w-48" />
-        {[0, 1, 2, 3].map((index) => (
-          <Skeleton key={index} className="h-18 w-full rounded-card" />
-        ))}
+        {/* Same shape as the branch below, or the list visibly jumps when data lands. */}
+        <div className={wide ? "flex flex-col gap-2" : "grid grid-cols-2 gap-2"}>
+          {[0, 1, 2, 3].map((index) => (
+            <Skeleton key={index} className={cn("w-full rounded-card", wide ? "h-18" : "h-24")} />
+          ))}
+        </div>
       </div>
     );
   }
@@ -159,7 +181,7 @@ export default function ShoppingListDetailPage() {
                 : t("shopping.detail.empty.description")
             }
           />
-        ) : (
+        ) : wide ? (
           <ul className="flex flex-col gap-2">
             {items.map((item) => (
               <ShoppingItemCard
@@ -172,6 +194,23 @@ export default function ShoppingListDetailPage() {
               />
             ))}
           </ul>
+        ) : (
+          <>
+            <ul className="grid grid-cols-2 gap-2">
+              {items.map((item) => (
+                <ShoppingItemTile
+                  key={item.id}
+                  item={item}
+                  canMutate={canMutate}
+                  onCheck={check.check}
+                  onOpenDetails={(target) => setDetailsId(target.id)}
+                />
+              ))}
+            </ul>
+            {/* The press-and-hold is the tile's only route to the amount, the note and
+                the edit/remove actions, and nothing on the tile advertises it. */}
+            <p className="mt-2 text-xs text-fg-muted">{t("shopping.item.longPressHint")}</p>
+          </>
         )}
 
         <FrequentlyUsed
@@ -188,6 +227,15 @@ export default function ShoppingListDetailPage() {
       </div>
 
       <AddItemBar onAdd={(newItems) => add.add(newItems)} disabled={!canMutate} />
+
+      <ItemDetailDialog
+        item={detailsItem}
+        canMutate={canMutate}
+        onClose={() => setDetailsId(null)}
+        onCheck={check.check}
+        onEdit={setEditing}
+        onRemove={remove.remove}
+      />
 
       <EditItemDialog
         item={editing}

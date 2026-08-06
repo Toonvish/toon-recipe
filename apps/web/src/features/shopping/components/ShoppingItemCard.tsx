@@ -1,14 +1,18 @@
 /**
- * One line on a shopping list, as a LARGE card.
+ * One line on a shopping list, as a LARGE row. **Desktop only** — from `sm` up;
+ * a phone gets the two-column grid of `ShoppingItemTile` instead, and
+ * `ShoppingListDetailPage` renders one or the other, never both.
  *
- * Sizing is the whole point: this is read and tapped one-handed, in a supermarket,
- * possibly with a trolley in the other hand. So the card is ~72px tall on phones, the
- * ENTIRE card is the check-off button (not a small checkbox), and the secondary actions
- * sit in their own >=44px targets that stop the click from reaching it.
+ * Sizing is the whole point: this is read and tapped one-handed, possibly with a
+ * trolley in the other hand. So the row is ~72px tall, the ENTIRE row is the check-off
+ * button (not a small checkbox), and the secondary actions sit in their own >=44px
+ * targets that stop the click from reaching it.
  *
  * Checking off REMOVES the line (it reappears under "Häufig gekauft"), so the visual
- * feedback is a brief filled checkbox rather than a strikethrough — there is nothing
- * left to strike through.
+ * feedback is a beat of green rather than a strikethrough — there is nothing left to
+ * strike through. It used to be a filled checkbox square; that square was the only
+ * checkbox left in the feature and it read as "tick me" next to a card whose whole
+ * surface already does that, so the tint carries it alone now.
  */
 import { useState } from "react";
 import { Pencil, Trash2 } from "lucide-react";
@@ -70,20 +74,6 @@ export function ShoppingItemCard({
           canMutate && !pending ? "pr-24" : "pr-4",
         )}
       >
-        <span
-          aria-hidden="true"
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-lg border-2 transition-colors duration-150 sm:size-7",
-            ticking ? "border-success bg-success text-success-fg" : "border-line-strong",
-          )}
-        >
-          {ticking ? (
-            <svg viewBox="0 0 20 20" className="size-5" fill="none" stroke="currentColor" strokeWidth="3">
-              <path d="M4 10.5 8 14.5 16 6" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          ) : null}
-        </span>
-
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
             {amount ? (

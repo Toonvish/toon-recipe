@@ -119,9 +119,18 @@ export const shoppingEn: LocaleCatalog<ShoppingCatalog> = {
   "shopping.frequentlyUsed.dismissAriaLabel": "Stop suggesting {name}",
   "shopping.frequentlyUsed.dismissTitle": "Stop suggesting",
 
-  // ShoppingItemCard
+  // ShoppingItemCard (desktop row) + ShoppingItemTile (phone grid)
   "shopping.item.checkAriaLabel": "Check off {name}",
   "shopping.item.sources": "from {sources}",
   "shopping.item.edit": "Edit",
   "shopping.item.remove": "Remove from list",
+  "shopping.item.check": "Check off",
+  "shopping.item.details": "Details for {name}",
+  "shopping.item.longPressHint": "Press and hold a card for details.",
+
+  // ItemDetailDialog
+  "shopping.item.detail.amount": "Amount",
+  "shopping.item.detail.note": "Note",
+  "shopping.item.detail.sources": { one: "From recipe", other: "From recipes" },
+  "shopping.item.detail.empty": "No further details.",
 };
