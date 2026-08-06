@@ -82,17 +82,35 @@ export function AddRecipeToListDialog({
     [recipe.ingredients],
   );
 
-  // Re-seed whenever the dialog opens: the cook may have changed the portions on the
-  // page between two openings, and a stale value would silently add the wrong amounts.
-  // The tick marks reset too — last time's deselection is not this time's intent.
+  // Re-seed ONCE PER OPENING: the cook may have changed the portions on the page between
+  // two openings, and a stale value would silently add the wrong amounts. The tick marks
+  // reset too — last time's deselection is not this time's intent.
+  //
+  // The `opened` guard is load-bearing, and dropping it back to a plain dependency array
+  // un-ticks every ingredient MID-DIALOG. `lists` is a fresh array on every refetch, so
+  // creating the group's first list from here — or any background refetch — re-ran the
+  // seed and threw away the deselections the cook had just made.
+  const opened = useRef(false);
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      opened.current = false;
+      return;
+    }
+    if (opened.current) return;
+    opened.current = true;
     setServings(initialServings);
     setExcluded(new Set());
     setCreateError(undefined);
     setNewListName(defaultListName);
+  }, [open, initialServings, defaultListName]);
+
+  // Selecting a list stays its own effect, because it must keep running: the lists query
+  // is routinely still in flight when the dialog opens, so there is nothing to select yet.
+  // Only fills a blank — an explicit choice (and `createList`'s) is never overwritten.
+  useEffect(() => {
+    if (!open) return;
     setListId((current) => (current.length > 0 ? current : (lists[0]?.id ?? "")));
-  }, [open, initialServings, lists, defaultListName]);
+  }, [open, lists]);
 
   const base =
     typeof recipe.servingsAmount === "number" && recipe.servingsAmount > 0
