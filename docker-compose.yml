@@ -60,7 +60,7 @@ services:
       # and ONLY there — which is why env.ts refuses to combine MAIL_SECURITY=none
       # with a user/password. For real delivery set MAIL_HOST/MAIL_PORT/
       # MAIL_SECURITY/MAIL_USER/MAIL_PASSWORD in the `.env`; see
-      # docs/deployment.md ("Echte Mails nach draußen schicken").
+      # docs/deployment.md ("Mailversand einrichten").
       MAIL_TRANSPORT: ${MAIL_TRANSPORT:-smtp}
       MAIL_HOST: ${MAIL_HOST:-mailpit}
       MAIL_PORT: ${MAIL_PORT:-1025}

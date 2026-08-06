@@ -689,7 +689,7 @@ add to that panel instead.
 
 ## Verification gates
 
-All four must be clean before calling anything done:
+All five must be clean before calling anything done:
 
 ```bash
 bun install
@@ -714,9 +714,6 @@ The useful way to read it is `grep -vE ':[0-9]+: *(\*|//|/\*)'` to drop the comm
 that everything left is on list 3. That is how the German literal in `services/groups/validation.ts`
 was found: it sat in `validationFailed`'s `details` SLOT, not the message slot, so it went out on the
 wire untranslated and no type error could catch it.
-
-```bash
-```
 
 Plus, for anything touching persistence or auth: `bun run db:migrate` and `bun run seed` against a
 fresh `file:` DB, then the curl walkthrough in README.md ("Smoke test against a real server").

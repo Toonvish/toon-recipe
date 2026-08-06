@@ -145,7 +145,7 @@ jobs:
     # Without it, a repository that never set up a server still runs this job on
     # every push to main and fails it on the empty known_hosts — a permanent red X
     # that says nothing. Set it to `true` (Settings -> Variables) as the last step
-    # of docs/deployment.md's step 6, once the secrets exist.
+    # of docs/deployment.md's step 12, once the secrets exist.
     #
     # Beyond that: a push to main or a version tag deploys automatically, while a
     # manual run only deploys when the checkbox was ticked — without the event check

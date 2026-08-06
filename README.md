@@ -279,6 +279,7 @@ pipeline answers the documented 422 naming the missing binary (`tesseract_unavai
 | `bun run start` | Run the API (production) |
 | `bun test` | All tests (parsers + API integration) |
 | `bun run typecheck` | `tsc --noEmit` for `packages/shared`, `apps/api`, `apps/web` |
+| `bun run i18n:check` | German catalog parity against the base commit + no German left in a ported tree. Grep-shaped, so it **exits non-zero even when the tree is correct** — read the output, see `docs/i18n.md` for the three expected false-positive classes |
 | `bun run db:generate` | drizzle-kit: generate SQL migrations from `schema.ts` |
 | `bun run db:migrate` | Apply migrations to `DATABASE_URL` |
 | `bun run db:studio` | drizzle studio |
@@ -286,20 +287,22 @@ pipeline answers the documented 422 naming the missing binary (`tesseract_unavai
 | `bun run auth:reset-password <email> [--send]` | Mints a password-reset token and prints the link. Works with **no mailer at all** — the answer for a locked-out user on a self-hosted install |
 | `bun run uploads:gc [--dry-run] [--min-age-hours=N]` | Deletes files in `UPLOAD_DIR` that no row references any more (default: keeps anything younger than 24 h) |
 
-Current status of the four gates (run from the repo root):
+Current status of the gates (run from the repo root):
 
 ```
-bun install        Checked 451 installs across 648 packages (no changes)
+bun install        Checked 435 installs across 632 packages (no changes)
 bun run typecheck  [typecheck] OK           (packages/shared, apps/api, apps/web)
-bun test           821 pass, 0 fail, 2146 expect() calls across 26 files
-bun run build      ✓ built in ~0.3s + PWA precache 114 entries (1176 KiB)
+bun test           934 pass, 0 fail, 4862 expect() calls across 35 files
+bun run build      ✓ built in ~0.3s + PWA precache 115 entries (1359 KiB)
+bun run i18n:check catalog parity OK; the remaining hits are the documented
+                   content-vocabulary and quoted-label false positives
 ```
 
 ## Deployment (Docker on a small server)
 
-Setting up a **freshly ordered VPS** (user, SSH, firewall, swap, Docker, DNS):
-**[docs/server-setup.md](docs/server-setup.md)**. Configuration, operations, backup and
-rollback: **[docs/deployment.md](docs/deployment.md)**. The short version:
+One document covers the whole path — freshly ordered VPS (user, SSH, firewall, swap, Docker, DNS),
+installation, mail, then operations, update, backup and rollback:
+**[docs/deployment.md](docs/deployment.md)**. The short version:
 
 ```bash
 docker build -t toon-recipe:local .          # one image: API + PWA, one port
@@ -333,7 +336,7 @@ it out over SSH and waits for the container's own healthcheck. **Deploying is op
 manual `docker compose pull && docker compose up -d` on the server. When it is set up, the key in GitHub's secret store is **not a
 shell** — it is pinned to a forced command (`docker/toon-deploy.sh`) that knows three verbs and
 hardcodes the image repository, so a stolen key can roll out a version and nothing else. Setup is
-[step 6 in docs/deployment.md](docs/deployment.md#6--auto-deploy-per-github-actions-optional). The
+[step 12 in docs/deployment.md](docs/deployment.md#12--auto-deploy-per-github-actions-optional). The
 image digest is also printed in the release run's summary; put it in `TOON_IMAGE` to pin a version or
 roll back. The arm64 half stays fast because the web bundle is built on the *build* platform (its
 output is architecture-independent) and only the native `node_modules` install runs under QEMU.

@@ -1,30 +1,52 @@
-# Deployment auf einem kleinen Server
+# Vom frischen Server zur installierten App
 
-Ein Container-Stack, ein Origin, keine fremden Dienste. Zielbild ist ein günstiger VPS mit einer
-eigenen Domain — es läuft aber auf jedem 64-Bit-Linux mit Docker, auch auf einer Kiste im LAN
-(siehe [Ohne eigene Domain](#ohne-eigene-domain-im-lan)).
+Die **eine** Anleitung für Betrieb und Installation: vom gerade bestellten VPS bis zum App-Icon auf
+dem Handy, danach Update, Backup, Rollback und Fehlersuche. Ein Container-Stack, ein Origin, keine
+fremden Dienste.
 
-**Jeder Push auf `main` veröffentlicht ein neues Image auf GHCR.** Ausgerollt wird es
-entweder von Hand auf dem Server:
+Zielbild ist ein günstiger VPS mit einer eigenen Domain — es läuft aber auf jedem 64-Bit-Linux mit
+Docker, auch auf einer Kiste im LAN (siehe [Ohne eigene Domain](#ohne-eigene-domain-im-lan)).
+Laufendes Beispiel: ein Ein-Kern-VPS mit 1 GB RAM und 30 GB SSD (netcup VPS pico, Hetzner CX/CAX,
+Oracle Free Tier, IONOS VPS S) mit Debian 13 und einer eigenen Subdomain. Foto-/PDF-Import bleibt
+aus — das ist der Standard und der Grund, warum die App auf diese Klasse passt.
 
-```bash
-cd /opt/toon-recipe && docker compose pull && docker compose up -d --remove-orphans
-```
+| | |
+| --- | --- |
+| Zeitbedarf | ca. 30 Minuten, davon ~10 Minuten Warten auf DNS und Zertifikat |
+| Was danach läuft | API + PWA + TLS, alles in einem Container-Stack auf dem Server |
+| Fremde Dienste | eine Domain und (für echte Mails) der SMTP-Zugang eines Mailanbieters. Kein API-Key, keine Cloud-Datenbank. |
 
-… oder automatisch von GitHub Actions per SSH — das ist optional und muss einmal
-eingerichtet werden, siehe [Schritt 6](#6--auto-deploy-per-github-actions-optional). Solange
-die Variable `DEPLOY_ENABLED` nicht auf `true` steht, wird der Deploy-Job übersprungen und es
-bleibt beim Befehl oben.
+**Steht der Server schon** (Docker installiert, DNS gesetzt)? Dann direkt bei
+[Teil 2 — App installieren](#teil-2--app-installieren) anfangen.
 
-Wenn du ihn einrichtest: der Schlüssel, der dafür in den GitHub-Secrets liegt, ist **kein
-Shell-Zugang**. Er ist in der `authorized_keys` an ein festes Kommando gebunden
-(`docker/toon-deploy.sh`), das genau drei Verben kennt und die Image-Herkunft selbst
-festlegt. Ein gestohlener Schlüssel kann damit eine Version ausrollen — mehr nicht.
+---
 
-> **Ganz von vorn — frisch bestellter VPS, kein Docker, keine DNS-Einträge?** Dann ist
-> **[docs/server-setup.md](./server-setup.md)** die Anleitung: Grundeinrichtung, SSH, Firewall,
-> Swap, Docker, DNS. Dieses Dokument hier setzt einen Server mit Docker voraus und ist danach die
-> Referenz für Konfiguration und Betrieb.
+## Inhalt
+
+- [Was hier läuft](#was-hier-läuft) · [Voraussetzungen](#voraussetzungen)
+- [Teil 1 — Server vorbereiten](#teil-1--server-vorbereiten):
+  [Werte sammeln](#0--werte-sammeln) ·
+  [Server bestellen](#1--server-bestellen-und-erstanmeldung) ·
+  [Benutzer + SSH](#2--benutzer-anlegen-und-schlüssel-eintragen) ·
+  [Weg zurück zumauern](#3--den-weg-zurück-zumauern) ·
+  [Firewall + Swap](#4--firewall-und-swap) ·
+  [Docker](#5--docker) ·
+  [DNS](#6--dns-eintragen-und-prüfen)
+- [Teil 2 — App installieren](#teil-2--app-installieren):
+  [Image](#7--image-beschaffen) ·
+  [Verzeichnis und `.env`](#8--verzeichnis-env-compose-dateien) ·
+  [Starten](#9--starten-und-ersten-account-anlegen) ·
+  [Mailversand](#10--mailversand-einrichten) ·
+  [Erstes Backup](#11--erstes-backup) ·
+  [Auto-Deploy (optional)](#12--auto-deploy-per-github-actions-optional)
+- [Abschluss-Checkliste](#abschluss-checkliste)
+- [Betrieb](#betrieb): [Update](#update) · [Rollback](#rollback) · [Backup](#backup) ·
+  [Logs](#logs) · [Mails ansehen](#mails-ansehen-mailpit) ·
+  [Caddy und Mailpit aktualisieren](#caddy-und-mailpit-aktualisieren)
+- [Varianten](#varianten): [Ohne eigene Domain (im LAN)](#ohne-eigene-domain-im-lan) ·
+  [Import per Foto/PDF](#import-per-fotopdf-ist-optional) ·
+  [Lokal testen, ohne Server](#lokal-testen-ohne-server)
+- [Fehlersuche](#fehlersuche) · [Was hier bewusst fehlt](#was-hier-bewusst-fehlt)
 
 ---
 
@@ -43,7 +65,7 @@ festlegt. Ein gestohlener Schlüssel kann damit eine Version ausrollen — mehr 
     │ API + PWA, ein Port │  SMTP  │ SMTP-Senke + Web-UI  │
     └──────────┬──────────┘        └──────────────────────┘
                │                    (oder ein echter Relay,
-        Volume toon-data              siehe Schritt 4)
+        Volume toon-data              siehe Schritt 10)
         (Datenbank · Uploads)
 ```
 
@@ -57,8 +79,8 @@ festlegt. Ein gestohlener Schlüssel kann damit eine Version ausrollen — mehr 
 | Google-/GitHub-Login | **bleibt extern und ist bewusst aus.** E-Mail + Passwort ist der selbstgehostete Weg. |
 
 Es gibt keinen selbstgehosteten Ersatz für Google-/GitHub-OAuth — dafür wäre ein eigener
-OIDC-Provider (Authentik, Keycloak) plus eine generische OIDC-Anbindung nötig, die die App
-heute nicht hat. Ohne OAuth fehlt nichts: Registrierung, Login, Einladungen und
+OIDC-Provider (Authentik, Keycloak) plus eine generische OIDC-Anbindung nötig, die die App heute
+nicht hat. Ohne OAuth fehlt nichts: Registrierung, Login, Einladungen, E-Mail-Bestätigung und
 Passwort-Reset funktionieren vollständig.
 
 ---
@@ -68,40 +90,181 @@ Passwort-Reset funktionieren vollständig.
 - **64-Bit-Linux mit Docker**, `x86_64` oder `arm64` — das Image gibt es für beide. `uname -m` muss
   `x86_64` oder `aarch64` ausgeben; für 32-Bit gibt es kein Bun, dort lässt sich das Image nicht
   starten.
-- **RAM: hängt am Foto-/PDF-Import.** Ohne ihn — dem Standard, siehe „Import per Foto/PDF ist
-  optional“ — bleiben Bun, die libSQL-Datei und das Ausliefern der PWA übrig; das läuft in
-  **512 MB bis 1 GB**. Mit OCR gilt **mindestens 2 GB mit Reserve**: die Texterkennung ist der
-  Speicherfresser. Als Referenz: ein Ein-Kern-VPS mit 1 GB RAM und 30 GB SSD (z. B. netcup VPS pico,
-  Hetzner CX/CAX, Oracle Free Tier) trägt den Standardbetrieb bequem.
+- **RAM: hängt am Foto-/PDF-Import.** Ohne ihn — dem Standard, siehe
+  [Import per Foto/PDF](#import-per-fotopdf-ist-optional) — bleiben Bun, die libSQL-Datei und das
+  Ausliefern der PWA übrig; das läuft in **512 MB bis 1 GB**. Mit OCR gilt **mindestens 2 GB mit
+  Reserve**: die Texterkennung ist der Speicherfresser.
 - **1–2 GB Swap.** Nicht für den Normalbetrieb, sondern damit ein Ausreißer nicht sofort den
-  OOM-Killer holt — siehe [server-setup.md](./server-setup.md).
-- **SSD.** SQLite auf langsamem Speicher ist der häufigste Grund für „die App ist langsam“.
+  OOM-Killer holt — [Schritt 4](#4--firewall-und-swap).
+- **SSD, ab ~10 GB.** Die App selbst ist klein, der Rest ist Platz für Rezeptbilder. SQLite auf
+  langsamem Speicher ist der häufigste Grund für „die App ist langsam“.
 - **Eine (Sub-)Domain mit A-Record auf die Server-IP** (plus AAAA, wenn es IPv6 gibt) und
-  **erreichbare Ports 80 + 443** — beides braucht Caddy für das Let's-Encrypt-Zertifikat.
-- Docker inkl. Compose-Plugin:
-  ```bash
-  curl -fsSL https://get.docker.com | sh
-  sudo usermod -aG docker "$USER"   # danach neu einloggen
-  ```
+  **erreichbare Ports 80 + 443** — beides braucht Caddy für das Let's-Encrypt-Zertifikat. Ohne
+  eigene Domain geht es auch, dann aber nur im LAN und mit einer eigenen CA auf jedem Gerät:
+  [Ohne eigene Domain](#ohne-eigene-domain-im-lan).
+- **Ein SSH-Schlüsselpaar.** Falls keins da ist: `ssh-keygen -t ed25519`.
+- Optional, für echte Mails: **SMTP-Zugangsdaten** (Host, Port, Benutzer, Passwort) von einem
+  Mailanbieter. Kann später nachgerüstet werden.
 
 ---
 
-## Erstinstallation
+# Teil 1 — Server vorbereiten
 
-### 1 — Image veröffentlichen lassen
+## 0 — Werte sammeln
 
-Push auf `main` (oder Actions → **Release** → *Run workflow*) baut das Image für
-`linux/amd64` **und** `linux/arm64` und legt es unter `ghcr.io/toonvish/toon-recipe` ab.
+Vor dem ersten Befehl diese vier Dinge bereitlegen — sie kommen in jedem Schritt vor:
 
-Danach einmal das Paket auf **public** stellen: GitHub → Profil/Organisation → *Packages*
-→ `toon-recipe` → *Package settings* → *Change visibility*. Dann braucht der Server keine
-Zugangsdaten zum Ziehen. (Alternative: privat lassen und sich auf dem Server einmalig mit
-einem Read-Only-PAT anmelden: `docker login ghcr.io -u <user>`.)
+| Platzhalter | Woher |
+| --- | --- |
+| `<server-ip>` | Server Control Panel des Anbieters → *Netzwerk / IP-Adressen*, oder die Liefermail |
+| `<hostname>` | die geplante Subdomain, z. B. `rezepte.example.org` |
+| `<user>` | der anzulegende Benutzer, im Folgenden `toon` |
+| Public Key | auf dem Laptop: `cat ~/.ssh/id_ed25519.pub` |
 
-Das veröffentlichte Image ist die **schlanke Variante ohne OCR**. Wer Foto-/PDF-Import will, baut
-selbst — siehe [Import per Foto/PDF ist optional](#import-per-fotopdf-ist-optional).
+**Alle folgenden Befehle laufen auf dem Server**, außer wo ausdrücklich „vom Laptop“ steht.
 
-### 2 — Hostname und DNS
+---
+
+## 1 — Server bestellen und Erstanmeldung
+
+Beim Bestellen:
+
+1. **Betriebssystem:** Debian 13 oder Ubuntu 24.04 LTS, jeweils die minimale Variante. Kein Panel,
+   kein vorinstalliertes Webhosting — es läuft nur Docker darauf.
+2. **SSH-Schlüssel hinterlegen**, wenn der Anbieter das anbietet. Sonst kommt das Passwort per Mail
+   und [Schritt 2](#2--benutzer-anlegen-und-schlüssel-eintragen) tauscht es gegen den Schlüssel.
+3. **IPv4 + IPv6** nehmen, wenn beides angeboten wird. Reines IPv6 ist billiger und für Geräte in
+   IPv4-Netzen nicht erreichbar.
+
+```bash
+ssh root@<server-ip>
+apt update && apt full-upgrade -y
+reboot
+```
+
+Kommt hier `Permission denied (publickey)` und das Passwort ist bekannt, erzwingt
+`ssh -o PreferredAuthentications=password root@<server-ip>` den Passwort-Weg. Geht gar nichts, hilft
+die **VNC-Konsole** im Panel des Anbieters: die ist kein SSH, also greift dort keine
+`sshd_config`-Einstellung.
+
+---
+
+## 2 — Benutzer anlegen und Schlüssel eintragen
+
+Nicht als `root` arbeiten:
+
+```bash
+adduser toon
+usermod -aG sudo toon
+install -d -m 700 -o toon -g toon /home/toon/.ssh
+nano /home/toon/.ssh/authorized_keys        # Public Key vom Laptop einfügen
+chown toon:toon /home/toon/.ssh/authorized_keys
+chmod 600 /home/toon/.ssh/authorized_keys
+```
+
+> ⚠ **Gruppenmitgliedschaft gilt erst ab der nächsten Anmeldung.** Eine schon offene Sitzung
+> — auch eine, die vor dem `usermod` aufgebaut wurde — kennt die Gruppe `sudo` nicht und antwortet
+> `toon is not in the sudoers file`. Nach dem `usermod` also **komplett ab- und neu anmelden**, kein
+> neues Shell-Fenster in derselben Sitzung. Kontrolle: `id` muss `sudo` auflisten.
+>
+> Dieselbe Falle kommt in [Schritt 5](#5--docker) mit der Gruppe `docker` noch einmal.
+
+In einer **zweiten Sitzung** prüfen, dass die Anmeldung mit Schlüssel klappt — **erst danach**
+Schritt 3:
+
+```bash
+ssh toon@<server-ip>
+id                                          # muss "sudo" enthalten
+sudo -v                                     # muss ohne Fehler durchlaufen
+```
+
+---
+
+## 3 — Den Weg zurück zumauern
+
+Erst wenn Schritt 2 nachweislich funktioniert, sonst sperrst du dich aus. In
+`/etc/ssh/sshd_config`:
+
+```
+PermitRootLogin no
+PasswordAuthentication no
+```
+
+```bash
+sudo systemctl restart ssh
+```
+
+Sicherheitsupdates automatisch einspielen (der Kernel braucht danach gelegentlich einen Reboot, die
+Container laufen ohne):
+
+```bash
+sudo apt install -y unattended-upgrades
+sudo dpkg-reconfigure -plow unattended-upgrades
+```
+
+---
+
+## 4 — Firewall und Swap
+
+Offen müssen nur 22 (SSH), 80 und 443 (Caddy) sein. Sonst nichts — die App-Ports liegen im
+Docker-Netz, und Mailpit hängt bewusst auf `127.0.0.1`.
+
+```bash
+sudo apt install -y ufw
+sudo ufw allow 22/tcp && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
+sudo ufw enable
+sudo ufw status
+```
+
+> **`ufw` schützt keine veröffentlichten Container-Ports.** Docker schreibt seine Regeln in die
+> `DOCKER`-Chain, die vor den ufw-Regeln greift: was in der compose-Datei unter `ports:` steht, ist
+> erreichbar, auch wenn ufw es verbietet. Deshalb steht dort `127.0.0.1:8025:8025` für Mailpit und
+> nur 80/443 ohne Adresse. Wer weitere Ports veröffentlicht, muss die Adresse selbst begrenzen.
+>
+> **Hat der Anbieter eine eigene Firewall vor der VM** (netcup, Hetzner Cloud, AWS), ist die der
+> bessere Ort für dieselbe Regel — sie greift, bevor das Paket die Kiste erreicht. Dann müssen 80
+> und 443 **auch dort** offen sein: eine geschlossene Anbieter-Firewall ist die häufigste Ursache
+> für „kein Zertifikat“ in [Schritt 9](#9--starten-und-ersten-account-anlegen), und im App-Log ist
+> davon nichts zu sehen.
+
+Swap, damit ein Ausreißer nicht sofort den OOM-Killer holt. `swapon --show` zuerst — manche Images
+bringen schon welchen oder `zram` mit, dann diesen Teil überspringen:
+
+```bash
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+# Swap erst spät benutzen — er ist Reserve, nicht Arbeitsspeicher
+echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/99-swappiness.conf
+sudo sysctl -p /etc/sysctl.d/99-swappiness.conf
+free -h
+```
+
+---
+
+## 5 — Docker
+
+```bash
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker "$USER"
+exit                                        # neu anmelden, damit die Gruppe greift
+```
+
+Nach der neuen Anmeldung kontrollieren:
+
+```bash
+docker run --rm hello-world
+docker compose version
+docker info | grep -i -e warning -e "memory limit"
+```
+
+Warnungen über fehlende Speicherlimits darf es hier nicht geben — der Stack setzt `mem_limit` auf
+den App-Container, und ohne Cgroup-Unterstützung wäre das wirkungslos. Bei einem normalen
+VPS-Kernel ist sie vorhanden.
+
+---
+
+## 6 — DNS eintragen und prüfen
 
 Alle Geräte müssen die App unter **demselben Namen** erreichen: das Zertifikat wird pro Name
 ausgestellt, ein Zugriff über die IP erzeugt eine neue Warnung, und `WEB_ORIGIN` — also die Links in
@@ -110,25 +273,47 @@ den ausgehenden Mails — wird daraus gebildet.
 Beim DNS-Anbieter der Domain also anlegen:
 
 ```
-rezepte   A      <IPv4 des Servers>
-rezepte   AAAA   <IPv6 des Servers>     # nur wenn der Server IPv6 hat
+rezepte   A      <server-ip>
+rezepte   AAAA   <IPv6 des Servers>         # nur wenn vorhanden
 ```
 
-Kontrollieren, bevor der Stack startet — ein falscher Eintrag kostet sonst ein
+**Vor** dem Start des Stacks kontrollieren — ein falscher Eintrag kostet sonst ein
 Let's-Encrypt-Rate-Limit:
 
 ```bash
-dig +short rezepte.example.org
+dig +short <hostname>                       # muss die Server-IP liefern
 ```
 
-### 3 — Verzeichnis und `.env` auf dem Server
+Reverse DNS (PTR) ist nicht nötig: Mails gehen über den Relay eines Anbieters, nicht vom Server
+selbst.
+
+---
+
+# Teil 2 — App installieren
+
+## 7 — Image beschaffen
+
+**Jeder Push auf `main` veröffentlicht ein neues Image auf GHCR**, gebaut für `linux/amd64` **und**
+`linux/arm64`, unter `ghcr.io/toonvish/toon-recipe`. Manuell anstoßen geht über Actions → **Release**
+→ *Run workflow*.
+
+Ist das Paket **public**, braucht der Server keinerlei Zugangsdaten und dieser Schritt entfällt.
+Umstellen einmalig unter GitHub → Profil/Organisation → *Packages* → `toon-recipe` →
+*Package settings* → *Change visibility*. (Alternative: privat lassen und sich auf dem Server
+einmalig mit einem Read-Only-PAT anmelden: `docker login ghcr.io -u <user>`.)
+
+Das veröffentlichte Image ist die **schlanke Variante ohne OCR**. Wer Foto-/PDF-Import will, baut
+selbst — siehe [Import per Foto/PDF](#import-per-fotopdf-ist-optional).
+
+---
+
+## 8 — Verzeichnis, `.env`, compose-Dateien
 
 ```bash
 sudo mkdir -p /opt/toon-recipe/docker
 sudo chown -R "$USER" /opt/toon-recipe
 cd /opt/toon-recipe
 
-# .env anlegen (die Vorlage steht im Repo unter docker/env.example)
 cat > .env <<'EOF'
 TOON_HOSTNAME=rezepte.example.org
 SESSION_SECRET=
@@ -136,29 +321,54 @@ TOON_IMAGE=ghcr.io/toonvish/toon-recipe:latest
 MAIL_FROM=Rezepte <rezepte@example.org>
 EOF
 
-# Secret erzeugen und eintragen
 sed -i "s|^SESSION_SECRET=.*|SESSION_SECRET=$(openssl rand -hex 32)|" .env
 chmod 600 .env
-```
 
-> **`SESSION_SECRET` nicht mehr ändern.** Er signiert auch die `?sig`-Parameter der
-> `/uploads`-URLs. Ein neuer Wert macht alle bereits ausgelieferten Bild-URLs ungültig
-> (die Bilder selbst bleiben erhalten).
-
-`docker-compose.yml` und `docker/Caddyfile` gehören ebenfalls dorthin. Sie kommen aus dem
-Repo und werden bei einem Update von Hand neu geholt (siehe [Update](#update)):
-
-```bash
 curl -fsSLO https://raw.githubusercontent.com/Toonvish/toon-recipe/main/docker-compose.yml
 curl -fsSL  https://raw.githubusercontent.com/Toonvish/toon-recipe/main/docker/Caddyfile \
      -o docker/Caddyfile
 ```
 
-### 4 — Mailversand einrichten
+`TOON_HOSTNAME` und `MAIL_FROM` noch auf die echten Werte setzen. Die kommentierte Vorlage mit allen
+Variablen steht im Repo unter [`docker/env.example`](../docker/env.example).
 
-Ohne weitere Angaben liefert die App an den **Mailpit**-Container im Stack. Der sammelt Mails und
-schickt **nichts** raus — gut für den ersten Blick, unbrauchbar für einen Passwort-Reset an eine
-echte Adresse. Für echte Zustellung gehört der SMTP-Zugang eines Mailanbieters in die `.env`:
+Drei Dinge, die hier schiefgehen:
+
+- **`SESSION_SECRET` nie wieder ändern.** Er signiert auch die `?sig`-Parameter der
+  `/uploads`-URLs — ein neuer Wert macht alle bereits ausgelieferten Bild-URLs ungültig (die Bilder
+  selbst bleiben erhalten).
+- **Die `.env` muss *neben* der `docker-compose.yml` liegen**, sonst bricht der Start mit
+  `SESSION_SECRET fehlt` ab.
+- **`PUBLIC_API_URL` nicht setzen.** Der leere Wert ist Absicht: das Bundle benutzt relative URLs
+  und die API liefert es vom selben Origin aus.
+
+---
+
+## 9 — Starten und ersten Account anlegen
+
+```bash
+cd /opt/toon-recipe
+docker compose up -d
+docker compose ps                           # app muss "healthy" werden
+docker compose logs -f caddy                # das Zertifikat kommt in den ersten Sekunden
+```
+
+Dann `https://<hostname>` öffnen und registrieren. Der erste Account bekommt automatisch eine eigene
+Gruppe („Meine Rezepte“); weitere Personen über *Profil* → *Gruppen* → *Einladen* — der
+Einladungslink wird angezeigt **und** per Mail verschickt.
+
+Installieren: Android ⋮ → *App installieren*, iOS *Teilen* → *Zum Home-Bildschirm*. Die
+Einkaufsliste funktioniert danach offline — das hängt am Service-Worker und der am gültigen
+Zertifikat, das hier von selbst da ist.
+
+---
+
+## 10 — Mailversand einrichten
+
+Optional, aber **vor dem ersten Passwort-Reset**. Ohne weitere Angaben liefert die App an den
+**Mailpit**-Container im Stack: der sammelt Mails und schickt **nichts** raus — gut für den ersten
+Blick, unbrauchbar für einen Reset an eine echte Adresse. Für echte Zustellung gehört der
+SMTP-Zugang eines Mailanbieters in die `.env`:
 
 ```bash
 cat >> .env <<'EOF'
@@ -167,8 +377,8 @@ MAIL_PORT=465
 MAIL_SECURITY=tls
 MAIL_USER=rezepte@example.org
 MAIL_PASSWORD=…
-MAIL_FROM=Rezepte <rezepte@example.org>
 EOF
+docker compose up -d
 ```
 
 Es ist derselbe Adapter wie für Mailpit, nur ein anderes Ziel. Vier Dinge dazu:
@@ -184,78 +394,97 @@ Es ist derselbe Adapter wie für Mailpit, nur ein anderes Ziel. Vier Dinge dazu:
   Anbietern gesperrt. Der SMTP-Zugang eines normalen Mailanbieters ist der pragmatische Weg — und
   es ist immer noch kein proprietärer API-Key.
 
-#### Resend
+Prüfen, ob es wirklich rausgeht: eine Passwort-Reset-Mail an eine eigene, externe Adresse anfordern
+und in `docker compose logs app` nach `[mail]` sehen — ein fehlgeschlagener Versand steht dort mit
+Grund, bricht die Aktion aber bewusst nicht ab.
+
+### Variante Resend
 
 Der bequemste Anbieter für einen frischen Server, weil kein Postfach dazugehört: eine verifizierte
-Domain und ein API-Key sind das ganze Setup. Im Dashboard *Domains → Add Domain*, die angezeigten
-`MX`-/`TXT`-Records (Return-Path und DKIM) in die DNS-Zone der Domain legen, verifizieren — **DMARC
-kommt nicht von Resend**, den Record (`_dmarc TXT "v=DMARC1; p=none; rua=mailto:…"`) selbst dazu.
-Dann *API Keys → Create API Key* mit dem Recht *Sending access*; der `re_…`-Wert ist nur einmal
-sichtbar.
+Domain plus ein API-Key sind das ganze Setup. Beide Wege unten brauchen dieselbe Vorbereitung im
+Resend-Dashboard:
 
-Von da an gibt es zwei Wege, und **der SMTP-Weg ist der empfohlene**:
+1. *Domains → Add Domain* mit der eigenen Domain. Resend zeigt einen `MX`- und zwei `TXT`-Records
+   (Return-Path und DKIM) — die in **dieselbe DNS-Zone** wie den A-Record aus
+   [Schritt 6](#6--dns-eintragen-und-prüfen) legen, dann *Verify*.
+2. DMARC kommt **nicht** von Resend, den Record selbst dazu:
+   `_dmarc TXT "v=DMARC1; p=none; rua=mailto:du@example.org"`.
+3. *API Keys → Create API Key*, Recht *Sending access*. Der `re_…`-Wert ist nur einmal sichtbar.
+
+Dann entweder **(a) über SMTP** — derselbe Adapter wie oben, `MAIL_USER` ist wörtlich `resend` und
+der API-Key das Passwort:
 
 ```bash
-# (a) SMTP — derselbe Adapter wie für jeden anderen Relay.
-#     MAIL_USER ist wörtlich "resend", der API-Key ist das Passwort.
+cat >> .env <<'EOF'
 MAIL_HOST=smtp.resend.com
 MAIL_PORT=465
 MAIL_SECURITY=tls
 MAIL_USER=resend
 MAIL_PASSWORD=re_…
-
-# (b) HTTP-Adapter (services/mail/resend.ts) — dann ohne MAIL_HOST/USER/PASSWORD.
-MAIL_TRANSPORT=resend
-MAIL_API_KEY=re_…
+EOF
+docker compose up -d
 ```
 
-`MAIL_FROM` muss in beiden Fällen auf der verifizierten Domain liegen. (a) benutzt genau die
-Variablen, die auch für jeden anderen Anbieter gelten, ein Anbieterwechsel ist damit eine Zeile;
-(b) spart den SMTP-Handshake, verlangt aber `MAIL_API_KEY` — **fehlt der Wert, startet der Container
-nicht**, `env.ts` verweigert den Start lieber als Mails still zu verschlucken. Die
-`docker-compose.yml` gibt `MAIL_API_KEY` durch; eine Kopie auf dem Server, die älter ist als diese
-Zeile, tut das nicht und muss vorher neu geholt werden.
+… oder **(b) über den HTTP-Adapter** (`services/mail/resend.ts`), dann ohne SMTP-Werte:
 
-Prüfen, ob es wirklich rausgeht: eine Passwort-Reset-Mail an eine eigene, externe Adresse anfordern
-und in `docker compose logs app` nach `[mail]` sehen — ein fehlgeschlagener Versand steht dort mit
-Grund, bricht die Aktion aber bewusst nicht ab.
+```bash
+cat >> .env <<'EOF'
+MAIL_TRANSPORT=resend
+MAIL_API_KEY=re_…
+EOF
+docker compose up -d
+```
 
-**Ohne Mail funktioniert alles**, nur unbequemer: Einladungslinks zeigt die UI direkt an, und ein
+`MAIL_FROM` muss in beiden Fällen auf der verifizierten Domain liegen. **(a) ist der empfohlene
+Weg**: er benutzt genau die Variablen, die auch für jeden anderen Anbieter gelten, ein
+Anbieterwechsel ist damit eine Zeile. (b) spart den SMTP-Handshake, verlangt aber `MAIL_API_KEY` —
+**fehlt der Wert, startet der Container nicht** (`env.ts` verweigert den Start lieber, als Mails
+still zu verschlucken). Die `docker-compose.yml` gibt `MAIL_API_KEY` durch; eine Kopie auf dem
+Server, die älter ist als diese Zeile, tut das nicht und muss vorher neu geholt werden (die
+`curl`-Zeilen aus [Schritt 8](#8--verzeichnis-env-compose-dateien)).
+
+### Ohne Mail
+
+**Alles funktioniert**, nur unbequemer: Einladungslinks zeigt die UI direkt an, und ein
 ausgesperrter Account wird so entsperrt:
 
 ```bash
 docker compose exec app bun apps/api/scripts/reset-password.ts <email>
 ```
 
-### 5 — Starten und ersten Account anlegen
+---
+
+## 11 — Erstes Backup
+
+Alles Wichtige liegt im Volume `toon-data` (Datenbank + Uploads):
 
 ```bash
 cd /opt/toon-recipe
-docker compose up -d
-docker compose ps                     # app soll "healthy" sein
-docker compose logs -f caddy          # das Zertifikat kommt in den ersten Sekunden
+docker compose stop app                     # SQLite konsistent sichern
+docker run --rm -v toon-recipe_toon-data:/data -v "$PWD:/backup" alpine \
+  tar czf "/backup/toon-$(date +%F).tar.gz" -C /data .
+docker compose start app
 ```
 
-Dann `https://rezepte.example.org` öffnen und registrieren. Der erste Account bekommt automatisch
-eine eigene Gruppe („Meine Rezepte“). Weitere Personen lädst du über *Profil* → *Gruppen* →
-*Einladen* ein; der Einladungslink wird angezeigt **und** per Mail verschickt.
+Die Datei anschließend **vom Server wegkopieren**. Ein Hoster-Snapshot ersetzt das nicht: eine
+laufende SQLite-Datei darin ist nicht garantiert konsistent. Zurückspielen und Details:
+[Backup](#backup).
 
-Die App ist installierbar (Android: ⋮ → *App installieren*, iOS: *Teilen* → *Zum Home-Bildschirm*)
-und die Einkaufsliste funktioniert danach offline — beides hängt am Service-Worker und der am
-gültigen Zertifikat, das hier von selbst da ist.
+---
 
-### 6 — Auto-Deploy per GitHub Actions (optional)
+## 12 — Auto-Deploy per GitHub Actions (optional)
 
-Danach rollt jeder Push auf `main` sich selbst aus. Wer lieber von Hand deployt, überspringt
-diesen Schritt komplett — solange die Variable `DEPLOY_ENABLED` fehlt, überspringt der
-Release-Workflow den Deploy-Job.
+Danach rollt jeder Push auf `main` sich selbst aus. Wer lieber von Hand deployt, überspringt diesen
+Schritt komplett — solange die Variable `DEPLOY_ENABLED` nicht auf `true` steht, überspringt der
+Release-Workflow den Deploy-Job und es bleibt beim
+`docker compose pull && docker compose up -d` auf dem Server.
 
-**Was hier NICHT passiert: ein Schlüssel mit Shell-Zugang in fremder Obhut.** Der Schlüssel
-wird an ein festes Kommando gebunden (`command="…"` in der `authorized_keys`), das nur
-`deploy`, `sync-config` und `status` kennt. Die Image-Herkunft steht in dem Skript, nicht in
-dem, was GitHub schickt — sonst könnte ein gestohlener Schlüssel den Server auf ein
-beliebiges Image der Welt zeigen lassen. `restrict` nimmt zusätzlich Port- und
-Agent-Forwarding, X11 und das PTY weg.
+**Was hier NICHT passiert: ein Schlüssel mit Shell-Zugang in fremder Obhut.** Der Schlüssel wird an
+ein festes Kommando gebunden (`command="…"` in der `authorized_keys`), das nur `deploy`,
+`sync-config` und `status` kennt. Die Image-Herkunft steht in dem Skript, nicht in dem, was GitHub
+schickt — sonst könnte ein gestohlener Schlüssel den Server auf ein beliebiges Image der Welt zeigen
+lassen. `restrict` nimmt zusätzlich Port- und Agent-Forwarding, X11 und das PTY weg. Ein gestohlener
+Schlüssel kann damit eine Version ausrollen — mehr nicht.
 
 **a) Deploy-Skript installieren** (auf dem Server):
 
@@ -269,8 +498,8 @@ toon-deploy status            # muss den laufenden Stack zeigen
 Liegt die Installation nicht in `/opt/toon-recipe` oder das Image woanders, stehen `TOON_APP_DIR`
 und `TOON_IMAGE_REPO` oben im Skript.
 
-**b) Schlüsselpaar erzeugen** — eigenes Paar, nur für diesen Job, ohne Passphrase (ein Runner
-kann keine eingeben):
+**b) Schlüsselpaar erzeugen** — eigenes Paar, nur für diesen Job, ohne Passphrase (ein Runner kann
+keine eingeben):
 
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/gh-deploy -N '' -C github-actions-deploy
@@ -283,16 +512,16 @@ printf 'restrict,command="/usr/local/bin/toon-deploy" %s\n' "$(cat ~/.ssh/gh-dep
   >> ~/.ssh/authorized_keys
 ```
 
-Gegenprüfen, dass der Schlüssel wirklich keine Shell öffnet — die Antwort muss die
-Fehlermeldung des Skripts sein und nicht ein Prompt:
+Gegenprüfen, dass der Schlüssel wirklich keine Shell öffnet — die Antwort muss die Fehlermeldung des
+Skripts sein und nicht ein Prompt:
 
 ```bash
 ssh -i ~/.ssh/gh-deploy -o IdentitiesOnly=yes localhost 'id'
 # → FEHLER: Unbekannter Befehl: id (erlaubt: deploy, sync-config, status)
 ```
 
-**d) Host-Key ablesen** (auf dem Server, nicht vom Laptop aus — sonst pinnst du, was dir
-unterwegs geantwortet hat):
+**d) Host-Key ablesen** (auf dem Server, nicht vom Laptop aus — sonst pinnst du, was dir unterwegs
+geantwortet hat):
 
 ```bash
 ssh-keyscan -p 22 <hostname-oder-ip>
@@ -315,53 +544,54 @@ Dazu unter *Variables* (kein Secret):
 | `DEPLOY_ENABLED` | `true` — **der Schalter**. Fehlt er, wird der Deploy-Job übersprungen. Erst setzen, wenn die fünf Secrets oben stehen: sonst läuft der Job los und scheitert am leeren Host-Key. |
 | `TOON_HOSTNAME` | nur für den anklickbaren Link am Deployment; der Server liest seinen Hostnamen aus der eigenen `.env` |
 
-Den privaten Schlüssel danach vom Server löschen (`rm ~/.ssh/gh-deploy`); er liegt jetzt in
-GitHub und wird auf dem Server nicht gebraucht.
+Den privaten Schlüssel danach vom Server löschen (`rm ~/.ssh/gh-deploy`); er liegt jetzt in GitHub
+und wird auf dem Server nicht gebraucht.
 
-**f) Environment anlegen**: *Settings* → *Environments* → **production**. Es ist der Ort, an
-dem die fünf Secrets hängen sollten, damit kein anderer Workflow sie lesen kann. Wer nicht
-will, dass jeder Push sofort live geht, trägt hier *Required reviewers* ein — dann wartet
-jeder Deploy auf eine Freigabe.
+**f) Environment anlegen**: *Settings* → *Environments* → **production**. Es ist der Ort, an dem die
+fünf Secrets hängen sollten, damit kein anderer Workflow sie lesen kann. Wer nicht will, dass jeder
+Push sofort live geht, trägt hier *Required reviewers* ein — dann wartet jeder Deploy auf eine
+Freigabe.
 
 **Testen**: Actions → **Release** → *Run workflow* → Haken bei *Nach dem Build auf den Server
 deployen*. Der Job zeigt am Ende `app ist healthy` und `docker compose ps`.
 
-> **`docker-compose.yml` und `docker/Caddyfile` kommen dabei nicht mit.** Der Schlüssel kann
-> keine Dateien kopieren, und das ist Absicht: eine Compose- oder Caddy-Änderung ist eine
+> **`docker-compose.yml` und `docker/Caddyfile` kommen dabei nicht mit.** Der Schlüssel kann keine
+> Dateien kopieren, und das ist Absicht: eine Compose- oder Caddy-Änderung ist eine
 > Konfigurationsänderung und soll niemandem beiläufig passieren. Wenn sich die beiden im Repo
 > geändert haben, einmal `toon-deploy sync-config` auf dem Server (oder die `curl`-Befehle aus
 > [Update](#update)) — das nächste Deploy übernimmt sie dann.
 
-**Wieder abschalten**: `DEPLOY_ENABLED` auf `false` setzen hält den Job an. Den *Zugang* nimmt
-aber erst das Löschen der Zeile aus `~/.ssh/authorized_keys` weg — das ist der Schritt, der
-zählt, egal was in GitHub noch gespeichert ist. Secrets und Environment danach in Ruhe
-aufräumen.
+**Wieder abschalten**: `DEPLOY_ENABLED` auf `false` setzen hält den Job an. Den *Zugang* nimmt aber
+erst das Löschen der Zeile aus `~/.ssh/authorized_keys` weg — das ist der Schritt, der zählt, egal
+was in GitHub noch gespeichert ist. Secrets und Environment danach in Ruhe aufräumen.
 
 ---
 
-## Betrieb
+## Abschluss-Checkliste
 
-### Mails ansehen (Mailpit)
+- [ ] `ssh toon@<server-ip>` funktioniert mit Schlüssel, `id` zeigt `sudo`; `root`- und
+      Passwort-Login sind aus.
+- [ ] `sudo ufw status` zeigt 22, 80, 443 — und sonst nichts; die Anbieter-Firewall passt dazu.
+- [ ] `free -h` zeigt Swap.
+- [ ] `dig +short <hostname>` liefert die Server-IP.
+- [ ] `docker compose ps` zeigt `app` als `healthy`, `caddy` und `mailpit` als `running`.
+- [ ] `https://<hostname>` öffnet die App **ohne** Zertifikatswarnung.
+- [ ] Ein Account ist registriert, und die App lässt sich auf dem Handy installieren.
+- [ ] Eine Passwort-Reset-Mail an eine externe Adresse kommt an (oder Mailpit ist bewusst der
+      Endpunkt).
+- [ ] Ein erstes Backup des `toon-data`-Volumes liegt außerhalb des Servers.
 
-Mailpit hört **nur auf dem Loopback-Interface des Servers**, nicht öffentlich. Das ist Absicht: die
-Mails enthalten Passwort-Reset- und Einladungslinks — wer das UI öffnen kann, kann jedes Konto
-übernehmen. Zugriff per SSH-Tunnel:
+---
 
-```bash
-ssh -N -L 8025:127.0.0.1:8025 <user>@<server>
-# dann http://localhost:8025 im Browser
-```
+# Betrieb
 
-Mit einem echten Relay ist Mailpit nur noch Beiwerk; wer es loswerden will, löscht den Service und
-das `depends_on` aus der `docker-compose.yml`.
+## Update
 
-### Update
-
-**Mit eingerichtetem Auto-Deploy** ([Schritt 6](#6--auto-deploy-per-github-actions-optional))
-ist nichts zu tun: der Push auf `main` baut, testet und rollt aus, wartet auf `healthy` und
-schreibt den ausgerollten Digest in die `.env` des Servers. Schlägt der Health-Check fehl,
-bleibt in der `.env` die letzte gesunde Version stehen — `docker compose up -d` auf dem Server
-holt sie zurück, ohne dass etwas editiert werden muss.
+**Mit eingerichtetem Auto-Deploy** ([Schritt 12](#12--auto-deploy-per-github-actions-optional)) ist
+nichts zu tun: der Push auf `main` baut, testet und rollt aus, wartet auf `healthy` und schreibt den
+ausgerollten Digest in die `.env` des Servers. Schlägt der Health-Check fehl, bleibt in der `.env`
+die letzte gesunde Version stehen — `docker compose up -d` auf dem Server holt sie zurück, ohne dass
+etwas editiert werden muss.
 
 **Ohne Auto-Deploy** veröffentlicht der Push nur das Image. Auf dem Server:
 
@@ -381,61 +611,34 @@ curl -fsSL  https://raw.githubusercontent.com/Toonvish/toon-recipe/main/docker/C
      -o docker/Caddyfile
 ```
 
-`TOON_IMAGE` in der `.env` entscheidet, *was* gezogen wird. Steht dort `:latest`, holt
-`pull` den neuesten `main`-Build; steht dort ein `@sha256:…`-Digest, bleibt die Version
-festgenagelt, bis du sie änderst. Digests stehen in der Summary jedes Release-Laufs.
+`TOON_IMAGE` in der `.env` entscheidet, *was* gezogen wird. Steht dort `:latest`, holt `pull` den
+neuesten `main`-Build; steht dort ein `@sha256:…`-Digest, bleibt die Version festgenagelt, bis du
+sie änderst. Digests stehen in der Summary jedes Release-Laufs.
 
-#### Wie die neue Version auf die Geräte kommt
+### Wie die neue Version auf die Geräte kommt
 
-**Nichts zu tun — die installierte App holt sie selbst.** Sie fragt beim Server nach einer
-neuen Version, sobald sie in den Vordergrund kommt (dazu noch alle 30 Minuten und wenn die
-Verbindung zurückkommt), lädt sie im Hintergrund und startet sich dann neu. Eine
-installierte iOS-Web-App navigiert nur beim Start, deshalb ist der Vordergrund-Check der
-entscheidende: einmal aus dem App-Switcher zurückholen genügt.
+**Nichts zu tun — die installierte App holt sie selbst.** Sie fragt beim Server nach einer neuen
+Version, sobald sie in den Vordergrund kommt (dazu noch alle 30 Minuten und wenn die Verbindung
+zurückkommt), lädt sie im Hintergrund und startet sich dann neu. Eine installierte iOS-Web-App
+navigiert nur beim Start, deshalb ist der Vordergrund-Check der entscheidende: einmal aus dem
+App-Switcher zurückholen genügt.
 
-Ausnahme: **wenn gerade ungespeicherte Eingaben auf dem Bildschirm stehen** (ein halb
-getipptes Rezept, ein Import-Entwurf mit offenen Änderungen) lädt sie *nicht* von selbst neu
-— sonst wären die Eingaben weg. Stattdessen erscheint oben ein Hinweis „Neue Version
-verfügbar“ mit einem Knopf. Speichern reicht auch: dann zieht sie das Update selbst nach.
+Ausnahme: **wenn gerade ungespeicherte Eingaben auf dem Bildschirm stehen** (ein halb getipptes
+Rezept, ein Import-Entwurf mit offenen Änderungen) lädt sie *nicht* von selbst neu — sonst wären die
+Eingaben weg. Stattdessen erscheint oben ein Hinweis „Neue Version verfügbar“ mit einem Knopf.
+Speichern reicht auch: dann zieht sie das Update selbst nach.
 
-Wenn eine App tagelang auf einer alten Version hängt, liegt es fast immer daran, dass etwas
-`sw.js` oder `index.html` zwischenspeichert. Prüfen mit:
+Wenn eine App tagelang auf einer alten Version hängt, liegt es fast immer daran, dass etwas `sw.js`
+oder `index.html` zwischenspeichert. Prüfen mit:
 
 ```bash
 curl -sI https://<hostname>/sw.js | grep -i cache-control   # muss "no-cache" sein
 ```
 
-### Caddy und Mailpit aktualisieren
+## Rollback
 
-Beide sind in der `docker-compose.yml` **auf eine Version festgenagelt** und wandern
-deshalb bei einem `docker compose pull` nicht mit. Das ist Absicht: ein gleitendes
-`caddy:2-alpine` kann die TLS-Terminierung unter einer laufenden Installation
-austauschen, und wenn dabei etwas schiefgeht, ist die Seite weg, über die du den Server
-erreichst. Sicherheitsupdates muss man dafür selbst einspielen — ein bis zwei Mal im
-Jahr nachsehen genügt:
-
-```bash
-# aktuelle Versionen nachschlagen
-curl -s https://api.github.com/repos/caddyserver/caddy/releases/latest  | grep '"tag_name"'
-curl -s https://api.github.com/repos/axllent/mailpit/releases/latest    | grep '"tag_name"'
-```
-
-Dann die `image:`-Zeilen in `docker-compose.yml` im Repo anpassen, pushen und die Datei auf
-dem Server neu holen (siehe [Update](#update)). Vorher lokal gegenprüfen:
-
-```bash
-docker run --rm -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
-  -e TOON_HOSTNAME=rezepte.test caddy:<neue-version>-alpine \
-  caddy validate --config /etc/caddy/Caddyfile
-```
-
-Die Bun-Version steht an einer Stelle: `ARG BUN_VERSION` im `Dockerfile`, plus
-`.bun-version` für die CI. Beide müssen zusammenpassen.
-
-### Rollback
-
-Den Digest der guten Version holen: Actions → **Release** → vergangenen Lauf öffnen →
-Digest aus der Summary kopieren. Dann auf dem Server:
+Den Digest der guten Version holen: Actions → **Release** → vergangenen Lauf öffnen → Digest aus der
+Summary kopieren. Dann auf dem Server:
 
 ```bash
 cd /opt/toon-recipe
@@ -443,20 +646,20 @@ sed -i "s|^TOON_IMAGE=.*|TOON_IMAGE=ghcr.io/toonvish/toon-recipe@sha256:<digest>
 docker compose pull && docker compose up -d
 ```
 
-Mit Auto-Deploy geht dasselbe von GitHub aus: Actions → **Deploy** → *Run workflow*, Digest
-ins Feld. Oder auf dem Server direkt `toon-deploy deploy sha256:<digest>` — beide Wege warten
-auf `healthy` und tragen den Digest in die `.env` ein.
+Mit Auto-Deploy geht dasselbe von GitHub aus: Actions → **Deploy** → *Run workflow*, Digest ins
+Feld. Oder auf dem Server direkt `toon-deploy deploy sha256:<digest>` — beide Wege warten auf
+`healthy` und tragen den Digest in die `.env` ein.
 
-Danach steht in der `.env` ein fester Digest. Er überlebt auch den nächsten Auto-Deploy nicht:
-der schreibt die Zeile auf die neu ausgerollte Version um. Wer eine Version länger festnageln
-will, schaltet den Deploy-Job so lange ab (Zeile aus der `authorized_keys` nehmen oder im
+Danach steht in der `.env` ein fester Digest. Er überlebt den nächsten Auto-Deploy nicht: der
+schreibt die Zeile auf die neu ausgerollte Version um. Wer eine Version länger festnageln will,
+schaltet den Deploy-Job so lange ab (Zeile aus der `authorized_keys` nehmen oder im
 `production`-Environment einen Reviewer verlangen). Für normale Updates von Hand wieder auf
 `TOON_IMAGE=ghcr.io/toonvish/toon-recipe:latest` zurückstellen.
 
-> Migrationen laufen bei jedem Start und sind **nicht** rückwärts anwendbar. Ein Rollback
-> auf ein Image vor einer Schema-Änderung braucht das Backup von vorher.
+> Migrationen laufen bei jedem Start und sind **nicht** rückwärts anwendbar. Ein Rollback auf ein
+> Image vor einer Schema-Änderung braucht das Backup von vorher.
 
-### Backup
+## Backup
 
 Alles Wichtige liegt in einem Volume: `toon-data` (Datenbank, Uploads).
 
@@ -477,11 +680,12 @@ docker run --rm -v toon-recipe_toon-data:/data -v "$PWD:/backup" alpine \
 docker compose up -d
 ```
 
-Der genaue Volume-Name kommt aus `docker volume ls` (Präfix = `name:` in der
-compose-Datei, also `toon-recipe_`). Ein Snapshot beim Hoster ersetzt das nicht: eine laufende
-SQLite-Datei im Snapshot ist nicht garantiert konsistent, die zwei Zeilen oben sind es.
+Der genaue Volume-Name kommt aus `docker volume ls` (Präfix = `name:` in der compose-Datei, also
+`toon-recipe_`). Ein Snapshot beim Hoster ersetzt das nicht: eine laufende SQLite-Datei im Snapshot
+ist nicht garantiert konsistent, die zwei Zeilen oben sind es. Die Sicherung anschließend **vom
+Server wegkopieren**.
 
-### Logs
+## Logs
 
 ```bash
 docker compose logs -f app        # API-Zugriffe, Import-/Mail-Fehler
@@ -489,7 +693,48 @@ docker compose logs -f caddy      # TLS, Zertifikate
 docker compose ps                 # Health-Status
 ```
 
+## Mails ansehen (Mailpit)
+
+Mailpit hört **nur auf dem Loopback-Interface des Servers**, nicht öffentlich. Das ist Absicht: die
+Mails enthalten Passwort-Reset- und Einladungslinks — wer das UI öffnen kann, kann jedes Konto
+übernehmen. Zugriff per SSH-Tunnel, **vom Laptop**:
+
+```bash
+ssh -N -L 8025:127.0.0.1:8025 toon@<server-ip>
+# dann http://localhost:8025 im Browser
+```
+
+Mit einem echten Relay ist Mailpit nur noch Beiwerk; wer es loswerden will, löscht den Service und
+das `depends_on` aus der `docker-compose.yml`.
+
+## Caddy und Mailpit aktualisieren
+
+Beide sind in der `docker-compose.yml` **auf eine Version festgenagelt** und wandern deshalb bei
+einem `docker compose pull` nicht mit. Das ist Absicht: ein gleitendes `caddy:2-alpine` kann die
+TLS-Terminierung unter einer laufenden Installation austauschen, und wenn dabei etwas schiefgeht,
+ist die Seite weg, über die du den Server erreichst. Sicherheitsupdates muss man dafür selbst
+einspielen — ein bis zwei Mal im Jahr nachsehen genügt:
+
+```bash
+curl -s https://api.github.com/repos/caddyserver/caddy/releases/latest  | grep '"tag_name"'
+curl -s https://api.github.com/repos/axllent/mailpit/releases/latest    | grep '"tag_name"'
+```
+
+Dann die `image:`-Zeilen in `docker-compose.yml` im Repo anpassen, pushen und die Datei auf dem
+Server neu holen (siehe [Update](#update)). Vorher lokal gegenprüfen:
+
+```bash
+docker run --rm -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
+  -e TOON_HOSTNAME=rezepte.test caddy:<neue-version>-alpine \
+  caddy validate --config /etc/caddy/Caddyfile
+```
+
+Die Bun-Version steht an einer Stelle: `ARG BUN_VERSION` im `Dockerfile`, plus `.bun-version` für
+die CI. Beide müssen zusammenpassen.
+
 ---
+
+# Varianten
 
 ## Ohne eigene Domain (im LAN)
 
@@ -523,8 +768,8 @@ Zertifikat holen — im Browser des Geräts:
 http://rezepte.fritz.box/toon-root-ca.crt
 ```
 
-(absichtlich `http://`: ein Gerät, das die CA noch nicht kennt, kann sie nicht über das
-von ihr signierte HTTPS laden, ohne in genau die Warnung zu laufen.)
+(absichtlich `http://`: ein Gerät, das die CA noch nicht kennt, kann sie nicht über das von ihr
+signierte HTTPS laden, ohne in genau die Warnung zu laufen.)
 
 Dann installieren:
 
@@ -532,17 +777,17 @@ Dann installieren:
   Danach **zwingend** *Einstellungen* → *Allgemein* → *Info* → *Zertifikatsvertrauens­einstellungen*
   → das Zertifikat **aktivieren**. Ohne diesen zweiten Schritt bleibt es wirkungslos.
 - **Android:** *Einstellungen* → *Sicherheit* → *Verschlüsselung & Zugangsdaten* →
-  *Zertifikat installieren* → *CA-Zertifikat* → Warnung bestätigen. Chrome auf Android
-  akzeptiert nur so installierte Nutzer-CAs.
-- **macOS:** Doppelklick → Schlüsselbund *System* → im Schlüsselbundverwalter das
-  Zertifikat öffnen → *Vertrauen* → *Immer vertrauen*.
+  *Zertifikat installieren* → *CA-Zertifikat* → Warnung bestätigen. Chrome auf Android akzeptiert
+  nur so installierte Nutzer-CAs.
+- **macOS:** Doppelklick → Schlüsselbund *System* → im Schlüsselbundverwalter das Zertifikat
+  öffnen → *Vertrauen* → *Immer vertrauen*.
 - **Windows:** Doppelklick → *Zertifikat installieren* → *Lokaler Computer* →
   *Vertrauenswürdige Stammzertifizierungsstellen*.
 - **Linux:** `sudo cp toon-root-ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates`
 
-> Das Volume `caddy-data` enthält dann den **privaten Schlüssel dieser CA**. Geht es verloren,
-> erzeugt Caddy eine neue CA und das Wurzelzertifikat muss auf allen Geräten erneut
-> installiert werden. Nicht in ein Backup legen, das du weitergibst.
+> Das Volume `caddy-data` enthält dann den **privaten Schlüssel dieser CA**. Geht er verloren,
+> erzeugt Caddy eine neue CA und das Wurzelzertifikat muss auf allen Geräten erneut installiert
+> werden. Nicht in ein Backup legen, das du weitergibst.
 
 **Dritter Fall — eigene Domain, aber keine offenen Ports** (Server im LAN, öffentliche
 DNS-Einträge): DNS-01-Challenge. Dazu im `Caddyfile` den Issuer aufmachen, z. B. Cloudflare:
@@ -557,8 +802,6 @@ tls {
 
 Dazu ein Caddy-Image mit dem DNS-Plugin bauen (`caddy:builder`, Modul
 `github.com/caddy-dns/cloudflare`) und `CLOUDFLARE_API_TOKEN` im `caddy`-Service setzen.
-
----
 
 ## Import per Foto/PDF ist optional
 
@@ -589,9 +832,9 @@ bauen ist Geduldsarbeit) **und ab 2 GB RAM**, plus `MAX_CONCURRENT_OCR=1` am unt
 
 Ist es aus, verhält sich die App durchgehend so:
 
-- `POST /imports/{image,pdf,file}` antworten **`501 ocr_disabled`** mit einer deutschen Meldung,
-  die auf Webadresse und Text verweist. Die Prüfung läuft **vor** dem Rate-Limit und **vor** dem
-  Lesen des Bodys — eine abgelehnte 15-MB-Datei wird also nie gepuffert.
+- `POST /imports/{image,pdf,file}` antworten **`501 ocr_disabled`** mit einer Meldung, die auf
+  Webadresse und Text verweist. Die Prüfung läuft **vor** dem Rate-Limit und **vor** dem Lesen des
+  Bodys — eine abgelehnte 15-MB-Datei wird also nie gepuffert.
 - `/api/health` meldet `features.ocrImport: false`, und die Weboberfläche **blendet die Abschnitte
   „Foto vom Rezept“ und „PDF oder Bilddatei“ aus** statt einen Knopf anzubieten, der nicht kann.
 - Alles andere bleibt: Webadresse, Text, Entwurfsprüfung, Speichern — und ein Entwurf, den ein
@@ -600,35 +843,6 @@ Ist es aus, verhält sich die App durchgehend so:
 `IMPORT_OCR_ENABLED=1` auf einem schlanken Image ist kein Absturz, sondern der dokumentierte 422,
 der das fehlende Binary nennt (`tesseract_unavailable` bzw. `rasterization_unavailable`). Sinnvoll
 ist es trotzdem nicht — dann lieber neu bauen.
-
----
-
-## Fehlersuche
-
-| Symptom | Ursache / Behebung |
-| --- | --- |
-| `exec format error` beim Start | 32-Bit-Userland. `uname -m` muss `x86_64` oder `aarch64` sein. |
-| Kein Zertifikat, `caddy`-Log nennt ACME-Fehler | DNS zeigt nicht auf diesen Server, Port 80/443 nicht erreichbar, oder `TOON_HOSTNAME` ist ein interner Name → dann `TOON_TLS_ISSUER=internal`. `dig +short <hostname>` und `curl -I http://<hostname>` von außen prüfen. |
-| Browser-Warnung **und** keine Installations-Option | Interne CA ohne installiertes Wurzelzertifikat (auf iOS zusätzlich *aktivieren*) → [Ohne eigene Domain](#ohne-eigene-domain-im-lan) |
-| Einkaufsliste funktioniert offline nicht | Gleiche Ursache: kein Service-Worker ohne vertrauenswürdiges Zertifikat. In den DevTools unter *Application → Service Workers* prüfen. |
-| Warnung, obwohl das Zertifikat installiert ist | Zugriff über IP oder einen anderen Namen als `TOON_HOSTNAME`. Immer denselben Namen benutzen. |
-| Mails kommen nicht an | Ohne `MAIL_HOST` liefert die App an Mailpit, das nichts zustellt (Schritt 4). Mit Relay: `docker compose logs app \| grep '\[mail\]'`, und SPF/DKIM/DMARC prüfen, bevor du dem Spam-Ordner misstraust. |
-| API startet nicht, meckert über `MAIL_SECURITY` | `none` zusammen mit `MAIL_USER`/`MAIL_PASSWORD` ist absichtlich verboten — `tls` (465) oder `starttls` (587) benutzen. |
-| App zeigt nach dem Update die alte Version | Meist ein CDN/Proxy davor. `sw.js` und `index.html` liefert die API mit `Cache-Control: no-cache` aus — das darf nichts überschreiben. |
-| `501 ocr_disabled` beim Foto-Import | Erwartet: das GHCR-Image ist die schlanke Variante. Eigenes Image mit `--build-arg WITH_OCR=1` bauen. |
-| `ocr_failed` bei jedem Foto-Import | `IMPORT_OCR_ENABLED=1` auf einem Image ohne die Binaries. `docker compose exec app tesseract --list-langs` muss `deu` und `eng` zeigen. `reason` sagt, was fehlt: `tesseract_unavailable` (Binary) oder `language_data_missing` (Sprachpaket). Nichts wird zur Laufzeit nachgeladen. |
-| `pdf_no_text_layer` bei jedem gescannten PDF | poppler fehlt: `docker compose exec app pdftoppm -v`. |
-| Import bricht bei großen PDFs ab | Speicher. `TOON_MEM_LIMIT` prüfen und Swap; unter 2 GB RAM ist OCR nicht vorgesehen. |
-| Container ständig `unhealthy` | `docker compose logs app`. Meist eine fehlende Variable — die API nennt sie beim Start im Klartext. |
-| `docker compose pull` scheitert mit `denied` | GHCR-Package ist privat. Entweder auf *public* stellen (siehe [Schritt 1](#1--image-veröffentlichen-lassen)) oder auf dem Server `docker login ghcr.io -u <user>` mit einem Read-Only-PAT. |
-| `docker compose pull` holt nichts Neues | In der `.env` steht ein fester `@sha256:…`-Digest in `TOON_IMAGE`. Für laufende Updates auf `:latest` zurückstellen. |
-| Deploy-Job: `Host key verification failed` | `DEPLOY_SSH_KNOWN_HOSTS` passt nicht zum Server (neu aufgesetzt, anderer Port, oder vom Laptop statt auf dem Server abgelesen). Neu: `ssh-keyscan -p <port> <host>` **auf dem Server**. |
-| Deploy-Job: `Permission denied (publickey)` | Der öffentliche Schlüssel steht nicht in der `authorized_keys` des `DEPLOY_SSH_USER`, oder in `DEPLOY_SSH_KEY` liegt der öffentliche statt des privaten Teils. |
-| Deploy-Job: `FEHLER: Unbekannter Befehl` | Das feste Kommando greift, aber das Skript ist älter als der Workflow (oder umgekehrt). `toon-deploy` auf dem Server neu holen ([Schritt 6a](#6--auto-deploy-per-github-actions-optional)). |
-| Deploy-Job: `permission denied` auf dem Docker-Socket | `DEPLOY_SSH_USER` ist nicht in der `docker`-Gruppe: `sudo usermod -aG docker <user>`. Wirkt erst für neue Sitzungen. |
-| Deploy läuft gar nicht | Meistens steht die Variable `DEPLOY_ENABLED` nicht auf `true` — der Job wird dann übersprungen (im Run als *skipped* zu sehen). Sonst: das `production`-Environment wartet auf eine Freigabe, oder der Push ging nicht auf `main`/einen `v*`-Tag. |
-
----
 
 ## Lokal testen, ohne Server
 
@@ -652,3 +866,74 @@ docker compose --env-file .env.local-stack -p toonstack up -d
 # https://rezepte.test  (Warnung wegklicken oder das Zertifikat wie oben installieren)
 docker compose -p toonstack down -v
 ```
+
+---
+
+## Fehlersuche
+
+### Erstinstallation
+
+| Symptom | Ursache / Behebung |
+| --- | --- |
+| `Permission denied (publickey)` | Schlüssel nicht in `/home/<user>/.ssh/authorized_keys`, oder die Rechte stimmen nicht (`700` auf `.ssh`, `600` auf der Datei). |
+| `toon is not in the sudoers file` | Sitzung ist älter als das `usermod -aG sudo toon`, oder es lief nie. Als `root` nachholen, dann **komplett neu anmelden**; `id` prüfen. Kein Root-SSH mehr → `su -`, sonst VNC-Konsole im Panel. Zeigt `id` schon `sudo`, wurde `/etc/sudoers` verändert: `grep -E '^%sudo' /etc/sudoers` muss `%sudo ALL=(ALL:ALL) ALL` liefern, Reparatur nur mit `visudo`. |
+| `docker: permission denied` | Nach `usermod -aG docker` nicht neu eingeloggt. |
+| `exec format error` beim Start | 32-Bit-Userland. `uname -m` muss `x86_64` oder `aarch64` sein. |
+| `SESSION_SECRET fehlt` beim `up` | Die `.env` liegt nicht **neben** der `docker-compose.yml`, oder `SESSION_SECRET` ist leer. |
+| `manifest unknown` / `denied` beim Pull | GHCR-Paket noch privat → `docker login ghcr.io -u <user>` mit einem Read-Only-PAT, oder auf *public* stellen ([Schritt 7](#7--image-beschaffen)); sonst falscher `TOON_IMAGE`-Wert. |
+| Container ständig `unhealthy` | `docker compose logs app`. Meist eine fehlende Variable — die API nennt sie beim Start im Klartext. |
+
+### TLS und Erreichbarkeit
+
+| Symptom | Ursache / Behebung |
+| --- | --- |
+| Kein Zertifikat, ACME-Fehler im `caddy`-Log | DNS zeigt woanders hin, Port 80/443 ist zu (**zuerst die Anbieter-Firewall**), oder `TOON_HOSTNAME` ist ein interner Name → dann `TOON_TLS_ISSUER=internal`. Von außen: `dig +short <hostname>` und `curl -I http://<hostname>`. |
+| Zertifikatswarnung trotz gültigem Zertifikat | Zugriff über die IP oder einen anderen Namen als `TOON_HOSTNAME`. Immer denselben Namen benutzen. |
+| Browser-Warnung **und** keine Installations-Option | Interne CA ohne installiertes Wurzelzertifikat (auf iOS zusätzlich *aktivieren*) → [Ohne eigene Domain](#ohne-eigene-domain-im-lan). |
+| Einkaufsliste funktioniert offline nicht | Gleiche Ursache: kein Service-Worker ohne vertrauenswürdiges Zertifikat. In den DevTools unter *Application → Service Workers* prüfen. |
+| App zeigt nach dem Update die alte Version | Meist ein CDN/Proxy davor. `sw.js` und `index.html` liefert die API mit `Cache-Control: no-cache` aus — das darf nichts überschreiben. |
+
+### Mail
+
+| Symptom | Ursache / Behebung |
+| --- | --- |
+| Mails kommen nicht an | Ohne `MAIL_HOST` liefert die App an Mailpit, das nichts zustellt ([Schritt 10](#10--mailversand-einrichten)). Mit Relay: `docker compose logs app \| grep '\[mail\]'`, und SPF/DKIM/DMARC prüfen, bevor du dem Spam-Ordner misstraust. |
+| API startet nicht, meckert über `MAIL_SECURITY` | `none` zusammen mit `MAIL_USER`/`MAIL_PASSWORD` ist absichtlich verboten — `tls` (465) oder `starttls` (587) benutzen. |
+| Container startet nicht, `MAIL_API_KEY` fehlt | `MAIL_TRANSPORT=resend` ohne Key. Entweder den Key setzen oder auf den SMTP-Weg wechseln; eine zu alte `docker-compose.yml` auf dem Server gibt den Wert nicht durch. |
+
+### Import, Speicher, Leistung
+
+| Symptom | Ursache / Behebung |
+| --- | --- |
+| `501 ocr_disabled` beim Foto-Import | Erwartet: das GHCR-Image ist die schlanke Variante. Eigenes Image mit `--build-arg WITH_OCR=1` bauen. |
+| `ocr_failed` bei jedem Foto-Import | `IMPORT_OCR_ENABLED=1` auf einem Image ohne die Binaries. `docker compose exec app tesseract --list-langs` muss `deu` und `eng` zeigen. `reason` sagt, was fehlt: `tesseract_unavailable` (Binary) oder `language_data_missing` (Sprachpaket). Nichts wird zur Laufzeit nachgeladen. |
+| `pdf_no_text_layer` bei jedem gescannten PDF | poppler fehlt: `docker compose exec app pdftoppm -v`. |
+| Container wird beim Import/Build „killed“ | Speicher. Swap prüfen ([Schritt 4](#4--firewall-und-swap)) und `TOON_MEM_LIMIT`; unter 2 GB RAM ist OCR nicht vorgesehen. |
+| App langsam, `docker stats` unauffällig | Platte. SQLite auf langsamem Speicher ist der häufigste Grund. |
+
+### Auto-Deploy
+
+| Symptom | Ursache / Behebung |
+| --- | --- |
+| Deploy läuft gar nicht | Meistens steht die Variable `DEPLOY_ENABLED` nicht auf `true` — der Job wird dann übersprungen (im Run als *skipped* zu sehen). Sonst: das `production`-Environment wartet auf eine Freigabe, oder der Push ging nicht auf `main`/einen `v*`-Tag. |
+| `Host key verification failed` | `DEPLOY_SSH_KNOWN_HOSTS` passt nicht zum Server (neu aufgesetzt, anderer Port, oder vom Laptop statt auf dem Server abgelesen). Neu: `ssh-keyscan -p <port> <host>` **auf dem Server**. |
+| `Permission denied (publickey)` | Der öffentliche Schlüssel steht nicht in der `authorized_keys` des `DEPLOY_SSH_USER`, oder in `DEPLOY_SSH_KEY` liegt der öffentliche statt des privaten Teils. |
+| `FEHLER: Unbekannter Befehl` | Das feste Kommando greift, aber das Skript ist älter als der Workflow (oder umgekehrt). `toon-deploy` auf dem Server neu holen ([Schritt 12a](#12--auto-deploy-per-github-actions-optional)). |
+| `permission denied` auf dem Docker-Socket | `DEPLOY_SSH_USER` ist nicht in der `docker`-Gruppe: `sudo usermod -aG docker <user>`. Wirkt erst für neue Sitzungen. |
+| `docker compose pull` holt nichts Neues | In der `.env` steht ein fester `@sha256:…`-Digest in `TOON_IMAGE`. Für laufende Updates auf `:latest` zurückstellen. |
+
+---
+
+## Was hier bewusst fehlt
+
+- **Foto-/PDF-Import ist aus.** `IMPORT_OCR_ENABLED` steht auf `0`, und das veröffentlichte Image
+  ist die schlanke Variante **ohne** `tesseract`/`pdftoppm` — die Flag dort zu setzen bringt nur die
+  dokumentierten 422er. Es braucht ~2 GB RAM und ein selbst gebautes Image
+  (`--build-arg WITH_OCR=1`), siehe [Import per Foto/PDF](#import-per-fotopdf-ist-optional). Import
+  per URL und Text funktioniert vollständig.
+- **Google-/GitHub-Login ist aus.** E-Mail + Passwort ist der selbstgehostete Weg; Registrierung,
+  Login, Einladungen, E-Mail-Bestätigung und Passwort-Reset funktionieren ohne OAuth vollständig.
+- **Ohne eigene Domain** läuft es auch, dann aber mit `TOON_TLS_ISSUER=internal`,
+  `TOON_HSTS_MAX_AGE=0` und dem Wurzelzertifikat auf jedem Gerät — und ohne installiertes
+  Wurzelzertifikat gibt es keinen Service-Worker, also keine Offline-Einkaufsliste. Siehe
+  [Ohne eigene Domain](#ohne-eigene-domain-im-lan).
