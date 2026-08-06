@@ -7,8 +7,8 @@
  * what /recipes/new did to anyone who reached it, and it is invisible in a type check
  * because `unknown` happily accepts `null`.
  *
- * Pure functions only — `bun:test` types come from the ambient shim at
- * src/features/import/lib/bun-test.d.ts.
+ * Pure functions only — `bun:test` types come from apps/web/tsconfig.test.json, which
+ * is the project that type-checks this file; apps/web/tsconfig.json excludes it.
  */
 import { describe, expect, test } from "bun:test";
 import { ApiError } from "./api";

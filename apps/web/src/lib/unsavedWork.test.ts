@@ -5,7 +5,8 @@
  * the counting is pinned here.
  *
  * The imperative core only; `useUnsavedWork` is a two-line `useEffect` around it.
- * `bun:test` types come from the ambient shim at src/features/import/lib/bun-test.d.ts.
+ * `bun:test` types come from apps/web/tsconfig.test.json, which is the project that
+ * type-checks this file — apps/web/tsconfig.json excludes it.
  */
 import { describe, expect, test } from "bun:test";
 import {

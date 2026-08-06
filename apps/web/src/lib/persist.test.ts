@@ -7,7 +7,8 @@
  *
  * Pure functions only — `bun test` has no IndexedDB, and the storage helpers
  * already degrade silently without `window` (see lib/storage.ts). `bun:test` types
- * come from the ambient shim at src/features/import/lib/bun-test.d.ts.
+ * come from apps/web/tsconfig.test.json, which is the project that type-checks this
+ * file — apps/web/tsconfig.json excludes it.
  */
 import { describe, expect, test } from "bun:test";
 import { cacheKeyForUser, shouldPersistMutation, shouldPersistQuery } from "./persist";

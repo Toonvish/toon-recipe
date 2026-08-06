@@ -94,6 +94,12 @@ const RUNTIME_CACHING = [
  *  - `envDir: "../../"`               -> the single .env lives in the monorepo root,
  *  - `envPrefix: ["VITE_","PUBLIC_"]` -> `import.meta.env.PUBLIC_API_URL` is inlined,
  *  - `@/*` + `@toon/shared` aliases mirror apps/web/tsconfig.json (paths, no baseUrl — TS 7),
+ *
+ * This file is type-checked by apps/web/tsconfig.node.json, NOT by tsconfig.json: it runs
+ * under Node, and its `node:url` / `vite` imports drag @types/node into whatever program
+ * holds it — which, while it sat in tsconfig.json, made `process.env` legal in every
+ * component.
+ *
  *  - `server.proxy` forwards `/api` and `/uploads` to the API so the app can also be
  *    run same-origin in dev (set `PUBLIC_API_URL=""` in .env). With the default
  *    `PUBLIC_API_URL=http://localhost:3001` the browser talks to the API directly;

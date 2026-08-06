@@ -519,9 +519,12 @@ Honest list of what is **not** finished. Nothing here blocks the flows above.
   a GENERATED column cannot be used, is above the `recipes` table in `schema.ts`.
 
 **Web**
-- No component/E2E tests. Only pure logic is unit-tested (`src/features/import/lib/*.test.ts` plus
-  everything in `packages/shared`); `apps/web/tsconfig.json` sets `types: ["vite/client"]`, so those
-  two test files rely on the local `bun:test` shim in `src/features/import/lib/bun-test.d.ts`.
+- No component/E2E tests. Only pure logic is unit-tested (`src/lib/*.test.ts` +
+  `src/features/import/lib/*.test.ts` plus everything in `packages/shared`). Those files are
+  type-checked by `apps/web/tsconfig.test.json`, not by `apps/web/tsconfig.json`: the app project
+  stays on `types: ["vite/client"]` so Bun's globals cannot compile inside a component, and the test
+  project adds `bun` on top. `vite.config.ts` has its own project (`tsconfig.node.json`) for the same
+  reason. `bun run typecheck` runs all three.
 - Author/admin permissions are enforced server-side; the client only *hides* controls. Every 403 is
   rendered gracefully.
 - **Offline writing is limited to the shopping list, on purpose.** It has a mutation outbox (paused +
