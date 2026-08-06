@@ -121,7 +121,11 @@ apps/api/src/
   test/                    ALL api tests (test/, NOT tests/ — tsconfig only includes test/**)
                            test/support/ shared test helpers (removeUpload — see the note below)
 apps/web/src/
-  router.tsx               the route tree; screens resolved lazily by lib/lazy-page.tsx
+  router.tsx               the route tree; screens code-split with TanStack's
+                           lazyRouteComponent (NOT a hand-rolled React.lazy wrapper —
+                           the router preloads via component.preload(), which only
+                           lazyRouteComponent attaches). Two pathless layout routes:
+                           "app" = needs a session, "group-scoped" = needs an active group
   lib/{api,queries,query-client,session,validation,format,navigation,theme,storage,pwa,persist,
        viewport,cn}.ts
   lib/i18n/                store.ts (ambient locale + translate()) · I18nProvider.tsx (useT/useLocale)

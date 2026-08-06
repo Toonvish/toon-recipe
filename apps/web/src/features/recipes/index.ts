@@ -1,12 +1,13 @@
 /**
- * Recipe feature barrel. Route components are ALSO default-exported from their own
- * modules, which is what `lib/lazy-page.tsx` resolves.
+ * Recipe feature barrel.
+ *
+ * THE ROUTE SCREENS ARE DELIBERATELY NOT RE-EXPORTED HERE. `router.tsx` reaches them
+ * with `lazyRouteComponent(() => import("@/features/recipes/RecipeListPage"))`; a
+ * static re-export from a barrel anything else imports would pull the same module
+ * into the main chunk, and rollup would report the dynamic import as ineffective —
+ * i.e. the code splitting would silently stop working. Import a screen by its own
+ * path if you ever need it directly.
  */
-export { default as RecipeListPage } from "./RecipeListPage";
-export { default as RecipeDetailPage } from "./RecipeDetailPage";
-export { default as RecipeNewPage } from "./RecipeNewPage";
-export { default as RecipeEditPage } from "./RecipeEditPage";
-
 export { RecipeCard, type RecipeCardProps } from "./components/RecipeCard";
 export { RecipeRow, type RecipeRowProps } from "./components/RecipeRow";
 export { RecipeFilters, countActiveFilters } from "./components/RecipeFilters";

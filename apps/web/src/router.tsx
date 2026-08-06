@@ -10,21 +10,28 @@
  *            /groups  /groups/$groupId  /settings
  *   redirect /search -> / (search lives in the recipe list; old links keep working)
  *
- * Screens owned by other agents are resolved lazily through `lazyPage` (see
- * lib/lazy-page.tsx) — the file paths below are the contract. Export the screen as
- * the module's DEFAULT export (a named export from the list also works).
+ * SCREENS ARE CODE-SPLIT WITH `lazyRouteComponent`, not a bare `React.lazy`, and the
+ * difference is not cosmetic. The router preloads a route's component by calling
+ * `route.options.component.preload()` (router-core `preloadComponent`), which is the
+ * property `lazyRouteComponent` attaches and a plain wrapper component does not have —
+ * so a hand-rolled lazy wrapper silently turns `defaultPreload: "intent"` below into a
+ * no-op. It also gives us the one-shot reload on a missing module chunk, which is the
+ * exact failure a service-worker deploy produces when an old document asks for an
+ * `assets/Page-<hash>.js` the new precache no longer has.
+ *
+ * Export every screen as its module's DEFAULT export.
  */
-import type { ReactElement } from "react";
 import {
   Outlet,
   createRootRoute,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   redirect,
 } from "@tanstack/react-router";
 import { AppShell } from "@/components/layout/AppShell";
 import { NotFoundPage } from "@/components/layout/NotFoundPage";
-import { lazyPage } from "@/lib/lazy-page";
+import { LoadingBlock } from "@/components/ui/Spinner";
 import { RequireActiveGroup, RequireAuth, SessionProvider } from "@/lib/session";
 import { ForgotPasswordPage } from "@/features/auth/ForgotPasswordPage";
 import { InvitePage } from "@/features/auth/InvitePage";
@@ -74,17 +81,6 @@ const RECIPE_FILTER_PARAMS = [
   "difficulty",
   "sort",
 ] as const;
-
-/** Wraps a screen that needs an active group (recipes, imports). */
-function groupScoped(Component: () => ReactElement): () => ReactElement {
-  return function GroupScopedRoute() {
-    return (
-      <RequireActiveGroup>
-        <Component />
-      </RequireActiveGroup>
-    );
-  };
-}
 
 /* -------------------------------------------------------------------------- */
 /* root                                                                       */
@@ -180,22 +176,33 @@ const appRoute = createRoute({
   component: AppLayout,
 });
 
-const recipeListRoute = createRoute({
+/**
+ * Second pathless layout route: everything below it additionally needs an ACTIVE
+ * GROUP (recipes, imports, collections, tags, shopping — the group owns the content).
+ *
+ * The guard is a layout route rather than a wrapper around each screen because a
+ * wrapper is a different component than the lazy one, and `.preload` lives on the
+ * lazy component — wrapping it hides that property from the router and kills
+ * preloading. `/groups`, `/groups/$groupId` and `/settings` stay outside: they are
+ * how a user WITH no group gets one, so guarding them would deadlock.
+ */
+const groupScopedRoute = createRoute({
   getParentRoute: () => appRoute,
+  id: "group-scoped",
+  component: function GroupScopedLayout() {
+    return (
+      <RequireActiveGroup>
+        <Outlet />
+      </RequireActiveGroup>
+    );
+  },
+});
+
+const recipeListRoute = createRoute({
+  getParentRoute: () => groupScopedRoute,
   path: "/",
   validateSearch: (search: Record<string, unknown>) => pick(search, RECIPE_FILTER_PARAMS),
-  component: groupScoped(
-    lazyPage({
-      candidates: [
-        "/src/features/recipes/RecipeListPage.tsx",
-        "/src/features/recipes/RecipesPage.tsx",
-        "/src/features/recipes/pages/RecipeListPage.tsx",
-      ],
-      exportNames: ["RecipeListPage", "RecipesPage"],
-      title: "ui.routePlaceholder.recipeList.title",
-      description: "ui.routePlaceholder.recipeList.description",
-    }),
-  ),
+  component: lazyRouteComponent(() => import("@/features/recipes/RecipeListPage")),
 });
 
 /**
@@ -217,106 +224,45 @@ const searchRoute = createRoute({
 });
 
 const recipeNewRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => groupScopedRoute,
   path: "/recipes/new",
-  component: groupScoped(
-    lazyPage({
-      candidates: [
-        "/src/features/recipes/RecipeNewPage.tsx",
-        "/src/features/recipes/RecipeCreatePage.tsx",
-        "/src/features/recipes/RecipeFormPage.tsx",
-      ],
-      exportNames: ["RecipeNewPage", "RecipeCreatePage", "RecipeFormPage"],
-      title: "ui.routePlaceholder.recipeNew.title",
-    }),
-  ),
+  component: lazyRouteComponent(() => import("@/features/recipes/RecipeNewPage")),
 });
 
 const recipeDetailRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => groupScopedRoute,
   path: "/recipes/$recipeId",
-  component: groupScoped(
-    lazyPage({
-      candidates: [
-        "/src/features/recipes/RecipeDetailPage.tsx",
-        "/src/features/recipes/RecipePage.tsx",
-      ],
-      exportNames: ["RecipeDetailPage", "RecipePage"],
-      title: "ui.routePlaceholder.recipeDetail.title",
-    }),
-  ),
+  component: lazyRouteComponent(() => import("@/features/recipes/RecipeDetailPage")),
 });
 
 const recipeEditRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => groupScopedRoute,
   path: "/recipes/$recipeId/edit",
-  component: groupScoped(
-    lazyPage({
-      candidates: [
-        "/src/features/recipes/RecipeEditPage.tsx",
-        "/src/features/recipes/RecipeFormPage.tsx",
-      ],
-      exportNames: ["RecipeEditPage", "RecipeFormPage"],
-      title: "ui.routePlaceholder.recipeEdit.title",
-    }),
-  ),
+  component: lazyRouteComponent(() => import("@/features/recipes/RecipeEditPage")),
 });
 
 const importRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => groupScopedRoute,
   path: "/import",
-  component: groupScoped(
-    lazyPage({
-      candidates: [
-        "/src/features/import/ImportPage.tsx",
-        "/src/features/imports/ImportPage.tsx",
-        "/src/features/import/ImportStartPage.tsx",
-      ],
-      exportNames: ["ImportPage", "ImportStartPage"],
-      title: "ui.routePlaceholder.import.title",
-      description: "ui.routePlaceholder.import.description",
-    }),
-  ),
+  component: lazyRouteComponent(() => import("@/features/import/ImportPage")),
 });
 
 const importReviewRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => groupScopedRoute,
   path: "/import/$draftId",
-  component: groupScoped(
-    lazyPage({
-      candidates: [
-        "/src/features/import/ImportReviewPage.tsx",
-        "/src/features/imports/ImportReviewPage.tsx",
-        "/src/features/import/DraftReviewPage.tsx",
-      ],
-      exportNames: ["ImportReviewPage", "DraftReviewPage"],
-      title: "ui.routePlaceholder.importReview.title",
-    }),
-  ),
+  component: lazyRouteComponent(() => import("@/features/import/ImportReviewPage")),
 });
 
 const collectionsRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => groupScopedRoute,
   path: "/collections",
-  component: groupScoped(
-    lazyPage({
-      candidates: ["/src/features/collections/CollectionsPage.tsx"],
-      exportNames: ["CollectionsPage"],
-      title: "ui.routePlaceholder.collections.title",
-    }),
-  ),
+  component: lazyRouteComponent(() => import("@/features/collections/CollectionsPage")),
 });
 
 const collectionDetailRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => groupScopedRoute,
   path: "/collections/$collectionId",
-  component: groupScoped(
-    lazyPage({
-      candidates: ["/src/features/collections/CollectionDetailPage.tsx"],
-      exportNames: ["CollectionDetailPage"],
-      title: "ui.routePlaceholder.collectionDetail.title",
-    }),
-  ),
+  component: lazyRouteComponent(() => import("@/features/collections/CollectionDetailPage")),
 });
 
 /**
@@ -325,63 +271,33 @@ const collectionDetailRoute = createRoute({
  * (see lib/persist.ts).
  */
 const shoppingRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => groupScopedRoute,
   path: "/shopping",
-  component: groupScoped(
-    lazyPage({
-      candidates: ["/src/features/shopping/ShoppingListsPage.tsx"],
-      exportNames: ["ShoppingListsPage"],
-      title: "ui.routePlaceholder.shopping.title",
-    }),
-  ),
+  component: lazyRouteComponent(() => import("@/features/shopping/ShoppingListsPage")),
 });
 
 const shoppingListRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => groupScopedRoute,
   path: "/shopping/$listId",
-  component: groupScoped(
-    lazyPage({
-      candidates: ["/src/features/shopping/ShoppingListDetailPage.tsx"],
-      exportNames: ["ShoppingListDetailPage"],
-      title: "ui.routePlaceholder.shoppingList.title",
-    }),
-  ),
+  component: lazyRouteComponent(() => import("@/features/shopping/ShoppingListDetailPage")),
 });
 
 const tagsRoute = createRoute({
-  getParentRoute: () => appRoute,
+  getParentRoute: () => groupScopedRoute,
   path: "/tags",
-  component: groupScoped(
-    lazyPage({
-      candidates: ["/src/features/tags/TagsPage.tsx"],
-      exportNames: ["TagsPage"],
-      title: "ui.routePlaceholder.tags.title",
-    }),
-  ),
+  component: lazyRouteComponent(() => import("@/features/tags/TagsPage")),
 });
 
 const groupsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/groups",
-  component: lazyPage({
-    candidates: ["/src/features/groups/GroupsPage.tsx", "/src/features/groups/GroupListPage.tsx"],
-    exportNames: ["GroupsPage", "GroupListPage"],
-    title: "ui.routePlaceholder.groups.title",
-    description: "ui.routePlaceholder.groups.description",
-  }),
+  component: lazyRouteComponent(() => import("@/features/groups/GroupsPage")),
 });
 
 const groupDetailRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/groups/$groupId",
-  component: lazyPage({
-    candidates: [
-      "/src/features/groups/GroupDetailPage.tsx",
-      "/src/features/groups/GroupPage.tsx",
-    ],
-    exportNames: ["GroupDetailPage", "GroupPage"],
-    title: "ui.routePlaceholder.groupDetail.title",
-  }),
+  component: lazyRouteComponent(() => import("@/features/groups/GroupDetailPage")),
 });
 
 const settingsRoute = createRoute({
@@ -389,14 +305,7 @@ const settingsRoute = createRoute({
   path: "/settings",
   // `?linked=google` / `?error=…` come back from the OAuth link round-trip.
   validateSearch: (search: Record<string, unknown>) => pick(search, ["linked", "error"]),
-  component: lazyPage({
-    candidates: [
-      "/src/features/settings/SettingsPage.tsx",
-      "/src/features/auth/AccountSettingsPage.tsx",
-    ],
-    exportNames: ["SettingsPage", "AccountSettingsPage"],
-    title: "ui.routePlaceholder.settings.title",
-  }),
+  component: lazyRouteComponent(() => import("@/features/auth/AccountSettingsPage")),
 });
 
 /* -------------------------------------------------------------------------- */
@@ -412,18 +321,22 @@ const routeTree = rootRoute.addChildren([
   oauthCallbackRoute,
   inviteRoute,
   appRoute.addChildren([
-    recipeListRoute,
+    // Needs an active group.
+    groupScopedRoute.addChildren([
+      recipeListRoute,
+      recipeNewRoute,
+      recipeDetailRoute,
+      recipeEditRoute,
+      importRoute,
+      importReviewRoute,
+      collectionsRoute,
+      collectionDetailRoute,
+      shoppingRoute,
+      shoppingListRoute,
+      tagsRoute,
+    ]),
+    // Session only — these are how a user without a group gets one.
     searchRoute,
-    recipeNewRoute,
-    recipeDetailRoute,
-    recipeEditRoute,
-    importRoute,
-    importReviewRoute,
-    collectionsRoute,
-    collectionDetailRoute,
-    shoppingRoute,
-    shoppingListRoute,
-    tagsRoute,
     groupsRoute,
     groupDetailRoute,
     settingsRoute,
@@ -435,6 +348,10 @@ export const router = createRouter({
   defaultPreload: "intent",
   defaultPreloadDelay: 80,
   defaultNotFoundComponent: NotFoundPage,
+  // Also what puts the Suspense boundary around a match (react-router's `Match`
+  // only wraps when a pending element exists), so a lazy chunk has something to
+  // fall back to on a cold load, not just during an intent-preloaded navigation.
+  defaultPendingComponent: LoadingBlock,
   scrollRestoration: true,
 });
 
@@ -448,6 +365,7 @@ export const routes = {
   oauthCallback: oauthCallbackRoute,
   invite: inviteRoute,
   app: appRoute,
+  groupScoped: groupScopedRoute,
   recipeList: recipeListRoute,
   search: searchRoute,
   recipeNew: recipeNewRoute,

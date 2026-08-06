@@ -297,5 +297,5 @@ function TagDialog({
   );
 }
 
-/** Named export as well — the router accepts either (see lib/lazy-page.tsx). */
+/** Named export as well, for the feature barrel; the router imports the default. */
 export { TagsPage };

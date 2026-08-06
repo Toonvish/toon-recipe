@@ -99,25 +99,4 @@ export const uiEn: LocaleCatalog<UiCatalog> = {
   "ui.session.noGroupDescription":
     "Recipes always belong to a group. Create a group (e.g. “Family”) or accept an invite.",
   "ui.session.createGroup": "Create group",
-
-  "ui.lazyPage.defaultDescription": "This area is still being built.",
-  "ui.routePlaceholder.recipeList.title": "Recipe list coming soon",
-  "ui.routePlaceholder.recipeList.description":
-    "The recipe overview is delivered by a different module.",
-  "ui.routePlaceholder.recipeNew.title": "Add recipe coming soon",
-  "ui.routePlaceholder.recipeDetail.title": "Recipe view coming soon",
-  "ui.routePlaceholder.recipeEdit.title": "Edit recipe coming soon",
-  "ui.routePlaceholder.import.title": "Import coming soon",
-  "ui.routePlaceholder.import.description":
-    "URL, photo and PDF import are delivered by a different module.",
-  "ui.routePlaceholder.importReview.title": "Draft review coming soon",
-  "ui.routePlaceholder.collections.title": "Collections coming soon",
-  "ui.routePlaceholder.collectionDetail.title": "Collection coming soon",
-  "ui.routePlaceholder.shopping.title": "Shopping lists coming soon",
-  "ui.routePlaceholder.shoppingList.title": "Shopping list coming soon",
-  "ui.routePlaceholder.tags.title": "Tags coming soon",
-  "ui.routePlaceholder.groups.title": "Group management coming soon",
-  "ui.routePlaceholder.groups.description": "Create groups, manage members and invites.",
-  "ui.routePlaceholder.groupDetail.title": "Group details coming soon",
-  "ui.routePlaceholder.settings.title": "Settings coming soon",
 };

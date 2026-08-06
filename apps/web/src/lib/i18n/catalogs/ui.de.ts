@@ -128,28 +128,6 @@ export const uiDe = {
   "ui.session.noGroupDescription":
     "Rezepte gehören immer zu einer Gruppe. Lege eine Gruppe an (z. B. „Familie“) oder nimm eine Einladung an.",
   "ui.session.createGroup": "Gruppe anlegen",
-
-  /* ---------------------------- router.tsx / lazy-page.tsx ------------------- */
-  "ui.lazyPage.defaultDescription": "Dieser Bereich wird gerade gebaut.",
-  "ui.routePlaceholder.recipeList.title": "Rezeptliste kommt gleich",
-  "ui.routePlaceholder.recipeList.description":
-    "Die Rezeptübersicht wird von einem anderen Modul geliefert.",
-  "ui.routePlaceholder.recipeNew.title": "Rezept anlegen kommt gleich",
-  "ui.routePlaceholder.recipeDetail.title": "Rezeptansicht kommt gleich",
-  "ui.routePlaceholder.recipeEdit.title": "Rezept bearbeiten kommt gleich",
-  "ui.routePlaceholder.import.title": "Import kommt gleich",
-  "ui.routePlaceholder.import.description":
-    "URL-, Foto- und PDF-Import werden von einem anderen Modul geliefert.",
-  "ui.routePlaceholder.importReview.title": "Entwurf prüfen kommt gleich",
-  "ui.routePlaceholder.collections.title": "Sammlungen kommen gleich",
-  "ui.routePlaceholder.collectionDetail.title": "Sammlung kommt gleich",
-  "ui.routePlaceholder.shopping.title": "Einkaufslisten kommen gleich",
-  "ui.routePlaceholder.shoppingList.title": "Einkaufsliste kommt gleich",
-  "ui.routePlaceholder.tags.title": "Tags kommen gleich",
-  "ui.routePlaceholder.groups.title": "Gruppenverwaltung kommt gleich",
-  "ui.routePlaceholder.groups.description": "Gruppen anlegen, Mitglieder und Einladungen verwalten.",
-  "ui.routePlaceholder.groupDetail.title": "Gruppendetails kommen gleich",
-  "ui.routePlaceholder.settings.title": "Einstellungen kommen gleich",
 } as const satisfies NamespaceCatalog<"ui">;
 
 export type UiCatalog = typeof uiDe;

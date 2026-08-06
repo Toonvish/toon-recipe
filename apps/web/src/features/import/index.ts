@@ -1,12 +1,14 @@
 /**
- * Public surface of the import feature — this is what the app shell mounts.
+ * Public surface of the import feature.
  *
- * Routes:
+ * Routes (mounted in router.tsx):
  *   /import            -> ImportPage
- *   /import/$draftId   -> ImportReviewPage   (param may also be called `id`)
+ *   /import/$draftId   -> ImportReviewPage
+ *
+ * The two screens are NOT re-exported here. `router.tsx` loads them with
+ * `lazyRouteComponent(() => import(...))`; a static re-export that anything imports
+ * would pull them into the main chunk and break the code splitting.
  */
-export { default as ImportPage } from "./ImportPage";
-export { default as ImportReviewPage } from "./ImportReviewPage";
 export type { ImportReviewPageProps } from "./ImportReviewPage";
 
 export { default as SourceViewer } from "./components/SourceViewer";
