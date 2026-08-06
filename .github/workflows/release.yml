@@ -105,6 +105,24 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # THE PUBLISHED IMAGE CARRIES tesseract + German, AND DELIBERATELY NOT
+          # poppler. It used to be the fully slim build, which meant photo import
+          # could only be had by building an image yourself and hand-carrying it to
+          # the server — and `deploy.yml` pins TOON_IMAGE to the digest THIS step
+          # produces, so a hand-built image was overwritten on the next push to main.
+          # The image the server deploys therefore has to be the one that can do it.
+          #
+          # WITH_PDF=0 is the other half: a scanned PDF is up to MAX_PDF_PAGES
+          # tesseract runs and cannot finish inside OCR_TIMEOUT_MS on a one-core VPS,
+          # which is what this repo deploys to. Leaving poppler out keeps the image
+          # honest about that rather than offering a button that times out.
+          #
+          # This does NOT switch photo import on by itself: docker-compose.yml passes
+          # IMPORT_OCR_ENABLED explicitly, defaulting to 0, so a deployment still opts
+          # in through its .env. The build arg only decides what the image CAN do.
+          build-args: |
+            WITH_OCR=1
+            WITH_PDF=0
           # provenance: false keeps the manifest list a plain multi-arch index.
           # The attestation manifests that buildx adds otherwise confuse older
           # dockers, and a distro-packaged docker on a small server is often

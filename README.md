@@ -283,6 +283,13 @@ the two flags — so an image cannot accidentally advertise a feature it does no
 without its binary is not a crash either: the pipeline answers the documented 422 naming the missing
 one (`tesseract_unavailable` / `rasterization_unavailable`).
 
+**The image published to GHCR is built `WITH_OCR=1 WITH_PDF=0`** — it can do photos, not PDFs.
+That is deliberate: `deploy.yml` pins the server's `TOON_IMAGE` to the digest of exactly that build,
+so an image built by hand and copied over would be replaced on the next push to `main`. It does not
+switch anything on — `docker-compose.yml` passes `IMPORT_OCR_ENABLED` explicitly, defaulting to `0`,
+so a deployment still opts in through its `.env`. It also passes `IMPORT_PDF_ENABLED=0` rather than
+letting it inherit, since inheriting would enable PDFs against an image with no `pdftoppm`.
+
 ## Scripts
 
 | Script | What it does |

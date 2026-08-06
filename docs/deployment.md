@@ -304,8 +304,13 @@ Umstellen einmalig unter GitHub → Profil/Organisation → *Packages* → `toon
 *Package settings* → *Change visibility*. (Alternative: privat lassen und sich auf dem Server
 einmalig mit einem Read-Only-PAT anmelden: `docker login ghcr.io -u <user>`.)
 
-Das veröffentlichte Image ist die **schlanke Variante ohne OCR**. Wer Foto-/PDF-Import will, baut
-selbst — siehe [Import per Foto/PDF](#import-per-fotopdf-ist-optional).
+Das veröffentlichte Image enthält **`tesseract` samt deutschem Sprachpaket, aber kein `poppler`** —
+es kann also Foto-Import, keinen PDF-Import (527 MB statt 421 MB schlank). **Eingeschaltet ist
+trotzdem nichts**: `IMPORT_OCR_ENABLED` steht in der compose-Datei auf `0`, bis die `.env` etwas
+anderes sagt. Das Build-Arg entscheidet nur, was das Image KANN.
+
+Wer PDF-Import braucht, baut selbst mit `--build-arg WITH_PDF=1` und braucht dafür ~2 GB RAM —
+siehe [Import per Foto/PDF](#import-per-fotopdf-ist-optional).
 
 ---
 
@@ -848,22 +853,27 @@ Fotos und schafft keine Scans, deshalb kann man genau das konfigurieren.
 | `--build-arg WITH_OCR=1` | `docker build` | installiert `tesseract-ocr` + `tesseract-ocr-deu` (~105 MB) ins Image |
 | `IMPORT_OCR_ENABLED=1` | Laufzeit (`.env`) | schaltet den **Foto**-Import frei. **Standard ist der Wert des Build-Args**, das Image ist also von sich aus konsistent. |
 | `--build-arg WITH_PDF=1` | `docker build` | installiert `poppler-utils` (~28 MB). **Standard ist der Wert von `WITH_OCR`**, der alte Aufruf baut also weiter dasselbe Image. |
-| `IMPORT_PDF_ENABLED=1` | Laufzeit (`.env`) | schaltet den **PDF**-Import frei. **Leer heißt "wie `IMPORT_OCR_ENABLED`"**, ein bestehendes `.env` ändert sein Verhalten also nicht. |
+| `IMPORT_PDF_ENABLED=1` | Laufzeit (`.env`) | schaltet den **PDF**-Import frei. Auf API-Ebene heißt leer „wie `IMPORT_OCR_ENABLED`" — die compose-Datei setzt aber bewusst eine explizite `0`, weil das veröffentlichte Image kein poppler hat. |
 
 ```bash
-# schlank (Standard, und was in GHCR liegt): kein tesseract, kein poppler
+# schlank: kein tesseract, kein poppler (421 MB)
 docker build -t toon-recipe:local .
 
-# NUR Foto-Import, deutsch — die Variante für einen Ein-Kern-VPS mit 1 GB
+# NUR Foto-Import, deutsch (527 MB) — DAS IST, WAS RELEASE.YML NACH GHCR SCHIEBT
 docker build --build-arg WITH_OCR=1 --build-arg WITH_PDF=0 -t toon-recipe:local .
 
-# Foto UND PDF
+# Foto UND PDF (555 MB)
 docker build --build-arg WITH_OCR=1 -t toon-recipe:local .
 ```
 
-Wer OCR auf dem Server will, braucht in jedem Fall ein eigenes Image (auf dem Laptop bauen und in
-eine Registry pushen oder per `docker save | ssh … docker load` übertragen — auf einem Ein-Kern-VPS
-zu bauen ist Geduldsarbeit). Dazu **ab 2 GB RAM für PDF**, oder **1 GB mit Swap für Fotos allein**.
+**Für Foto-Import reicht das veröffentlichte Image** — `release.yml` baut es mit
+`WITH_OCR=1 WITH_PDF=0`, es muss also nur noch per `.env` eingeschaltet werden. Der Grund für diese
+Wahl steckt im Auto-Deploy: `deploy.yml` pinnt `TOON_IMAGE` auf den Digest genau dieses Builds, ein
+von Hand gebautes und übertragenes Image würde beim nächsten Push auf `main` also wieder überschrieben.
+
+Wer **PDF**-Import will, baut weiterhin selbst (auf dem Laptop bauen und in eine Registry pushen
+oder per `docker save | ssh … docker load` übertragen — auf einem Ein-Kern-VPS zu bauen ist
+Geduldsarbeit) und braucht **ab 2 GB RAM**.
 
 ### Deutscher Foto-Import auf 1 GB und einem Kern
 
@@ -1011,11 +1021,11 @@ docker compose -p toonstack down -v
 ## Was hier bewusst fehlt
 
 - **Foto-/PDF-Import ist aus.** `IMPORT_OCR_ENABLED` steht auf `0`, und das veröffentlichte Image
-  ist die schlanke Variante **ohne** `tesseract`/`pdftoppm` — die Flag dort zu setzen bringt nur die
-  dokumentierten 422er. Beides braucht ein selbst gebautes Image: Fotos ab 1 GB mit Swap
-  (`--build-arg WITH_OCR=1 --build-arg WITH_PDF=0`), PDFs ab ~2 GB (`--build-arg WITH_OCR=1`), siehe
-  [Import per Foto/PDF](#import-per-fotopdf-ist-optional). Import per URL und Text funktioniert
-  vollständig.
+  KANN Foto-Import (es enthält `tesseract` + deutsches Sprachpaket), es ist nur nicht
+  eingeschaltet — `IMPORT_OCR_ENABLED=1` in der `.env` genügt, ab 1 GB mit Swap. PDF-Import fehlt
+  dagegen wirklich: dafür braucht es `--build-arg WITH_PDF=1` und ~2 GB RAM, sonst kommen nur die
+  dokumentierten 422er. Siehe [Import per Foto/PDF](#import-per-fotopdf-ist-optional). Import per
+  URL und Text funktioniert vollständig.
 - **Google-/GitHub-Login ist aus.** E-Mail + Passwort ist der selbstgehostete Weg; Registrierung,
   Login, Einladungen, E-Mail-Bestätigung und Passwort-Reset funktionieren ohne OAuth vollständig.
 - **Ohne eigene Domain** läuft es auch, dann aber mit `TOON_TLS_ISSUER=internal`,

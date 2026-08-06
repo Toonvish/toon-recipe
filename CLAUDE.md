@@ -386,7 +386,12 @@ add to that panel instead.
   `IMPORT_PDF_ENABLED=${WITH_PDF}`), so an image cannot advertise a feature it lacks. `WITH_PDF`
   defaults to `WITH_OCR` (`ARG WITH_PDF=${WITH_OCR}`), so the old one-arg invocation still builds the
   old image. Setting a flag without its binary is not a crash — it degrades to the documented 422
-  naming it — but it is pointless. **Debian's `tesseract-ocr` HARD-DEPENDS on `tesseract-ocr-eng`**
+  naming it — but it is pointless. **`release.yml` publishes `WITH_OCR=1 WITH_PDF=0`**, i.e. the
+  GHCR image can do photos and not PDFs, because `deploy.yml` pins the server's `TOON_IMAGE` to that
+  build's digest and a hand-built image would be overwritten on the next push to `main`. That is
+  also why `docker-compose.yml` passes `IMPORT_PDF_ENABLED=0` EXPLICITLY instead of letting it
+  inherit the photo flag: inheriting would advertise PDF import against an image with no `pdftoppm`.
+  The API-level "unset follows OCR" rule is unchanged — compose is simply explicit about both. **Debian's `tesseract-ocr` HARD-DEPENDS on `tesseract-ocr-eng`**
   and pulls `-osd`, so English data is in the image whether or not it is asked for: dropping `eng`
   from the install list saves nothing, and `TESSERACT_LANGS` is a RUNTIME lever (two models = double
   the work per page) rather than a build-time one. Measured: tesseract + deu = 105 MB,

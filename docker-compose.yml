@@ -94,9 +94,13 @@ services:
       # The 1 GB combination is `IMPORT_OCR_ENABLED=1` with `IMPORT_PDF_ENABLED=0`:
       # German photo import fits one core, a ten-page scan does not.
       IMPORT_OCR_ENABLED: ${IMPORT_OCR_ENABLED:-0}
-      # Empty passes through as unset, which FOLLOWS IMPORT_OCR_ENABLED — so an
-      # existing .env that only knows the old flag keeps its old behaviour.
-      IMPORT_PDF_ENABLED: ${IMPORT_PDF_ENABLED:-}
+      # DEFAULTS TO 0 RATHER THAN TO "follow IMPORT_OCR_ENABLED", even though the API
+      # itself treats unset as "follow". The published image ships WITHOUT poppler
+      # (release.yml builds WITH_PDF=0), so inheriting the photo flag would turn PDF
+      # import on against an image that cannot do it — the endpoint would advertise
+      # itself and then answer the documented 422. Turning PDFs on needs BOTH this
+      # variable and an image built with `--build-arg WITH_PDF=1`.
+      IMPORT_PDF_ENABLED: ${IMPORT_PDF_ENABLED:-0}
       TESSERACT_LANGS: ${TESSERACT_LANGS:-deu}
       # Peak concurrent tesseract processes, i.e. the memory ceiling. 1 is right for
       # one core; raise it only after measuring with `docker stats`.
