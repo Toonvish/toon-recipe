@@ -21,7 +21,7 @@
     "@toon/shared": "workspace:*",
     "arctic": "^3.7.0",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.12.34",
+    "hono": "^4.13.0",
     "sharp": "^0.35.3",
     "unpdf": "^1.8.0",
     "zod": "^4.4.3"
