@@ -73,6 +73,15 @@ still German-only on purpose; only the *chrome* speaks two languages.
    the whole recipe, which is what keeps an older client and a queued offline replay working. Unknown
    ids are ignored, never rejected, for the same reason. `AddRecipeToListDialog` ticks every
    ingredient by default and tracks the EXCLUDED set, so a recipe that gains a line stays all-on.
+11. **Saved cards ("Karten") belong to the USER, not to a group** — the one exception to decision 1,
+   and a deliberate one. A loyalty barcode (Payback, DeutschlandCard, the gym) is personal property
+   that earns money, it has to follow its owner into every group, and nothing about it is
+   collaborative. So: table `cards` hanging off `users`, endpoints at **`/api/cards`** with
+   `requireSession()` and NO group middleware, query key `["toon","cards"]` outside the `group`
+   subtree. Values are stored NORMALISED and check-digit validated
+   (`packages/shared/src/{barcode,qr}.ts`); the symbologies are `qr ean13 ean8 upca code128 code39
+   itf` and a card outside that list cannot be saved, because it could not be drawn offline. Read
+   offline, write online — the opposite half of the shopping list's deal (see the gotcha).
 8. **German-first CONTENT**: German units (`g kg ml l EL TL Prise Bund Pck. Stück Dose …`), unicode
    fractions, ranges (`2-3 Eier`), ISO-8601 durations. This is the language recipes are *written in*
    and it does NOT vary with the viewer.
@@ -93,6 +102,7 @@ packages/shared   Zod schemas + inferred types + PURE parsers + the i18n runtime
                   request/response shape. Imported by api AND web as "@toon/shared".
 apps/api          Bun.serve + Hono. src/index.ts owns CORS/logger/health/uploads and mounts:
                     /api/auth                            -> routes/auth.ts
+                    /api/cards                           -> routes/cards.ts (user-owned, no group)
                     /api/groups                          -> routes/groups.ts
                     /api/groups/:groupId/imports         -> routes/imports.ts
                     /api/groups/:groupId/shopping-lists  -> routes/shopping.ts
@@ -122,8 +132,8 @@ apps/api/src/
                            recipeId|collectionId|tagId|draftId|inviteId; sets membership
   middleware/staticWeb.ts  serves apps/web/dist when WEB_DIST_DIR is set (the Docker
                            single-origin setup); mounted LAST, owns the SPA fallback
-  routes/{auth,groups,recipes,imports,shopping}.ts
-  services/auth|groups|recipes|import|media|ocr|mail|shopping/
+  routes/{auth,cards,groups,recipes,imports,shopping}.ts
+  services/auth|cards|groups|recipes|import|media|ocr|mail|shopping/
                            mail/: console.ts · smtp.ts (self-hosted default) · resend.ts
                            media/: thumbnails.ts (generated `<name>.thumb.webp` list images)
   scripts/{migrate,seed,reset-password,uploads-gc}.ts
@@ -141,7 +151,10 @@ apps/web/src/
                            locale.ts (device resolution, <html lang>) · catalogs/<ns>.{de,en}.ts
   components/ui/           the ONLY UI primitives — never re-implement one
   components/layout/       AppShell, TopBar, BottomTabBar, SideNav, InstallPrompt, ErrorBoundary
-  features/{auth,recipes,groups,collections,tags,import,shopping}/
+  features/{auth,recipes,groups,collections,tags,import,shopping,cards}/
+                           cards/: the saved-barcode wallet. BarcodeImage draws from
+                           @toon/shared's encoders (offline); lib/scan.ts is the ONLY
+                           zxing-wasm caller (lazy, online, add-time only)
 ```
 
 ## Navigation (four tabs, and what is deliberately NOT one)
@@ -163,6 +176,8 @@ reachable from a tab screen, or it is unreachable on a phone:
   management on mobile. (Switching the active group is the `GroupSwitcher` in the top
   bar, which is a different job and always visible.)
 - **Sammlungen / Tags** ← the "Erweiterte Suche" panel on `/`.
+- **Karten** (`/shopping/cards`) ← the `CardsCard` panel on `/shopping`. It is not a tab and not in
+  `SECONDARY_NAV_ITEMS` at all, so that panel is the ONLY route to the wallet on a phone.
 
 **Search is not a destination.** `/search` used to be a tab rendering a second list of
 recipes off the same hook; it is now a redirect to `/`, and searching is the always-visible
@@ -494,6 +509,55 @@ add to that panel instead.
 - **Anything a client can put in an `href` must be `HttpUrlSchema`** (`packages/shared`), and the UI
   still funnels it through `safeHttpUrl()` (`apps/web/src/lib/format.ts`) so a legacy row cannot
   produce a live `javascript:` link. Applies to recipe + draft `sourceUrl`.
+- **THE BARCODE ENCODERS ARE HAND-ROLLED AND THE DECODER IS A DEPENDENCY, AND SWAPPING EITHER SIDE
+  BREAKS THE FEATURE.** `packages/shared/src/barcode.ts` (EAN-13/EAN-8/UPC-A/Code 128/Code 39/ITF) and
+  `qr.ts` (full model-2 QR, versions 1–40) are pure JS in the main bundle: they are the DISPLAY path,
+  used at a supermarket till where the phone has no signal, so they may not depend on anything that
+  can fail to load. `zxing-wasm` (~1.1 MB) is the READ path only — one lazy `import()` in
+  `features/cards/lib/scan.ts`, reached once per card, at home. Consequences:
+  - **The wasm is deliberately NOT precached** (`globPatterns` in `vite.config.ts` lists no `wasm`),
+    and `/api/cards` is `NetworkOnly` in the SW for the same reason `shopping-lists` is — its offline
+    copy is the persisted TanStack cache.
+  - **`BarcodeDetector` is not an option**: Safari does not implement it, and an iPhone is the most
+    likely device to be standing at that till.
+  - **The spec tables are transcribed by hand, so the real test is a ROUND TRIP.**
+    `apps/web/src/features/cards/lib/roundtrip.test.ts` encodes with our code and decodes with zxing
+    (wasm loaded from `node_modules` as bytes — no network), sweeping the whole Code 39/Code 128
+    charset and all four QR ECC levels. One wrong table entry produces a barcode that looks perfect
+    and scans as nothing; structure assertions cannot catch that, and neither can `tsc`. Never delete
+    that file, and never "simplify" it to one sample value per format.
+  - **A barcode is BLACK ON WHITE in every theme.** `BarcodeImage` hard-codes `#000`/`#fff` and the
+    surfaces behind it are `bg-white`, because a dark-mode barcode is unreadable to half the hand
+    scanners in use. This is the one place in the app that ignores the colour tokens. Modules must
+    also stay whole: the `viewBox` is in module units and `shapeRendering="crispEdges"` is load-bearing
+    — an anti-aliased module boundary is a misread digit.
+- **A SAVED CARD IS READ OFFLINE AND WRITTEN ONLINE, i.e. the mirror image of the shopping list.**
+  `["toon","cards"]` is on `shouldPersistQuery`'s allow-list and `cardsQuery` is `offlineFirst`
+  (a till has no signal), but the mutations are ordinary online mutations: no `setMutationDefaults`,
+  no outbox, no `mutationId`. Saving a card is a one-off action performed at home, and none of the
+  machinery that exists because shopping items MERGE would be paying for itself. That is why the cards
+  screens DO use `useCanMutate()` — the exact opposite of the rule for the shopping screens.
+  `POST /api/cards/:id/used` (the "most recently shown" ordering) is fire-and-forget for the same
+  reason: it is a write, so an unconfirmed address 403s it and no signal fails it, and neither may
+  stop the barcode from being on screen.
+- **`normalizeBarcodeValue` is forgiving, `checkBarcodeValue` is strict, and the ORDER is the point.**
+  Normalisation strips the spaces and dashes a card prints, upper-cases Code 39, pads an odd ITF value
+  and COMPLETES a missing EAN/UPC check digit — so the twelve digits printed under a Payback barcode
+  are a valid request body. Validation then rejects a wrong check digit, which is the only evidence
+  available at save time that the number was read correctly (a card that scans as "unknown member" at
+  a till is the failure the whole feature exists to prevent). Both run in the SCHEMA, so the server
+  normalises an old client's value too, and the web form shows the normalised value on blur rather
+  than silently storing something else. The form's live barcode PREVIEW is the strongest check of the
+  three: if it renders, the card will render at the till.
+- **The card form's `format` and `value` are one field, contractually.** `UpdateCardRequestSchema`
+  refuses a PATCH carrying only one of them (`server.card.formatAndValue`) — a value cannot be
+  check-digit validated without knowing its symbology, and changing one without the other is how a
+  stored value stops matching its format.
+- **`routes/cards.ts` throws the raw `ZodError` instead of using `zValidator`.** `onValidationError`
+  (`services/groups/validation.ts`) flattens an issue to `{ path, code, message }` and DROPS `i18n`,
+  while `onErrorHandler` renders a thrown `ZodError` through `toValidationIssues` and keeps the
+  catalog key. The card value's issues are exactly the ones a client re-renders in its own language,
+  so they have to keep their keys — `test/cards.test.ts` pins the key AND the negotiated message.
 - **`clientIp()` ignores `X-Forwarded-For` unless `TRUST_PROXY=1`** and otherwise uses
   `server.requestIP`. Trusting the header unconditionally made every rate limit a no-op (a new
   header value = a new bucket). Login also has an IP-independent per-address bucket.
@@ -645,6 +709,21 @@ add to that panel instead.
   `getComputedStyle(main).padding*`, and the gap between a bottom bar and `nav.fixed`. Do NOT match
   the tab bar by its aria-label — `SideNav` carries the same one and, being `display:none` on a
   phone, reports an all-zero rect that reads as a plausible-looking wrong number.
+- **A CAMERA FEATURE CAN BE TESTED HEADLESS, with a fake device, and it is the only way to cover the
+  scanner at all.** Chromium takes `--use-fake-device-for-media-stream` plus
+  `--use-file-for-fake-video-capture=<file>.y4m`, and Playwright's `permissions: ["camera"]` grants
+  the prompt. Render a barcode with the repo's OWN encoder (import
+  `packages/shared/src/barcode.ts` through the dev server, draw the SVG, screenshot it), turn the PNG
+  into a y4m with `ffmpeg -loop 1 -i x.png -t 3 -r 15 -pix_fmt yuv420p -s 640x480 -f yuv4mpegpipe`,
+  then open the card form and press Scannen. That covers what no unit test can: the `?url` wasm asset
+  actually resolving, `locateFile` pointing at it, the decode loop reading frames, and the form being
+  filled with the right FORMAT as well as the right value. It found nothing the second time and one
+  thing the first: the decode loop originally read from a `<video>` it created itself, which Safari
+  refuses to play (see `scanFromCamera`).
+- **`autoFocus` only acts on MOUNT, so it cannot move focus into a field that is already on screen.**
+  The scanner's "Nummer eintippen" promises to put the cursor in the number field; wiring that to
+  `autoFocus={focusValue}` compiles, reads correctly, and does nothing — verified in a real browser,
+  where focus stayed on a button. `CardFormDialog` keeps a ref and focuses it from a one-shot effect.
 - **A `<fieldset>` carries the browser's own `min-inline-size: min-content`**, so it ignores the
   `min-w-0` rule you would apply to any other flex/grid item — and a horizontal scroller inside one
   cannot shrink. That is how the tag row in "Erweiterte Suche" (which IS a `scroll-x`) grew the
@@ -802,7 +881,7 @@ All five must be clean before calling anything done:
 ```bash
 bun install
 bun run typecheck    # tsc for packages/shared, apps/api, apps/web
-bun test             # 962 tests
+bun test             # 1058 tests
 bun run build        # vite build + PWA
 bun run i18n:check   # German catalog parity + no German left in a ported tree
 ```

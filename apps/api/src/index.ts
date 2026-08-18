@@ -23,6 +23,7 @@ import {
 } from "./lib/uploadUrls.ts";
 import { webAppMiddleware } from "./middleware/staticWeb.ts";
 import { authRoutes } from "./routes/auth.ts";
+import { cardRoutes } from "./routes/cards.ts";
 import { groupRoutes } from "./routes/groups.ts";
 import { importRoutes } from "./routes/imports.ts";
 import { recipeRoutes } from "./routes/recipes.ts";
@@ -137,6 +138,9 @@ app.get("/uploads/:filename", async (c) => {
 // Group-scoped routers are mounted UNDER :groupId; they enforce membership with
 // the reusable middleware inside their own file.
 app.route("/api/auth", authRoutes);
+// Saved cards are the user's own, not a group's, so this one is NOT under
+// /api/groups/:groupId (see packages/shared/src/schemas/card.ts).
+app.route("/api/cards", cardRoutes);
 app.route("/api/groups", groupRoutes);
 app.route("/api/groups/:groupId/imports", importRoutes);
 app.route("/api/groups/:groupId/shopping-lists", shoppingRoutes);

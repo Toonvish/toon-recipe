@@ -53,6 +53,10 @@ describe("shouldPersistQuery — what MAY be written", () => {
   test("the bootstrap payload, because offline needs to know who is signed in", () => {
     expect(shouldPersistQuery(query(["toon", "me"]))).toBe(true);
   });
+
+  test("saved cards — a barcode is shown at a till, where there is no signal", () => {
+    expect(shouldPersistQuery(query(["toon", "cards"]))).toBe(true);
+  });
 });
 
 describe("shouldPersistQuery — what may NOT be written", () => {
@@ -73,6 +77,10 @@ describe("shouldPersistQuery — what may NOT be written", () => {
     expect(shouldPersistQuery(query(["toon", "groups"]))).toBe(false);
     expect(shouldPersistQuery(query(["toon", "group", groupId, "members"]))).toBe(false);
     expect(shouldPersistQuery(query(["toon", "group", groupId, "invites"]))).toBe(false);
+  });
+
+  test("anything BELOW the cards key — only the wallet itself is on the list", () => {
+    expect(shouldPersistQuery(query(["toon", "cards", "c1"]))).toBe(false);
   });
 
   test("an UNKNOWN key — the list is allow, not deny, so new endpoints are excluded", () => {

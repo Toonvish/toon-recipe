@@ -9,6 +9,7 @@
  *   ["toon","group",groupId]                       <- everything group-scoped
  *   ["toon","group",groupId,"recipes",filters]
  *   ["toon","group",groupId,"recipe",recipeId]
+ *   ["toon","cards"]                               <- user-owned, no group segment
  */
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import type {
@@ -17,6 +18,7 @@ import type {
   RecipeListQuery,
 } from "@toon/shared";
 import {
+  fetchCards,
   fetchCollection,
   fetchCollections,
   fetchGroup,
@@ -114,6 +116,13 @@ export const queryKeys = {
   importDraftsRoot: (groupId: string) => [ROOT, "group", groupId, "imports"] as const,
   importDraft: (groupId: string, draftId: string) =>
     [ROOT, "group", groupId, "import", draftId] as const,
+
+  /**
+   * Saved cards. NOT under `group` — a card belongs to the user, so it must stay
+   * in the cache when the active group is switched (and the per-user namespacing
+   * of the persisted blob is what keeps it off a shared phone's other account).
+   */
+  cards: () => [ROOT, "cards"] as const,
 
   shoppingLists: (groupId: string) => [ROOT, "group", groupId, "shopping-lists"] as const,
   shoppingList: (groupId: string, listId: string) =>
@@ -263,6 +272,22 @@ export const importDraftQuery = (groupId: string, draftId: string) =>
     staleTime: Infinity,
   });
 
+/**
+ * The user's saved cards.
+ *
+ * `networkMode: "offlineFirst"` for the same reason the shopping list has it: the
+ * screen this feeds is used at a till, where the phone may have no signal at all,
+ * and the persisted copy is the whole point of saving a card in the app. Writes
+ * are online-only (see features/cards/lib/queries.ts) — only reading works offline.
+ */
+export const cardsQuery = () =>
+  queryOptions({
+    queryKey: queryKeys.cards(),
+    queryFn: ({ signal }) => fetchCards({ signal }),
+    staleTime: STALE_TIME.meta,
+    networkMode: "offlineFirst",
+  });
+
 export const shoppingListsQuery = (groupId: string) =>
   queryOptions({
     queryKey: queryKeys.shoppingLists(groupId),
@@ -320,6 +345,7 @@ export const invalidate = {
     qc.invalidateQueries({ queryKey: queryKeys.importDraftsRoot(groupId) }),
   importDraft: (qc: QueryClient, groupId: string, draftId: string) =>
     qc.invalidateQueries({ queryKey: queryKeys.importDraft(groupId, draftId) }),
+  cards: (qc: QueryClient) => qc.invalidateQueries({ queryKey: queryKeys.cards() }),
   shoppingLists: (qc: QueryClient, groupId: string) =>
     qc.invalidateQueries({ queryKey: queryKeys.shoppingLists(groupId) }),
   shoppingList: (qc: QueryClient, groupId: string, listId: string) =>

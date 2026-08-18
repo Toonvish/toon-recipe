@@ -18,6 +18,8 @@ import {
   type AddRecipeToShoppingListRequest,
   type AddShoppingItemsRequest,
   type AuthSessionResponse,
+  type CardListResponse,
+  type CardResponse,
   type ChangePasswordRequest,
   type CheckShoppingItemRequest,
   type CollectionDetailResponse,
@@ -25,6 +27,7 @@ import {
   type CollectionResponse,
   type CommitImportDraftRequest,
   type CommitImportDraftResponse,
+  type CreateCardRequest,
   type CreateCollectionRequest,
   type CreateGroupRequest,
   type CreateInviteRequest,
@@ -65,6 +68,7 @@ import {
   type ShoppingListResponse,
   type TagListResponse,
   type TagResponse,
+  type UpdateCardRequest,
   type UpdateCollectionRequest,
   type UpdateGroupRequest,
   type UpdateImportDraftRequest,
@@ -1189,6 +1193,51 @@ export function deleteShoppingCatalogEntry(
 }
 
 /* -------------------------------------------------------------------------- */
+/* saved cards (loyalty barcodes — the user's own, NOT a group's)              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The wallet, most recently used first.
+ *
+ * Note the missing `groupId`: cards belong to the signed-in user, so these five
+ * calls are the only content endpoints in this file with no group in their path
+ * (see packages/shared/src/schemas/card.ts for why).
+ */
+export function fetchCards(options?: RequestOptions): Promise<CardListResponse> {
+  return request<CardListResponse>("/api/cards", options);
+}
+
+export function createCard(
+  body: CreateCardRequest,
+  options?: RequestOptions,
+): Promise<CardResponse> {
+  return request<CardResponse>("/api/cards", { ...options, method: "POST", body });
+}
+
+export function updateCard(
+  cardId: string,
+  body: UpdateCardRequest,
+  options?: RequestOptions,
+): Promise<CardResponse> {
+  return request<CardResponse>(`/api/cards/${cardId}`, { ...options, method: "PATCH", body });
+}
+
+export function deleteCard(cardId: string, options?: RequestOptions): Promise<void> {
+  return request<void>(`/api/cards/${cardId}`, { ...options, method: "DELETE" });
+}
+
+/**
+ * Records that a card was SHOWN — what the wallet's ordering is built on.
+ *
+ * Fire-and-forget at every call site: it is a 403 for an account with an
+ * unconfirmed address and a network error at a till with no signal, and neither
+ * may stop the barcode from being on screen.
+ */
+export function markCardUsed(cardId: string, options?: RequestOptions): Promise<CardResponse> {
+  return request<CardResponse>(`/api/cards/${cardId}/used`, { ...options, method: "POST" });
+}
+
+/* -------------------------------------------------------------------------- */
 /* grouped facade (nice for autocomplete: api.recipes.list(...))              */
 /* -------------------------------------------------------------------------- */
 
@@ -1267,6 +1316,13 @@ export const api = {
     addRecipe: addRecipeToShoppingList,
     addSuggestion: addShoppingCatalogEntry,
     removeSuggestion: deleteShoppingCatalogEntry,
+  },
+  cards: {
+    list: fetchCards,
+    create: createCard,
+    update: updateCard,
+    remove: deleteCard,
+    markUsed: markCardUsed,
   },
   imports: {
     fromUrl: importFromUrl,

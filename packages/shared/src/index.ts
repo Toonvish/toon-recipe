@@ -13,6 +13,7 @@ export * from "./schemas/group.ts";
 export * from "./schemas/recipe.ts";
 export * from "./schemas/import.ts";
 export * from "./schemas/shopping.ts";
+export * from "./schemas/card.ts";
 
 // --- pure parsers / helpers -------------------------------------------------
 export * from "./numbers.ts";
@@ -21,6 +22,8 @@ export * from "./units.ts";
 export * from "./ingredients.ts";
 export * from "./duration.ts";
 export * from "./shopping.ts";
+export * from "./barcode.ts";
+export * from "./qr.ts";
 
 // --- interface language: the i18n runtime + server catalogs ----------------
 export * from "./i18n/index.ts";

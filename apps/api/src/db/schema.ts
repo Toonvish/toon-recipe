@@ -623,11 +623,64 @@ export const shoppingMutations = sqliteTable(
 );
 
 /* -------------------------------------------------------------------------- */
+/* saved cards                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A loyalty/membership barcode the user keeps in the app so the plastic card can
+ * stay at home ("Karten"): Payback, DeutschlandCard, the gym, the library.
+ *
+ * OWNED BY A USER, NOT BY A GROUP — the only table here that is, and deliberately
+ * so (see the header of packages/shared/src/schemas/card.ts). A loyalty number is
+ * personal property that earns points, it has to follow its owner into every group
+ * they are in, and nothing about it is collaborative. `user_id` cascades, so
+ * deleting an account takes its wallet with it.
+ *
+ * `value` is stored NORMALISED (digits only for the numeric symbologies, check
+ * digit included) because the schemas normalise on the way in — so the display path
+ * can encode a row without cleaning it up first, and a duplicate is detectable by
+ * string comparison.
+ *
+ * `last_used_at` is bumped when a card is SHOWN, and is what the list is ordered
+ * by: the card you used yesterday is the one you want at the till today. NULL until
+ * it has been shown once, which is why the ordering has to fall back to `created_at`
+ * rather than treating NULL as zero in the index.
+ */
+export const cards = sqliteTable(
+  "cards",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** What the user calls it: "Payback", "Rewe", "Stadtbibliothek". */
+    label: text("label").notNull(),
+    /** A `BarcodeFormat` from @toon/shared: qr | ean13 | ean8 | upca | code128 | code39 | itf. */
+    format: text("format").notNull(),
+    /** The normalised payload the symbol encodes. */
+    value: text("value").notNull(),
+    note: text("note"),
+    /** When the card was last shown at a till. NULL = never. */
+    lastUsedAt: integer("last_used_at"),
+    createdAt: integer("created_at").notNull().$defaultFn(now),
+    updatedAt: integer("updated_at").notNull().$defaultFn(now),
+  },
+  (table) => [
+    // The same number saved twice is a mistake, not a feature: the second copy
+    // would sit next to the first in the wallet with no way to tell them apart.
+    uniqueIndex("cards_user_format_value_unique").on(table.userId, table.format, table.value),
+    index("cards_user_id_idx").on(table.userId),
+    index("cards_user_last_used_idx").on(table.userId, table.lastUsedAt),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
 /* relations (for drizzle query API)                                          */
 /* -------------------------------------------------------------------------- */
 
 export const usersRelations = relations(users, ({ many }) => ({
   sessions: many(sessions),
+  cards: many(cards),
   oauthAccounts: many(oauthAccounts),
   memberships: many(groupMembers),
   passwordResetTokens: many(passwordResetTokens),
@@ -696,6 +749,10 @@ export const importDraftsRelations = relations(importDrafts, ({ one }) => ({
   recipe: one(recipes, { fields: [importDrafts.recipeId], references: [recipes.id] }),
 }));
 
+export const cardsRelations = relations(cards, ({ one }) => ({
+  user: one(users, { fields: [cards.userId], references: [users.id] }),
+}));
+
 export const shoppingListsRelations = relations(shoppingLists, ({ many, one }) => ({
   group: one(groups, { fields: [shoppingLists.groupId], references: [groups.id] }),
   creator: one(users, { fields: [shoppingLists.createdBy], references: [users.id] }),
@@ -755,3 +812,5 @@ export type NewShoppingListItemRow = typeof shoppingListItems.$inferInsert;
 export type ShoppingListCatalogRow = typeof shoppingListCatalog.$inferSelect;
 export type NewShoppingListCatalogRow = typeof shoppingListCatalog.$inferInsert;
 export type ShoppingMutationRow = typeof shoppingMutations.$inferSelect;
+export type CardRow = typeof cards.$inferSelect;
+export type NewCardRow = typeof cards.$inferInsert;

@@ -187,6 +187,19 @@ export const serverDe = {
   "server.shopping.listNameTaken": "Eine Einkaufsliste mit diesem Namen gibt es schon",
   "server.shopping.tooManyLists": "Mehr als {max} Einkaufslisten pro Gruppe sind nicht möglich",
 
+  /* ------------------------------ saved cards ---------------------------- */
+  "server.card.notFound": "Karte nicht gefunden",
+  "server.card.tooManyCards": "Mehr als {max} Karten sind nicht möglich",
+  "server.card.alreadySaved": "Diese Karte ist schon gespeichert",
+  "server.card.valueEmpty": "Bitte die Nummer der Karte eingeben",
+  "server.card.valueTooLong": "Die Nummer ist zu lang für diesen Codetyp",
+  "server.card.valueDigitsOnly": "Dieser Codetyp besteht nur aus Ziffern",
+  "server.card.valueWrongLength": "Dieser Codetyp braucht eine andere Anzahl Ziffern",
+  "server.card.valueOddLength": "Dieser Codetyp braucht eine gerade Anzahl Ziffern",
+  "server.card.valueCharset": "Die Nummer enthält Zeichen, die dieser Codetyp nicht kann",
+  "server.card.valueCheckDigit": "Die Prüfziffer passt nicht — bitte die Nummer noch einmal vergleichen",
+  "server.card.formatAndValue": "Codetyp und Nummer können nur zusammen geändert werden",
+
   /* ----------------------------------- ocr ------------------------------------ */
   "server.ocr.heicUnsupported":
     "HEIC-Bilder können auf diesem Server nicht gelesen werden. Bitte das Foto als JPEG oder PNG hochladen (iPhone: Einstellungen › Kamera › Formate › „Maximale Kompatibilität“).",

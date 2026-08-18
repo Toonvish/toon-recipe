@@ -6,7 +6,7 @@
  *            /forgot-password  /reset-password/$token  /verify-email/$token
  *   guarded  /  /recipes/new  /recipes/$recipeId  /recipes/$recipeId/edit
  *            /import  /import/$draftId  /collections  /collections/$collectionId  /tags
- *            /shopping  /shopping/$listId
+ *            /shopping  /shopping/cards  /shopping/$listId
  *            /groups  /groups/$groupId  /settings
  *   redirect /search -> / (search lives in the recipe list; old links keep working)
  *
@@ -276,6 +276,24 @@ const shoppingRoute = createRoute({
   component: lazyRouteComponent(() => import("@/features/shopping/ShoppingListsPage")),
 });
 
+/**
+ * The user's saved loyalty cards. Sits UNDER /shopping because that is where it is
+ * used and reached from (the tab bar is full — see components/layout/nav-items.ts),
+ * but the data is NOT group-scoped: a card belongs to the user (see
+ * packages/shared/src/schemas/card.ts). It is still a child of `group-scoped` so the
+ * screen renders inside the same shell as the list it was opened from.
+ *
+ * Registered BEFORE `/shopping/$listId`. TanStack ranks a static segment above a
+ * param regardless of order, so this is documentation rather than load-bearing —
+ * but reading the file top to bottom, `cards` has to appear as the more specific
+ * route or the next person will wonder whether `$listId` swallows it.
+ */
+const cardsRoute = createRoute({
+  getParentRoute: () => groupScopedRoute,
+  path: "/shopping/cards",
+  component: lazyRouteComponent(() => import("@/features/cards/CardsPage")),
+});
+
 const shoppingListRoute = createRoute({
   getParentRoute: () => groupScopedRoute,
   path: "/shopping/$listId",
@@ -332,6 +350,7 @@ const routeTree = rootRoute.addChildren([
       collectionsRoute,
       collectionDetailRoute,
       shoppingRoute,
+      cardsRoute,
       shoppingListRoute,
       tagsRoute,
     ]),
@@ -376,6 +395,7 @@ export const routes = {
   collections: collectionsRoute,
   collectionDetail: collectionDetailRoute,
   shopping: shoppingRoute,
+  cards: cardsRoute,
   shoppingList: shoppingListRoute,
   tags: tagsRoute,
   groups: groupsRoute,

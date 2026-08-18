@@ -26,7 +26,7 @@ const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
  *  3. EVERY entry is `private`-safe and bounded. `expiration` caps keep a phone from
  *     filling up, and `cacheableResponse: { statuses: [200] }` keeps a 401 or a 403
  *     from being stored as if it were content.
- *  4. SHOPPING LISTS ARE NEVER CACHED HERE. Their offline copy is the persisted
+ *  4. SHOPPING LISTS AND SAVED CARDS ARE NEVER CACHED HERE. Their offline copy is the persisted
  *     TanStack cache, which also holds the queued offline edits; a second, unaware
  *     cache layer would overwrite optimistic state with a stale body. See the rule.
  *
@@ -58,6 +58,17 @@ const RUNTIME_CACHING = [
      * checked off. Must come before the recipes rule for the same reason rule 1 does.
      */
     urlPattern: /\/api\/groups\/[^/]+\/shopping-lists/,
+    handler: "NetworkOnly" as const,
+  },
+  {
+    /**
+     * SAVED CARDS, same rule and same reason. `/api/cards` is the user's loyalty
+     * barcodes, read at a till where there is often no signal — and its offline
+     * copy is the persisted TanStack cache (src/lib/persist.ts), not this layer.
+     * A `NetworkFirst` hit here would hand TanStack a stale wallet that looks
+     * like a fresh success and overwrite the real one.
+     */
+    urlPattern: /\/api\/cards/,
     handler: "NetworkOnly" as const,
   },
   {
@@ -182,6 +193,16 @@ export default defineConfig(({ mode }) => {
         },
         workbox: {
           // App shell: hashed build output + icons. Source maps stay out of the cache.
+          //
+          // `wasm` IS DELIBERATELY ABSENT. The only wasm in the bundle is
+          // zxing-wasm's barcode reader (~1.1 MB), used exclusively by the card
+          // scanner — a once-per-card action performed at home. Precaching it
+          // would add a megabyte to every install and every update to save a
+          // download almost nobody makes twice, and it would be caching the ONE
+          // part of the cards feature that legitimately needs a connection.
+          // Drawing a saved card is pure JS in the main bundle (see
+          // packages/shared/src/barcode.ts), so the till path stays offline-proof
+          // either way. Adding "wasm" here is a real decision, not a typo fix.
           globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest}"],
           globIgnores: ["**/*.map"],
           navigateFallback: "/index.html",

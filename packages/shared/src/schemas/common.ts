@@ -46,6 +46,10 @@ export const ERROR_CODES = [
   "group_name_taken",
   "tag_name_taken",
   "shopping_list_name_taken",
+  /** This user already saved a card with the same symbology and number. */
+  "card_already_saved",
+  /** The user already has `CARD_LIMITS.perUser` saved cards. */
+  "too_many_cards",
   /** The list already holds `SHOPPING_LIMITS.itemsPerList` lines. */
   "shopping_list_full",
   /** The group already has `SHOPPING_LIMITS.listsPerGroup` lists. */

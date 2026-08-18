@@ -7,6 +7,8 @@
  */
 import { authDe } from "./auth.de.ts";
 import { authEn } from "./auth.en.ts";
+import { cardsDe } from "./cards.de.ts";
+import { cardsEn } from "./cards.en.ts";
 import { groupsDe } from "./groups.de.ts";
 import { groupsEn } from "./groups.en.ts";
 import { importDe } from "./import.de.ts";
@@ -18,8 +20,8 @@ import { shoppingEn } from "./shopping.en.ts";
 import { uiDe } from "./ui.de.ts";
 import { uiEn } from "./ui.en.ts";
 
-const de = { ...authDe, ...recipesDe, ...importDe, ...shoppingDe, ...groupsDe, ...uiDe };
-const en = { ...authEn, ...recipesEn, ...importEn, ...shoppingEn, ...groupsEn, ...uiEn };
+const de = { ...authDe, ...recipesDe, ...importDe, ...shoppingDe, ...cardsDe, ...groupsDe, ...uiDe };
+const en = { ...authEn, ...recipesEn, ...importEn, ...shoppingEn, ...cardsEn, ...groupsEn, ...uiEn };
 
 export const CATALOGS = { de, en } as const;
 export type MessageKey = keyof typeof de;

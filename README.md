@@ -63,6 +63,13 @@ These are **fixed** — do not redesign them.
    request, and mail renders in the recipient's `users.locale`. Two caveats today: **there is no
    in-app language picker yet** (so the device's language decides), and the import review editor
    plus the import error panel are still German-only. See `docs/i18n.md`.
+10. **Saved cards ("Karten") put the loyalty barcodes on the phone**, so the plastic can stay at
+   home: scan a card's code with the camera (or type the digits under it), then show it at the till.
+   Supported symbologies are QR, EAN-13, EAN-8, UPC-A, Code 128, Code 39 and ITF — the ones German
+   loyalty cards actually use AND the app can draw offline, since `packages/shared` encodes them in
+   pure TypeScript with no dependency. Unlike everything else in the app, **a card belongs to the
+   USER, not to the group** (`/api/cards`): a loyalty number is personal property, and it has to
+   follow its owner into every group. Reachable from the "Karten" panel on the Einkauf tab.
 
 ## Stack
 
@@ -434,6 +441,12 @@ curl -s -c /tmp/j -X POST localhost:3001/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"demo@toon.local","password":"demo1234"}'
 curl -s -b /tmp/j localhost:3001/api/groups
+
+# saved cards (user-owned — note there is no group in the path)
+curl -s -b /tmp/j -X POST localhost:3001/api/cards \
+  -H 'Content-Type: application/json' \
+  -d '{"label":"Payback","format":"ean13","value":"405912345678"}'   # check digit is completed
+curl -s -b /tmp/j localhost:3001/api/cards
 ```
 
 For the URL importer, serve a local HTML fixture and start the API with
@@ -508,6 +521,22 @@ Honest list of what is **not** finished. Nothing here blocks the flows above.
   The persisted cache expires after 7 days, which bounds how stale a replay can be.
 - The `shopping_mutations` ledger is pruned opportunistically on write (TTL 14 days), so a list that
   is never touched again keeps its rows until it is.
+
+**Saved cards**
+- **Camera scanning needs a connection ONCE.** The decoder is a ~1.1 MB WebAssembly module fetched the
+  first time the scanner opens (and deliberately kept out of the service worker's precache, so it does
+  not weigh on every install). Typing the number always works offline, and every scanner error says
+  so. `BarcodeDetector` is not used as a shortcut because Safari does not implement it.
+- **SHOWING a saved card works fully offline** — that is the point of the feature, and the drawing
+  code is plain TypeScript in the bundle. Adding, editing and deleting one needs a connection.
+- **Only the seven listed symbologies.** A card carrying PDF417, Aztec, Data Matrix or UPC-E cannot be
+  saved: each would need its own encoder on the offline display path, and no test could prove it
+  right without a real card. A scan of one says so instead of storing something that would fail at a
+  till.
+- **A card cannot be shared with the group.** By design (see decision 10) — a flatmate wanting the
+  household card on their phone saves it themselves. Two accounts saving the same number is allowed.
+- **No card logos or colours**, so cards are told apart by their name and their barcode pattern.
+- Max 50 cards per account, and the same (symbology, number) cannot be saved twice.
 
 **Import**
 - OCR runs **synchronously** inside the request with a 60 s cap (`504 ocr_failed` beyond that). A

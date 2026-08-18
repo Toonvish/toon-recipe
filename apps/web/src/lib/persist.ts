@@ -179,6 +179,20 @@ function isBootstrapKey(key: readonly unknown[]): boolean {
 }
 
 /**
+ * The user's saved cards (`["toon","cards"]`) — the one persisted key that is not
+ * group-scoped, because the entity is not (see packages/shared/src/schemas/card.ts).
+ *
+ * It has to be here or the feature does not work: a loyalty barcode is shown at a
+ * till, and a supermarket checkout is exactly where the phone has no signal. Rule 1
+ * of the header still holds — the blob is keyed by user id and purged on account
+ * change — which matters more for this key than for any other, since a card number
+ * is worth money.
+ */
+function isCardsKey(key: readonly unknown[]): boolean {
+  return key[1] === "cards" && key.length === 2;
+}
+
+/**
  * The allow-list. Everything not named here stays in memory only.
  */
 export function shouldPersistQuery(query: Pick<Query, "queryKey" | "state">): boolean {
@@ -191,6 +205,7 @@ export function shouldPersistQuery(query: Pick<Query, "queryKey" | "state">): bo
   const key = query.queryKey;
   if (!Array.isArray(key) || key[0] !== "toon") return false;
   if (isBootstrapKey(key)) return true;
+  if (isCardsKey(key)) return true;
   if (key[1] !== "group") return false;
   const segment = key[3];
   return typeof segment === "string" && PERSISTED_GROUP_SEGMENTS.has(segment);

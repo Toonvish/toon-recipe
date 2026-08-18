@@ -41,6 +41,11 @@ const CONTENT_TYPES: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".webmanifest": "application/manifest+json; charset=utf-8",
+  // The card scanner's zxing decoder (apps/web/src/features/cards/lib/scan.ts).
+  // `Bun.file().type` happens to answer `application/wasm` today; listed anyway,
+  // because a wasm module served as octet-stream fails `instantiateStreaming` and
+  // the symptom would be "the scanner never loads, only in Docker".
+  ".wasm": "application/wasm",
   ".svg": "image/svg+xml",
   ".png": "image/png",
   ".jpg": "image/jpeg",

@@ -381,6 +381,50 @@ Notes
 - Free text ("500g Mehl") is parsed **client-side** with `parseIngredientLine`
   (`apps/web/src/features/shopping/lib/parse.ts`); the API only accepts structured items.
 
+## Saved cards — `apps/api/src/routes/cards.ts`
+
+Mounted at `/api/cards`. **The only router that is not group-scoped.** A saved card is a loyalty or
+membership barcode belonging to the signed-in USER (Payback, DeutschlandCard, the gym, the library),
+so there is no `:groupId` in any path and no `requireGroupRole`: `requireSession()` plus the `userId`
+every query filters on is the whole authorisation. See the header of
+`packages/shared/src/schemas/card.ts` for why this entity is a deliberate exception to "groups own
+the content".
+
+| Method | Path | Auth | Request | Response | Status |
+| --- | --- | --- | --- | --- | --- |
+| GET | `/api/cards` | session | – | `CardListResponse` | 200, 401 |
+| POST | `/api/cards` | session | `CreateCardRequest` | `CardResponse` | 201, 401, 403, 409 `card_already_saved`, 409 `too_many_cards`, 422 |
+| PATCH | `/api/cards/:cardId` | session (owner) | `UpdateCardRequest` | `CardResponse` | 200, 401, 403, 404, 409, 422 |
+| DELETE | `/api/cards/:cardId` | session (owner) | – | – | 204, 401, 403, 404 |
+| POST | `/api/cards/:cardId/used` | session (owner) | – | `CardResponse` | 200, 401, 403, 404 |
+
+Notes
+- **`format` is one of `qr · ean13 · ean8 · upca · code128 · code39 · itf`** (`BarcodeFormat`), the
+  symbologies real German loyalty cards carry AND this app can draw offline. A format outside that
+  list is a 422, not a stored row it could never display — see `packages/shared/src/barcode.ts`.
+- **`value` is normalised by the schema, not by the handler.** Separators are stripped from the
+  numeric formats, `code39` is upper-cased, and an EAN/UPC value that is exactly one digit short
+  GAINS its check digit — so the twelve digits printed under a Payback barcode are a valid request
+  body. The stored value is always the normalised one.
+- **The check digit is validated** for `ean13`/`ean8`/`upca`. A mistyped digit answers 422 with
+  `details[0].path = "value"` and `details[0].i18n.key = "server.card.valueCheckDigit"`. This router
+  throws the raw `ZodError` (rather than using `zValidator`'s hook, which drops `i18n`) precisely so
+  a client can re-render that issue in its own language.
+- **`format` and `value` travel together or not at all** in a PATCH: a value cannot be check-digit
+  validated without its symbology. `{ "value": … }` alone is 422 `server.card.formatAndValue`.
+- **`(userId, format, value)` is unique.** Saving the same number twice is 409 `card_already_saved` —
+  two identical cards in a wallet cannot be told apart. Two different accounts may of course save the
+  same household card.
+- **The list is ordered by last USE**, most recent first, then newest. `POST …/used` is what records
+  a use; it is a separate call because the list is re-fetched on every visit to the screen and
+  bumping on read would make the ordering meaningless. It moves `lastUsedAt` only — showing a card is
+  not an edit, so `updatedAt` stays put.
+- **Writes are gated by the confirmed-address rule** like every other write (403 `email_unverified`
+  where the deployment can mail). That includes `POST …/used`, which is why the web client fires it
+  and forgets it: losing the ordering bump must never break showing a card.
+- **No pagination.** `CARD_LIMITS.perUser` (50) is the page size, and the screen has to render from
+  the offline cache; `{ items }` is the whole envelope.
+
 ## Uploads and signed URLs — `apps/api/src/lib/uploadUrls.ts`
 
 `UPLOAD_DIR` holds two kinds of file with two different rules.
@@ -427,7 +471,7 @@ sweeper keeps it while its original is referenced and deletes it in the same pas
 `users`, `oauth_accounts`, `sessions`, `password_reset_tokens`, `email_verification_tokens`,
 `groups`, `group_members`, `group_invites`, `recipes`, `recipe_ingredients`, `recipe_steps`, `tags`,
 `recipe_tags`, `collections`, `collection_recipes`, `import_drafts`, `shopping_lists`,
-`shopping_list_items`, `shopping_list_catalog`, `shopping_mutations`.
+`shopping_list_items`, `shopping_list_catalog`, `shopping_mutations`, `cards`.
 
 `password_reset_tokens` / `email_verification_tokens` store a **SHA-256 hash** of the token, never
 the token — the deliberate difference from `group_invites.token`, which keeps the raw value (a leaked
@@ -438,7 +482,7 @@ Unique indexes: `users.email`, `oauth_accounts(provider, provider_user_id)`,
 `group_members(group_id, user_id)`, `tags(group_id, name)`, `group_invites.token`,
 `password_reset_tokens.token_hash`, `email_verification_tokens.token_hash`,
 `shopping_lists(group_id, name)`, `shopping_list_items(list_id, merge_key)`,
-`shopping_list_catalog(list_id, name_key)`.
+`shopping_list_catalog(list_id, name_key)`, `cards(user_id, format, value)`.
 
 `shopping_list_items.merge_key` is the item's *identity*, not a cache: the unique index on it is what
 performs the merging, so two members adding the same ingredient at once cannot produce two lines.
@@ -446,6 +490,10 @@ performs the merging, so two members adding the same ingredient at once cannot p
 on write) — see the Shopping lists notes above for why it has to exist.
 Composite primary keys: `recipe_tags(recipe_id, tag_id)`, `collection_recipes(collection_id, recipe_id)`.
 All group-scoped tables cascade from `groups`; child rows cascade from `recipes`.
+
+`cards` is the one table that hangs off `users` instead of `groups` — a saved loyalty barcode is
+personal property (see the Saved cards section). It cascades from `users`, so deleting an account
+takes its wallet with it.
 
 Account deletion is intentionally NOT exposed: `created_by`/`invited_by` cascade, so a future
 "Konto löschen" flow must first transfer group ownership and re-assign authorship.

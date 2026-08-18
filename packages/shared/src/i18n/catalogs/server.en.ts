@@ -172,6 +172,19 @@ export const serverEn: LocaleCatalog<ServerCatalog> = {
   "server.shopping.listNameTaken": "A shopping list with this name already exists",
   "server.shopping.tooManyLists": "More than {max} shopping lists per group is not possible",
 
+  /* ------------------------------ saved cards ---------------------------- */
+  "server.card.notFound": "Card not found",
+  "server.card.tooManyCards": "More than {max} cards is not possible",
+  "server.card.alreadySaved": "This card is already saved",
+  "server.card.valueEmpty": "Please enter the card's number",
+  "server.card.valueTooLong": "The number is too long for this code type",
+  "server.card.valueDigitsOnly": "This code type consists of digits only",
+  "server.card.valueWrongLength": "This code type needs a different number of digits",
+  "server.card.valueOddLength": "This code type needs an even number of digits",
+  "server.card.valueCharset": "The number contains characters this code type cannot carry",
+  "server.card.valueCheckDigit": "The check digit does not match — please compare the number again",
+  "server.card.formatAndValue": "Code type and number can only be changed together",
+
   /* ----------------------------------- ocr ------------------------------------ */
   "server.ocr.heicUnsupported":
     "HEIC images cannot be read on this server. Please upload the photo as JPEG or PNG (iPhone: Settings › Camera › Formats › “Most Compatible”).",

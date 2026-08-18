@@ -4,6 +4,9 @@
  * Several named lists per group, because one household shops in more than one place:
  * "Rewe", "Drogerie", "Getränkemarkt".
  *
+ * It also carries the "Karten" panel, which is the only route into the saved-card
+ * wallet on a phone (see CardsCard for why it has to stay here).
+ *
  * Creating, renaming and deleting a list needs a connection (see the note in
  * lib/offline.ts), so this screen — unlike the list detail — really is read-only
  * offline, and says so. An unconfirmed e-mail address blocks the same three
@@ -30,6 +33,7 @@ import { errorMessage } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { useActiveGroup, useEmailVerificationBlock, useSession } from "@/lib/session";
 import { apiFieldErrors, validate, type FieldErrors } from "@/lib/validation";
+import { CardsCard } from "@/features/cards/components/CardsCard";
 import { AppLink } from "@/features/recipes/lib/nav";
 import {
   useCreateShoppingList,
@@ -137,6 +141,15 @@ export default function ShoppingListsPage() {
           ))}
         </ul>
       )}
+
+      {/*
+        The saved cards. This panel is the ONLY way into /shopping/cards on a phone
+        (no sidebar below `lg`, and the tab bar is full), so deleting it orphans the
+        whole feature on the device it exists for — same rule as the GroupsCard on
+        /settings. It sits under the lists because the lists are why the screen is
+        open; the Payback code is what you need thirty seconds later.
+      */}
+      <CardsCard />
 
       <CreateListDialog open={createOpen} onClose={() => setCreateOpen(false)} groupId={groupId} />
       <RenameListDialog list={renaming} onClose={() => setRenaming(null)} groupId={groupId} />

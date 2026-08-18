@@ -34,6 +34,9 @@ beforeAll(() => {
   writeFileSync(join(distDir, "manifest.webmanifest"), '{"name":"Rezepte"}');
   writeFileSync(join(distDir, "assets", "index-a1b2c3d4.js"), "console.log('app')");
   writeFileSync(join(distDir, "assets", "index-a1b2c3d4.css"), "body{}");
+  // The card scanner's decoder — a wasm module served as octet-stream would fail
+  // `instantiateStreaming`, and only in the single-origin (Docker) setup.
+  writeFileSync(join(distDir, "assets", "zxing_reader-a1b2c3d4.wasm"), "\0asm");
   writeFileSync(join(distDir, "icons", "icon-192.png"), "not really a png");
 
   // A file next to (not inside) dist: nothing may ever reach it.
@@ -119,6 +122,12 @@ describe("cache headers", () => {
     // application/octet-stream here means "no PWA", silently.
     expect(response.headers.get("content-type")).toBe("application/manifest+json; charset=utf-8");
     expect(response.headers.get("cache-control")).toBe("no-cache");
+  });
+
+  test("a wasm module keeps its own type, or the scanner cannot instantiate it", async () => {
+    const response = await get("/assets/zxing_reader-a1b2c3d4.wasm");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/wasm");
   });
 
   test("other static files get a modest cache", async () => {

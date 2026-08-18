@@ -132,6 +132,9 @@ describe("an unconfirmed account can still READ everything", () => {
       `/api/groups/${account.groupId}/collections`,
       `/api/groups/${account.groupId}/shopping-lists`,
       `/api/groups/${account.groupId}/imports`,
+      // The wallet is the user's own, not the group's, and reading it has to keep
+      // working — a card at a till is a read.
+      "/api/cards",
     ]) {
       const response = await request(path, { cookie: account.cookie });
       expect({ path, status: response.status }).toEqual({ path, status: 200 });
@@ -197,6 +200,26 @@ describe("every write answers 403 email_unverified", () => {
     });
     expect(response.status).toBe(403);
     expect(await errorCode(response)).toBe("email_unverified");
+  });
+
+  test("saving a card — the only user-owned entity, gated like everything else", async () => {
+    const account = await register();
+    const save = await request("/api/cards", {
+      method: "POST",
+      body: { label: "Payback", format: "ean13", value: "401234567890" },
+      cookie: account.cookie,
+    });
+    expect(save.status).toBe(403);
+    expect(await errorCode(save)).toBe("email_unverified");
+
+    // Including the "I showed this card" bump, which is why the web client fires
+    // that request and forgets it instead of surfacing a failure (routes/cards.ts).
+    const used = await request(`/api/cards/${crypto.randomUUID()}/used`, {
+      method: "POST",
+      cookie: account.cookie,
+    });
+    expect(used.status).toBe(403);
+    expect(await errorCode(used)).toBe("email_unverified");
   });
 
   test("creating a group, renaming one, and inviting into one", async () => {
