@@ -153,6 +153,12 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      # HTTP/3. Caddy has QUIC on by default and advertises it on every response
+      # (`alt-svc: h3=":443"`) — but QUIC is UDP, and a bare "443:443" publishes
+      # TCP only. Without this line every browser wastes a doomed UDP probe per
+      # session before falling back to h2. A host firewall that drops UDP 443
+      # degrades to exactly that fallback, nothing worse.
+      - "443:443/udp"
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       # caddy-data holds the ACME account and certificates — and in `internal`

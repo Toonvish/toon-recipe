@@ -207,12 +207,15 @@ sudo dpkg-reconfigure -plow unattended-upgrades
 
 ## 4 — Firewall und Swap
 
-Offen müssen nur 22 (SSH), 80 und 443 (Caddy) sein. Sonst nichts — die App selbst veröffentlicht
-keinen Port, sie ist nur im Docker-Netz erreichbar.
+Offen müssen nur 22 (SSH), 80 und 443 (Caddy) sein — 443 als TCP **und** UDP, denn Caddy spricht
+auch HTTP/3 (QUIC läuft über UDP; die compose-Datei veröffentlicht `443:443/udp` dafür). Sonst
+nichts — die App selbst veröffentlicht keinen Port, sie ist nur im Docker-Netz erreichbar. Ist
+UDP 443 in einer Anbieter-Firewall zu, fällt jeder Browser sauber auf HTTP/2 zurück; es kostet nur
+den vergeblichen QUIC-Versuch.
 
 ```bash
 sudo apt install -y ufw
-sudo ufw allow 22/tcp && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
+sudo ufw allow 22/tcp && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw allow 443/udp
 sudo ufw enable
 sudo ufw status
 ```
@@ -609,7 +612,7 @@ was in GitHub noch gespeichert ist. Secrets und Environment danach in Ruhe aufr�
 
 - [ ] `ssh toon@<server-ip>` funktioniert mit Schlüssel, `id` zeigt `sudo`; `root`- und
       Passwort-Login sind aus.
-- [ ] `sudo ufw status` zeigt 22, 80, 443 — und sonst nichts; die Anbieter-Firewall passt dazu.
+- [ ] `sudo ufw status` zeigt 22, 80, 443 (tcp+udp) — und sonst nichts; die Anbieter-Firewall passt dazu.
 - [ ] `free -h` zeigt Swap.
 - [ ] `dig +short <hostname>` liefert die Server-IP.
 - [ ] `docker compose ps` zeigt `app` als `healthy` und `caddy` als `running` — und sonst nichts.
