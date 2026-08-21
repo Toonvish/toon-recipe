@@ -58,15 +58,28 @@ async function startRelay(options: RelayOptions = {}): Promise<Relay> {
   const messages: string[] = [];
   const failed = new Set<string>();
   /**
+   * Every socket this relay owns — the accepted connections AND the bridge legs.
+   *
+   * `close()` has to destroy them, because `net.Server.close(cb)` only calls back
+   * once every connection has ENDED (node semantics, which Bun implements since
+   * 1.4 — under 1.3 the callback fired straight away). A STARTTLS session ends on
+   * the INNER TLS socket, so QUIT never closes the outer plaintext connection and
+   * the callback would wait for a socket nobody is going to end.
+   */
+  const sockets = new Set<Socket | TLSSocket>();
+  /**
    * Port of the internal TLS listener a STARTTLS session is bridged into, or 0.
    *
    * WHY A BRIDGE AND NOT `new TLSSocket(socket, { isServer: true })`: under Bun
-   * that constructor never completes the handshake, so the obvious way to write
-   * this fake relay hangs — and it hangs identically whether or not the CLIENT is
-   * correct, which makes it useless as a test. `tls.createServer()` does work, so
-   * the plaintext socket is piped byte-for-byte into a real TLS listener once the
-   * 220 has gone out. The client under test still performs a genuine upgrade on a
-   * single connection, which is the thing being verified.
+   * 1.3 that constructor never completed the handshake, so the obvious way to
+   * write this fake relay hung — and it hung identically whether or not the CLIENT
+   * was correct, which made it useless as a test. Bun 1.4 completes it (verified),
+   * but the bridge stays: `tls.createServer()` is a REAL TLS terminator rather
+   * than the runtime's server-side upgrade path, so the test cannot pass because
+   * of a bug on both ends at once. The plaintext socket is piped byte-for-byte
+   * into that listener once the 220 has gone out. The client under test still
+   * performs a genuine upgrade on a single connection, which is the thing being
+   * verified.
    *
    * (The client-side `tls.connect({ socket })` that src/services/mail/smtp.ts uses
    * is fine under Bun — verified separately against `openssl s_server`.)
@@ -81,6 +94,8 @@ async function startRelay(options: RelayOptions = {}): Promise<Relay> {
    * the adapter read that 220 as the reply to its EHLO and hide a genuine bug.
    */
   const serve = (socket: Socket | TLSSocket, greet = true): void => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
     let buffer = "";
     let inData = false;
     let data = "";
@@ -154,6 +169,8 @@ async function startRelay(options: RelayOptions = {}): Promise<Relay> {
               socket.pipe(bridge);
               bridge.pipe(socket);
             });
+            sockets.add(bridge);
+            bridge.on("close", () => sockets.delete(bridge));
             bridge.on("error", () => socket.destroy());
           });
           return;
@@ -227,6 +244,8 @@ async function startRelay(options: RelayOptions = {}): Promise<Relay> {
     transcript,
     messages,
     close: async () => {
+      for (const socket of sockets) socket.destroy();
+      sockets.clear();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       if (tlsServer) await new Promise<void>((resolve) => tlsServer?.close(() => resolve()));
     },

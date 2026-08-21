@@ -809,17 +809,32 @@ add to that panel instead.
   registry, so `mock.module(spec, () => namespace)` restores the stub over itself and silently does
   nothing. `bun test a.ts b.ts` does NOT let you control the order, so ordering cannot be tested that
   way; inject a stub into a file that already runs earlier instead.
-- **Bun 1.3 uses the ISOLATED linker for workspaces**, so `node_modules/` at the root holds nothing
+- **Bun 1.4 uses the ISOLATED linker for workspaces**, so `node_modules/` at the root holds nothing
   but the `.bun` store and each workspace gets its OWN symlink tree. A Dockerfile that copies only
   `/app/node_modules` builds and starts fine and then dies on the first request with
   `Cannot find module '@libsql/client'`. All three paths have to be copied: root,
   `apps/api/node_modules`, `packages/shared/node_modules`.
-- **`new TLSSocket(socket, { isServer: true })` never completes a handshake under Bun**, so the
-  server side of a STARTTLS upgrade cannot be written the obvious way — and it hangs identically
-  whether or not the client is correct, which makes it useless as a test. The client side
-  (`tls.connect({ socket })`, which `services/mail/smtp.ts` uses) is fine. The fake relay in
-  `test/mail/smtp.test.ts` therefore pipes the plaintext socket into a real `tls.createServer()`
-  once its 220 is on the wire. Do not "simplify" that back into a TLSSocket.
+- **Bun 1.4 no longer installs OPTIONAL peer dependencies**, which silently dropped
+  `@napi-rs/canvas` (unpdf's optional peer) from `bun.lock` on the upgrade. That is fine here and
+  worth knowing why: it backs unpdf's RENDER path, which this repo replaced with poppler's
+  `pdftoppm`, and only `extractText` is imported (`services/ocr/pdf.ts`) — verified against a real
+  text-layer PDF after the upgrade. A future optional peer that IS needed has to be a direct
+  dependency.
+- **`net.Server.close(cb)` WAITS for every open connection under Bun 1.4** (node semantics; under
+  1.3 the callback fired straight away). A test that closes a fake server in `finally` therefore
+  hangs until the test timeout, and the failure looks like the code under test stalling — the
+  transcript shows a COMPLETE exchange and then nothing. `startRelay` in `test/mail/smtp.test.ts`
+  keeps a `Set` of every socket it owns (accepted connections AND the STARTTLS bridge legs) and
+  destroys them in `close()`; that is what the whole STARTTLS test needed to survive 1.4, since a
+  STARTTLS session ends on the INNER TLS socket and QUIT never closes the outer plaintext one. Any
+  new test that listens has to do the same.
+- **`new TLSSocket(socket, { isServer: true })` never completed a handshake under Bun 1.3**, so the
+  server side of a STARTTLS upgrade could not be written the obvious way — and it hung identically
+  whether or not the client was correct, which made it useless as a test. **Bun 1.4 fixes it**
+  (verified), but the fake relay in `test/mail/smtp.test.ts` still pipes the plaintext socket into a
+  real `tls.createServer()` once its 220 is on the wire, and should stay that way: a real TLS
+  terminator cannot pass because of a matching bug on both ends. The client side
+  (`tls.connect({ socket })`, which `services/mail/smtp.ts` uses) was always fine.
 - **`servername` must be omitted for an IP literal.** Node throws `ERR_INVALID_ARG_VALUE` outright,
   and `MAIL_HOST=192.168.1.20` is a normal self-hosted config — hence `sni()` in `smtp.ts`.
 - **`sw.js` and `index.html` must never be cached**, and `middleware/staticWeb.ts` is the only thing

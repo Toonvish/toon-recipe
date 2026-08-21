@@ -31,7 +31,7 @@
 #     node_modules are installed for the target architecture.
 # =============================================================================
 
-ARG BUN_VERSION=1.3.14
+ARG BUN_VERSION=1.4.0
 
 # -----------------------------------------------------------------------------
 # base — the workspace manifests and the lockfile, shared by every stage below.
@@ -168,7 +168,7 @@ COPY apps/api ./apps/api
 COPY --from=web-build /app/apps/web/dist ./apps/web/dist
 
 # --- node_modules: THREE directories, not one -------------------------------
-# Bun 1.3 uses the ISOLATED linker for workspaces. The real packages live in the
+# Bun 1.4 uses the ISOLATED linker for workspaces. The real packages live in the
 # store at `node_modules/.bun/<pkg>@<version>/`, and each workspace gets its OWN
 # `node_modules` full of symlinks into it — `/app/node_modules` itself contains
 # nothing but `.bun`.

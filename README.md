@@ -75,7 +75,7 @@ These are **fixed** — do not redesign them.
 
 | Part | Tech |
 | --- | --- |
-| Monorepo | Bun workspaces (`apps/*`, `packages/*`), Bun 1.3.14 |
+| Monorepo | Bun workspaces (`apps/*`, `packages/*`), Bun 1.4.0 |
 | `apps/api` | Bun.serve + Hono, drizzle-orm, `@hono/zod-validator`, zod, arctic, sharp, unpdf — plus the native `tesseract` and `pdftoppm` binaries |
 | `apps/web` | React 19 + Vite + TypeScript, TanStack Router, TanStack Query, Tailwind CSS v4, vite-plugin-pwa, lucide-react |
 | `packages/shared` | Zod schemas + inferred types + pure parsers — the single source of truth, imported as `@toon/shared` |
@@ -124,7 +124,7 @@ docs/API.md               authoritative endpoint contract
 
 ## Setup
 
-Verified end to end on Bun 1.3.14 / Linux:
+Verified end to end on Bun 1.4.0 / Linux:
 
 ```bash
 # OPTIONAL — only for photo/PDF import, which is off by default (IMPORT_OCR_ENABLED).
