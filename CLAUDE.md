@@ -61,7 +61,12 @@ still German-only on purpose; only the *chrome* speaks two languages.
 9. **Deployment is ONE container serving ONE origin.** `WEB_DIST_DIR` makes the API serve the built
    PWA from its own port (`middleware/staticWeb.ts`), so the image has `PUBLIC_API_URL=""`, the
    client uses relative URLs, and there is no CORS entry, no second web server and no hostname baked
-   into the bundle. Caddy in front only terminates TLS. See `docs/deployment.md`.
+   into the bundle. **TLS is terminated by a SHARED Caddy that is no longer in this repo**: the
+   `toon-edge` stack (`/opt/toon-edge`) owns ports 80/443 for every toon app on the host and routes
+   by hostname, because two stacks cannot both bind `:443`. This compose file therefore has ONE
+   service and joins the external network `toon-edge` under the alias **`recipe-app`** — see the
+   compose gotcha below. Nothing about the app changed: it still serves its own `/` on its own
+   hostname. See `docs/deployment.md` and toon-edge's README.
 7. **Shopping lists are group-owned, merge by `(name, unit)` and have no `checked` column.**
    Several named lists per group. Checking an item off DELETES the row and bumps a
    `shopping_list_catalog` entry, so it leaves the list and reappears under "Häufig gekauft" — the
@@ -843,32 +848,35 @@ add to that panel instead.
   `.webmanifest` needs `application/manifest+json` or the install prompt silently never appears.
 - **A missing file WITH an extension must 404, not fall back to the SPA shell.** Answering HTML for a
   missing `.js` produces a MIME console error that says nothing about the real problem.
-- **`docker/Caddyfile`'s `header_up X-Forwarded-For {remote_host}` stays, even though Caddy logs it
-  as "unnecessary".** Measured: Caddy's default already drops a client-supplied `X-Forwarded-For`,
-  but adding a `trusted_proxies` line (a common copy-paste) makes the forged value the FIRST entry —
-  which is the one `clientIp()` uses, so every rate limit becomes a no-op. The overwrite survives
-  that.
-- **TLS has two modes and ONE variable: `TOON_TLS_ISSUER`, defaulting to `acme`.** The Caddyfile
-  writes it as `tls { issuer {$TOON_TLS_ISSUER:acme} }` — a real Let's Encrypt certificate for a
-  public hostname with ports 80/443 reachable, which is the deployment this repo targets. `internal`
-  is the LAN escape hatch (Caddy's own CA) and needs `TOON_HSTS_MAX_AGE=0` with it, or a pinned HSTS
-  on an internal name locks you out. Two consequences: the global `local_certs` option is GONE (it
-  forced internal for everything), and **the local stack test must set `TOON_TLS_ISSUER=internal`** —
-  `rezepte.test` has no public DNS, so the default would burn ACME attempts and never serve a page.
-  `caddy validate` covers all three states (both values plus the unset default).
+- **THERE IS NO CADDYFILE IN THIS REPO ANY MORE, and the two things it enforced still matter.** It
+  moved to the `toon-edge` stack when a second app (toon-finance) had to share the host: two Caddys
+  cannot both bind `:443`. `header_up X-Forwarded-For {remote_host}` and the `TOON_TLS_ISSUER`
+  two-mode setup live there now, in one file covering every app. Caddy's default already drops a
+  client-supplied `X-Forwarded-For`, but a `trusted_proxies` line (a common copy-paste) makes the
+  forged value the FIRST entry — the one `clientIp()` uses — so every rate limit becomes a no-op;
+  that overwrite is the guard, and it now protects both apps at once. `TOON_TLS_ISSUER` /
+  `TOON_HSTS_MAX_AGE` are read from `/opt/toon-edge/.env` and are no longer in this repo's
+  `docker/env.example`. **A local stack test still needs `internal`** — `rezepte.test` has no public
+  DNS, so the `acme` default would burn ACME attempts and never serve a page — but that value is now
+  set in the edge stack's env, not this one.
 - **A self-signed certificate alone does NOT give you the PWA**, which is why `internal` is not the
   default. An untrusted-CA origin is not a secure context even after the user clicks through, so the
   service worker never registers and the offline shopping list is dead. Caddy's local CA root must be
   installed per device (`http://<host>/toon-root-ca.crt`, served over plain http on purpose — a device
   that does not trust the CA yet cannot fetch it over the HTTPS that CA signed). With `acme` none of
   this applies.
-- **The compose stack is TWO services, `app` + `caddy`, and any mail container you add back belongs
-  on `127.0.0.1`.** A Mailpit sink used to be the third; it was only a viewer for mail that went
-  nowhere, so a deployment with a relay carried it for nothing. If you re-add one for a test, publish
-  it as `127.0.0.1:8025:8025` and never on a public or LAN address — its UI shows every
+- **The compose stack is ONE service, `app`, on a SHARED EXTERNAL NETWORK, and the alias is
+  load-bearing.** It joins `toon-edge` (created by hand: `docker network create toon-edge`) as
+  **`recipe-app`**. That alias is not decoration: toon-finance also calls its service `app`, and
+  compose registers the SERVICE NAME as a network alias on every network a container joins — so on
+  the shared network two containers would answer to `app` and the proxy would round-robin between
+  the recipe and the finance app. It fails SILENTLY: the page loads, every other request comes from
+  the wrong application. The `external: true` network also means `docker compose up` here fails
+  outright until the network exists, which is deliberate — `toon-deploy sync-config` runs
+  `docker compose config` and reports it. Any mail container you add back belongs on `127.0.0.1` and
+  must stay OFF the edge network: a Mailpit sink used to be the third service, and its UI shows every
   password-reset and invite link, so reaching it is account takeover. `ufw` does NOT protect a
   published container port (Docker's chain runs first); the loopback bind is the actual control.
-  Deleting the service also means deleting `app`'s `depends_on`, or compose refuses to start at all.
 - **Every `MAIL_*` value comes from the compose `.env` and passes through EMPTY by default**, which
   `env.ts`'s `rawEnv()` treats as unset — so the defaults (`starttls`, port 587) live in `env.ts`
   alone and are not duplicated in YAML. Two consequences. `MAIL_TRANSPORT` defaults to `console`, so
@@ -925,15 +933,17 @@ to be built and the stack actually run — a Dockerfile can be wrong in ways no 
 
 ```bash
 docker build -t toon-recipe:local . > /tmp/build.log 2>&1; echo $?   # NOT through a pipe
+docker network create toon-edge 2>/dev/null || true                  # the stack needs it
 docker compose --env-file .env.local-stack -p toonstack up -d        # see docs/deployment.md
 ```
 
-`.env.local-stack` MUST carry `TOON_TLS_ISSUER=internal` + `TOON_HSTS_MAX_AGE=0` (see the TLS
-gotcha) — with the `acme` default, `rezepte.test` never gets a certificate. Also validate the
-Caddyfile in both modes when you touch it:
+**A local stack now needs the edge proxy too**, or nothing terminates TLS and there is no page to
+look at: check out toon-edge next to this repo, point its `.env` at `rezepte.test`, and set
+`TOON_TLS_ISSUER=internal` + `TOON_HSTS_MAX_AGE=0` THERE — with the `acme` default, `rezepte.test`
+never gets a certificate. The Caddyfile lives in that repo and is validated there:
 
 ```bash
-for iss in acme internal; do docker run --rm -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
-  -e TOON_HOSTNAME=rezepte.test -e TOON_TLS_ISSUER=$iss caddy:2.11.4-alpine \
-  caddy validate --config /etc/caddy/Caddyfile; done
+for iss in acme internal; do docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
+  -e RECIPE_HOSTNAME=rezepte.test -e FINANCE_HOSTNAME=finanzen.test -e TOON_TLS_ISSUER=$iss \
+  caddy:2.11.4-alpine caddy validate --config /etc/caddy/Caddyfile; done
 ```

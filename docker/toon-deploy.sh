@@ -20,11 +20,16 @@
 #     choose a digest or `latest`; it may not choose a registry. Otherwise a stolen
 #     key could point the server at any image on the internet, which is a root
 #     shell in a trench coat.
-#   * The workflow can no longer scp docker-compose.yml and docker/Caddyfile over,
-#     the way the pre-2026-08 deploy job did. `sync-config` below fetches them from
-#     the repository instead, and it is deliberately a SEPARATE verb: a compose or
-#     Caddy change is a configuration change and deserves a human, not a silent
-#     side effect of every push to main.
+#   * The workflow can no longer scp docker-compose.yml over, the way the
+#     pre-2026-08 deploy job did. `sync-config` below fetches it from the
+#     repository instead, and it is deliberately a SEPARATE verb: a compose change
+#     is a configuration change and deserves a human, not a silent side effect of
+#     every push to main.
+#   * IT NO LONGER FETCHES A CADDYFILE. TLS terminates in the shared `toon-edge`
+#     stack (/opt/toon-edge) now, so this app has no proxy config of its own. The
+#     edge Caddyfile is maintained by hand — it changes only when an app is added,
+#     and a bad one takes EVERY app on the host offline, so it does not belong
+#     behind an automated fetch.
 #
 # Run it by hand exactly as CI does — the arguments work either way:
 #
@@ -152,15 +157,15 @@ cmd_sync_config() {
   # `docker compose config` below interpolates the .env, so a missing one would
   # fail the validation for a reason that has nothing to do with the download.
   [ -f .env ] || die "$APP_DIR/.env fehlt. Vorlage: docker/env.example (SESSION_SECRET + TOON_HOSTNAME)."
-  mkdir -p docker
-  log "Hole docker-compose.yml und docker/Caddyfile aus dem Repo"
+  log "Hole docker-compose.yml aus dem Repo"
   # To a temp file first: a half-written compose file on a truncated download
   # would leave the next `up -d` with no way to describe the running stack.
   curl -fsSL "$RAW_BASE/docker-compose.yml" -o docker-compose.yml.new
-  curl -fsSL "$RAW_BASE/docker/Caddyfile" -o docker/Caddyfile.new
   mv docker-compose.yml.new docker-compose.yml
-  mv docker/Caddyfile.new docker/Caddyfile
-  docker compose config >/dev/null || die "Die neue docker-compose.yml ist ungültig"
+  # This also catches the upgrade's one prerequisite: the compose file now
+  # references the EXTERNAL network `toon-edge`, and `config` fails loudly if it
+  # does not exist yet instead of leaving the next deploy to discover it.
+  docker compose config >/dev/null || die "Die neue docker-compose.yml ist ungültig (existiert das Netz toon-edge? 'docker network create toon-edge')"
   log "Fertig. Übernommen wird sie beim nächsten Deploy."
 }
 

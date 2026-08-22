@@ -50,6 +50,33 @@ aus — das ist der Standard und der Grund, warum die App auf diese Klasse passt
 
 ---
 
+> ## ⚠ TLS liegt seit 2026-08 NICHT mehr in diesem Repo
+>
+> Damit **mehrere toon-Apps auf einem Server** laufen können, ist der Caddy aus diesem Stack heraus
+> in einen eigenen, geteilten Stack gewandert: **`toon-edge`** in `/opt/toon-edge`. Er hält als
+> einziges auf der Maschine die Ports 80/443 und verteilt nach Hostnamen. Zwei Stacks können nicht
+> beide `:443` binden — das zweite `docker compose up -d` stirbt mit `port is already allocated`.
+>
+> **Für alles, was den Proxy betrifft — Installation, Migration, Zertifikate, Caddyfile ändern,
+> Caddy aktualisieren, eine weitere App aufnehmen — ist die README von `toon-edge` die
+> maßgebliche Anleitung.** Dieses Dokument beschreibt weiterhin die *Anwendung*: `.env`,
+> Datenbank, Backup, Mail, Import-Flags, Deploy-Key.
+>
+> Was sich konkret geändert hat:
+>
+> | | vorher | jetzt |
+> |---|---|---|
+> | Services im Stack | `app` + `caddy` | nur `app` |
+> | Ports | 80, 443, 443/udp | keine |
+> | `docker/Caddyfile` | in diesem Repo | in `toon-edge` |
+> | `TOON_TLS_ISSUER`, `TOON_HSTS_MAX_AGE` | in dieser `.env` | in `/opt/toon-edge/.env` |
+> | Netzwerk | projekteigenes `toon` | externes `toon-edge`, Alias `recipe-app` |
+> | `toon-deploy sync-config` | holt compose **und** Caddyfile | holt nur die compose-Datei |
+>
+> **Voraussetzung für jeden Start:** `docker network create toon-edge` (einmal pro Maschine).
+> Die Abschnitte unten sind noch nicht überall auf diesen Stand gebracht — wo sie einen
+> `caddy`-Service in *diesem* Stack beschreiben, gilt die toon-edge-README.
+
 ## Was hier läuft
 
 ```
@@ -57,9 +84,11 @@ aus — das ist der Standard und der Grund, warum die App auf diese Klasse passt
               │  https://rezepte.example.org
               ▼
     ┌─────────────────────┐
-    │ caddy               │  TLS (Let's Encrypt), 80 + 443
+    │ caddy   (toon-edge) │  TLS (Let's Encrypt), 80 + 443
+    │ EIGENER STACK       │  /opt/toon-edge, geteilt mit allen Apps
     └──────────┬──────────┘
-               │ http, nur im Docker-Netz
+               │ http, über das externe Netz `toon-edge`
+               │ Upstream-Alias: recipe-app:3001
     ┌──────────▼──────────┐   SMTP oder HTTPS   ┌──────────────────────┐
     │ app                 │ ··················► │ Mailanbieter         │
     │ API + PWA, ein Port │                     │ optional, Schritt 10 │
@@ -345,8 +374,14 @@ sed -i "s|^SESSION_SECRET=.*|SESSION_SECRET=$(openssl rand -hex 32)|" .env
 chmod 600 .env
 
 curl -fsSLO https://raw.githubusercontent.com/Toonvish/toon-recipe/main/docker-compose.yml
-curl -fsSL  https://raw.githubusercontent.com/Toonvish/toon-recipe/main/docker/Caddyfile \
-     -o docker/Caddyfile
+```
+
+Es gibt **keinen Caddyfile mehr in diesem Repo** — der Proxy wird nach der README von `toon-edge`
+eingerichtet. Ohne ihn hat dieser Stack nichts, was TLS terminiert, und ohne das externe Netz
+startet er gar nicht:
+
+```bash
+docker network create toon-edge      # einmal pro Maschine
 ```
 
 `TOON_HOSTNAME` und `MAIL_FROM` noch auf die echten Werte setzen. Die kommentierte Vorlage mit allen
@@ -596,8 +631,9 @@ Freigabe.
 **Testen**: Actions → **Release** → *Run workflow* → Haken bei *Nach dem Build auf den Server
 deployen*. Der Job zeigt am Ende `app ist healthy` und `docker compose ps`.
 
-> **`docker-compose.yml` und `docker/Caddyfile` kommen dabei nicht mit.** Der Schlüssel kann keine
-> Dateien kopieren, und das ist Absicht: eine Compose- oder Caddy-Änderung ist eine
+> **Die `docker-compose.yml` kommt dabei nicht mit** (und ein Caddyfile gibt es hier nicht mehr —
+> der liegt in `/opt/toon-edge` und wird von Hand gepflegt). Der Schlüssel kann keine
+> Dateien kopieren, und das ist Absicht: eine Compose-Änderung ist eine
 > Konfigurationsänderung und soll niemandem beiläufig passieren. Wenn sich die beiden im Repo
 > geändert haben, einmal `toon-deploy sync-config` auf dem Server (oder die `curl`-Befehle aus
 > [Update](#update)) — das nächste Deploy übernimmt sie dann.
@@ -641,15 +677,14 @@ cd /opt/toon-recipe && docker compose pull && docker compose up -d --remove-orph
 docker compose ps                     # app soll "healthy" sein
 ```
 
-Wenn sich `docker-compose.yml` oder `docker/Caddyfile` im Repo geändert haben, neu holen — der
-Server bekommt sie in **keinem** der beiden Fälle von selbst, auch nicht per Auto-Deploy
-(`toon-deploy sync-config` macht genau das Folgende):
+Wenn sich die `docker-compose.yml` im Repo geändert hat, neu holen — der Server bekommt sie in
+**keinem** Fall von selbst, auch nicht per Auto-Deploy (`toon-deploy sync-config` macht genau das
+Folgende). Der Caddyfile gehört nicht mehr hierher: er liegt in `/opt/toon-edge` und wird dort von
+Hand gepflegt.
 
 ```bash
 cd /opt/toon-recipe
 curl -fsSLO https://raw.githubusercontent.com/Toonvish/toon-recipe/main/docker-compose.yml
-curl -fsSL  https://raw.githubusercontent.com/Toonvish/toon-recipe/main/docker/Caddyfile \
-     -o docker/Caddyfile
 ```
 
 `TOON_IMAGE` in der `.env` entscheidet, *was* gezogen wird. Steht dort `:latest`, holt `pull` den
@@ -763,23 +798,22 @@ echtem Relay hat es nichts zu suchen.
 
 ## Caddy aktualisieren
 
-Caddy ist in der `docker-compose.yml` **auf eine Version festgenagelt** und wandert deshalb bei
-einem `docker compose pull` nicht mit. Das ist Absicht: ein gleitendes `caddy:2-alpine` kann die
-TLS-Terminierung unter einer laufenden Installation austauschen, und wenn dabei etwas schiefgeht,
-ist die Seite weg, über die du den Server erreichst. Sicherheitsupdates muss man dafür selbst
-einspielen — ein bis zwei Mal im Jahr nachsehen genügt:
+**Das passiert jetzt im `toon-edge`-Stack, nicht hier** — dort steht auch die vollständige
+Anleitung. Kurzfassung, weil sich das Prinzip nicht geändert hat: Caddy ist auf eine Version
+festgenagelt und wandert bei einem `docker compose pull` nicht mit. Das ist Absicht — ein
+gleitendes `caddy:2-alpine` kann die TLS-Terminierung unter einer laufenden Installation
+austauschen, und wenn dabei etwas schiefgeht, ist die Seite weg, über die du den Server
+erreichst. **Auf einem geteilten Server sind es jetzt ALLE Seiten**, was den Punkt eher schärfer
+macht.
 
 ```bash
 curl -s https://api.github.com/repos/caddyserver/caddy/releases/latest  | grep '"tag_name"'
-```
 
-Dann die `image:`-Zeile in `docker-compose.yml` im Repo anpassen, pushen und die Datei auf dem
-Server neu holen (siehe [Update](#update)). Vorher lokal gegenprüfen:
-
-```bash
-docker run --rm -v "$PWD/docker/Caddyfile:/etc/caddy/Caddyfile:ro" \
-  -e TOON_HOSTNAME=rezepte.test caddy:<neue-version>-alpine \
-  caddy validate --config /etc/caddy/Caddyfile
+cd /opt/toon-edge
+nano docker-compose.yml           # image: caddy:<neue-version>-alpine
+docker compose run --rm --no-deps --entrypoint caddy caddy \
+  validate --config /etc/caddy/Caddyfile
+docker compose up -d
 ```
 
 Die Bun-Version steht an einer Stelle: `ARG BUN_VERSION` im `Dockerfile`, plus `.bun-version` für

@@ -7,9 +7,22 @@
 # For the default setup — a small VPS with a domain — only TOON_HOSTNAME,
 # SESSION_SECRET and the mail relay need a value.
 #
-# TWO SERVICES, AND NO API KEY REQUIRED BETWEEN THEM:
+# ONE SERVICE, AND NO API KEY REQUIRED ANYWHERE:
 #   app      the API + the PWA, one origin, one port (see Dockerfile)
-#   caddy    TLS termination, so the PWA gets the secure context it needs
+#
+# TLS TERMINATION IS NOT IN THIS FILE ANY MORE. It moved to the `toon-edge` stack
+# (/opt/toon-edge), a single shared Caddy that owns ports 80/443 for every toon app
+# on the host and routes by hostname. This stack used to ship its own Caddy, which
+# works for exactly one app per machine: the second app's `docker compose up -d`
+# dies with "port is already allocated". Nothing about the app changed — it still
+# serves its own `/` on its own hostname; only the proxy is shared.
+#
+# THIS STACK THEREFORE NEEDS THE SHARED NETWORK TO EXIST FIRST:
+#
+#     docker network create toon-edge     # once per machine
+#
+# and `TOON_TLS_ISSUER` / `TOON_HSTS_MAX_AGE` now live in /opt/toon-edge/.env,
+# not here. See the toon-edge README for the full runbook.
 #
 # Mail is the one thing with a choice to make, and with NO mail values set the app
 # logs every reset/invite link instead of sending it (the ConsoleMailer) — a
@@ -123,7 +136,15 @@ services:
     expose:
       - "3001"
     networks:
-      - toon
+      # `recipe-app` IS LOAD-BEARING, not decoration. toon-finance also calls its
+      # service `app`, and compose registers the SERVICE NAME as an alias on every
+      # network a container joins — so on the shared edge network two containers
+      # would answer to `app` and Caddy would round-robin between the recipe and
+      # the finance app. It fails silently: the page loads, every other request
+      # comes from the wrong application. The alias is what the Caddyfile targets.
+      edge:
+        aliases:
+          - recipe-app
     # Without photo/PDF import this container is Bun, a libSQL file and the static
     # PWA — a few hundred MB is plenty, and a limit below the machine's RAM is what
     # keeps a runaway request from taking the Docker daemon with it. With OCR on,
@@ -136,53 +157,17 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  caddy:
-    # Pinned rather than `2-alpine`: a floating tag means `docker compose pull`
-    # can change the TLS terminator underneath a running install, and the symptom
-    # of a bad Caddy release is "the whole site is gone", on a machine you reach
-    # over that same site. Bump deliberately.
-    image: caddy:2.11.4-alpine
-    restart: unless-stopped
-    environment:
-      TOON_HOSTNAME: ${TOON_HOSTNAME:?TOON_HOSTNAME fehlt - siehe docker/env.example}
-      # `acme` (default) = a real Let's Encrypt certificate, needs a public
-      # hostname and ports 80/443. `internal` = Caddy's local CA for a LAN box or
-      # a local test, and then TOON_HSTS_MAX_AGE=0 belongs with it.
-      TOON_TLS_ISSUER: ${TOON_TLS_ISSUER:-acme}
-      TOON_HSTS_MAX_AGE: ${TOON_HSTS_MAX_AGE:-31536000}
-    ports:
-      - "80:80"
-      - "443:443"
-      # HTTP/3. Caddy has QUIC on by default and advertises it on every response
-      # (`alt-svc: h3=":443"`) — but QUIC is UDP, and a bare "443:443" publishes
-      # TCP only. Without this line every browser wastes a doomed UDP probe per
-      # session before falling back to h2. A host firewall that drops UDP 443
-      # degrades to exactly that fallback, nothing worse.
-      - "443:443/udp"
-    volumes:
-      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
-      # caddy-data holds the ACME account and certificates — and in `internal`
-      # mode the local CA INCLUDING ITS PRIVATE KEY. Losing it there means a new
-      # CA, which means re-installing the root certificate on every phone. Keep it
-      # out of any backup you would share.
-      - caddy-data:/data
-      - caddy-config:/config
-    networks:
-      - toon
-    logging: *logging
-
-  # There is deliberately no local SMTP sink here any more. If you ever add one
-  # back to look at outgoing mail on a test box, publish it as
-  # "127.0.0.1:8025:8025" and NEVER on a public or LAN address: its UI shows every
-  # password-reset and invite link, so whoever can open it can take over any
-  # account. Note that `ufw` does not protect a published container port — the
-  # loopback address in the `ports:` entry is the actual control.
-
 networks:
-  toon:
-    driver: bridge
+  # EXTERNAL, and created by hand once (`docker network create toon-edge`). It is
+  # shared with the toon-edge proxy and every other toon app on the host, so it
+  # belongs to none of them: that way `docker compose down` here never tries to
+  # tear down a network the other stacks are still using.
+  edge:
+    external: true
+    name: toon-edge
 
 volumes:
+  # The database and the uploads. THIS is the volume to back up — see
+  # docs/deployment.md. caddy-data/caddy-config are gone from this stack; the
+  # certificates live in the toon-edge project now.
   toon-data:
-  caddy-data:
-  caddy-config:
