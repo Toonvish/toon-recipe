@@ -10,13 +10,21 @@ import { NAV_ITEMS } from "./nav-items";
  * Tabs share the width via `flex-1` and their labels truncate rather than wrap — a
  * wrapped label would make one tab taller than its neighbours. See {@link NAV_ITEMS} for
  * why there are four and what moved elsewhere.
+ *
+ * Ground and border follow the sidebar (`bg-bg-sunken` / `border-surface-2`), the same
+ * two values, so the two chrome pieces read as one system. `backdrop-blur-md` is
+ * dropped: it only ever mattered because the old ground was translucent, and an opaque
+ * `--bg-sunken` bar needs none. `data-app-shell` makes `print.css`'s
+ * `nav[data-app-shell]` rule actually match this element (it never matched anything
+ * before the redesign).
  */
 export function BottomTabBar() {
   const t = useT();
   return (
     <nav
+      data-app-shell
       aria-label={t("ui.nav.mainNavLabel")}
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 pb-safe backdrop-blur-md lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-surface-2 bg-bg-sunken pb-safe lg:hidden"
     >
       <ul className="flex items-stretch justify-around px-safe">
         {NAV_ITEMS.map((item) => (
@@ -24,14 +32,14 @@ export function BottomTabBar() {
             <Link
               to={item.to}
               activeOptions={{ exact: item.exact }}
-              className="group flex h-tabbar flex-col items-center justify-center gap-1 px-0.5 text-fg-muted transition-colors duration-150"
-              activeProps={{ className: "text-brand", "aria-current": "page" }}
+              className="group flex h-tabbar flex-col items-center justify-center gap-1 px-0.5 text-fg-subtle transition-colors duration-150"
+              activeProps={{ className: "text-brand-soft-fg", "aria-current": "page" }}
             >
               {({ isActive }) => (
                 <>
                   <span
                     className={cn(
-                      "flex h-7 w-10 items-center justify-center rounded-full transition-colors duration-150",
+                      "flex h-7 w-11 items-center justify-center rounded-full transition-colors duration-150",
                       isActive && "bg-brand-soft",
                     )}
                   >

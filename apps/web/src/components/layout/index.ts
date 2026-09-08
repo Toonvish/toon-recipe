@@ -6,6 +6,6 @@ export { InstallPrompt } from "./InstallPrompt";
 export { Logo, type LogoProps } from "./Logo";
 export { NotFoundPage } from "./NotFoundPage";
 export { OfflineBanner } from "./OfflineBanner";
+export { PhoneHeaderRow } from "./PhoneHeaderRow";
 export { SideNav } from "./SideNav";
-export { TopBar } from "./TopBar";
 export { NAV_ITEMS, SECONDARY_NAV_ITEMS, type NavItem } from "./nav-items";

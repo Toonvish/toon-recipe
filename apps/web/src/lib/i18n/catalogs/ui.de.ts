@@ -54,13 +54,8 @@ export const uiDe = {
   // items AND that <nav>'s own aria-label. One key, two slots, one sentence.
   "ui.nav.organiseLabel": "Organisieren",
 
-  /* -------------------------------- TopBar.tsx ------------------------------ */
-  "ui.topbar.searchRecipes": "Rezepte suchen",
-  "ui.topbar.newRecipe": "Rezept anlegen",
-
   /* -------------------------------- SideNav.tsx ------------------------------ */
   "ui.sidenav.newRecipe": "Neues Rezept",
-  "ui.sidenav.logout": "Abmelden",
 
   /* ----------------------------- OfflineBanner.tsx --------------------------- */
   "ui.offlineBanner.message":

@@ -10,13 +10,29 @@
  * from inside it, so it reads the ambient locale directly rather than using
  * `useT()`/`useLocale()` (see docs/i18n.md §7 for the two-entry-point rule).
  */
-import { formatDuration, formatServings, INTL_LOCALE, type Locale, type Servings } from "@toon/shared";
+import {
+  formatDuration,
+  formatServings,
+  INTL_LOCALE,
+  isPlanDate,
+  planDateToDate,
+  type Locale,
+  type Servings,
+} from "@toon/shared";
 import { getLocale, translate } from "@/lib/i18n/store.ts";
 
 interface Formatters {
   date: Intl.DateTimeFormat;
   dateTime: Intl.DateTimeFormat;
   relative: Intl.RelativeTimeFormat;
+  /** The short relative style ("vor 10 Min." / "10 min ago") — see `formatRelativeShort`. */
+  relativeShort: Intl.RelativeTimeFormat;
+  /** The day-card eyebrow's weekday — see `formatWeekdayShort`. */
+  weekdayShort: Intl.DateTimeFormat;
+  /** The day-card eyebrow's day number — see `formatDayOfMonth`. */
+  dayOfMonth: Intl.DateTimeFormat;
+  /** The history panel's day header — see `formatShortWeekdayDate`. */
+  shortWeekdayDate: Intl.DateTimeFormat;
 }
 
 const cache = new Map<Locale, Formatters>();
@@ -32,6 +48,15 @@ function build(intlLocale: string): Formatters {
       minute: "2-digit",
     }),
     relative: new Intl.RelativeTimeFormat(intlLocale, { numeric: "auto" }),
+    // "short", never "narrow" — narrow German renders minutes as "vor 10 m", unreadable.
+    relativeShort: new Intl.RelativeTimeFormat(intlLocale, { numeric: "auto", style: "short" }),
+    weekdayShort: new Intl.DateTimeFormat(intlLocale, { weekday: "short" }),
+    dayOfMonth: new Intl.DateTimeFormat(intlLocale, { day: "numeric" }),
+    shortWeekdayDate: new Intl.DateTimeFormat(intlLocale, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    }),
   };
 }
 
@@ -61,31 +86,88 @@ export function formatDateTime(iso: string | null | undefined): string {
   return formatters().dateTime.format(date);
 }
 
-/** "vor 3 Tagen" / "gerade eben" ("de"); "3 days ago" / "just now" ("en") */
-export function formatRelative(iso: string | null | undefined): string {
+const RELATIVE_STEPS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+  ["minute", 60],
+  ["hour", 3600],
+  ["day", 86_400],
+  ["week", 604_800],
+  ["month", 2_629_800],
+  ["year", 31_557_600],
+];
+
+/**
+ * Shared by `formatRelative` and `formatRelativeShort`: parses `iso`, applies the
+ * `< 45 s -> justNow` / nullish-or-`NaN` -> dash guards, and picks the coarsest unit
+ * the elapsed time clears — everything except which `Intl.RelativeTimeFormat`
+ * instance renders the final number, which the caller supplies.
+ */
+function relativeParts(iso: string | null | undefined): { value: number; unit: Intl.RelativeTimeFormatUnit } | string {
   if (!iso) return translate("ui.common.dash");
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return translate("ui.common.dash");
   const diffSeconds = (date.getTime() - Date.now()) / 1000;
   const absolute = Math.abs(diffSeconds);
   if (absolute < 45) return translate("ui.time.justNow");
-  const steps: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-    ["minute", 60],
-    ["hour", 3600],
-    ["day", 86_400],
-    ["week", 604_800],
-    ["month", 2_629_800],
-    ["year", 31_557_600],
-  ];
   let unit: Intl.RelativeTimeFormatUnit = "minute";
   let divisor = 60;
-  for (const [candidateUnit, candidateDivisor] of steps) {
+  for (const [candidateUnit, candidateDivisor] of RELATIVE_STEPS) {
     if (absolute >= candidateDivisor) {
       unit = candidateUnit;
       divisor = candidateDivisor;
     }
   }
-  return formatters().relative.format(Math.round(diffSeconds / divisor), unit);
+  return { value: Math.round(diffSeconds / divisor), unit };
+}
+
+/** "vor 3 Tagen" / "gerade eben" ("de"); "3 days ago" / "just now" ("en") */
+export function formatRelative(iso: string | null | undefined): string {
+  const parts = relativeParts(iso);
+  if (typeof parts === "string") return parts;
+  return formatters().relative.format(parts.value, parts.unit);
+}
+
+/**
+ * "vor 10 Min." / "vor 2 Std." ("de"); "10 min ago" / "2 hr ago" ("en") — the compact
+ * style for bought rows and the phone stat grid. `style: "short"`, never `"narrow"`:
+ * narrow German renders minutes as "vor 10 m", which is unreadable.
+ */
+export function formatRelativeShort(iso: string | null | undefined): string {
+  const parts = relativeParts(iso);
+  if (typeof parts === "string") return parts;
+  return formatters().relativeShort.format(parts.value, parts.unit);
+}
+
+/**
+ * A bare `PlanDate` ("YYYY-MM-DD") parses as UTC midnight, which renders as the
+ * PREVIOUS day in every timezone west of Greenwich — the same trap `calendar.ts`'s
+ * `planDateToDate()` exists to avoid. The three weekday/day formatters below take
+ * either a `PlanDate` or a full ISO instant (i18n-keys.md §3.3 passes
+ * `formatShortWeekdayDate` a plain day key), so they route through here instead of
+ * `new Date(iso)` directly.
+ */
+function toDate(iso: string): Date {
+  return isPlanDate(iso) ? planDateToDate(iso) : new Date(iso);
+}
+
+/** "So" ("de") / "Sun" ("en") — the day-card eyebrow's weekday. */
+export function formatWeekdayShort(iso: string): string {
+  const date = toDate(iso);
+  if (Number.isNaN(date.getTime())) return translate("ui.common.dash");
+  return formatters().weekdayShort.format(date);
+}
+
+/** "30" — the day-card eyebrow's day number, no separator. */
+export function formatDayOfMonth(iso: string): string {
+  const date = toDate(iso);
+  if (Number.isNaN(date.getTime())) return translate("ui.common.dash");
+  return formatters().dayOfMonth.format(date);
+}
+
+/** "So., 30. Aug." ("de") / "Sun 30 Aug" ("en") — the history panel's day header. */
+export function formatShortWeekdayDate(iso: string): string {
+  const date = toDate(iso);
+  if (Number.isNaN(date.getTime())) return translate("ui.common.dash");
+  return formatters().shortWeekdayDate.format(date);
 }
 
 /** "1 Std. 15 Min." ("de") / "1 hr 15 min" ("en") — thin wrapper so components don't import @toon/shared directly. */

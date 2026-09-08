@@ -1,17 +1,23 @@
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Check, ChevronDown, Plus, Users } from "lucide-react";
+import { Check, ChevronDown, Plus } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
 import { useActiveGroup } from "@/lib/session";
+import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { ROLE_LABEL_KEYS } from "./lib/roleLabels";
 
 export interface GroupSwitcherProps {
-  /** `bar` = compact trigger for the top bar, `block` = full-width for the sidebar. */
-  variant?: "bar" | "block";
+  /**
+   * `chip` = the artboards' quiet inline chip (a 22px initials tile, a truncating
+   * name and a chevron, in a 44px hit target) — the top bar's default. `block` =
+   * the bordered full-width button for the sidebar, with a 28px tile and the
+   * two-line name/summary stack.
+   */
+  variant?: "chip" | "block";
   className?: string;
 }
 
@@ -19,7 +25,7 @@ export interface GroupSwitcherProps {
  * Active-group switcher. Everything group-scoped (recipes, tags, collections,
  * imports) follows this selection, which is persisted per device.
  */
-export function GroupSwitcher({ variant = "bar", className }: GroupSwitcherProps) {
+export function GroupSwitcher({ variant = "chip", className }: GroupSwitcherProps) {
   const t = useT();
   const { group, groups, groupId, setActiveGroup } = useActiveGroup();
   const [open, setOpen] = useState(false);
@@ -40,12 +46,12 @@ export function GroupSwitcher({ variant = "bar", className }: GroupSwitcherProps
           className,
         )}
       >
-        <span
-          aria-hidden="true"
-          className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand-soft-fg"
-        >
-          <Users className="size-4" />
-        </span>
+        <Avatar
+          name={group?.name}
+          shape="square"
+          tone="brand"
+          size={variant === "block" ? "xs" : "2xs"}
+        />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-semibold text-fg">{label}</span>
           {variant === "block" && group ? (

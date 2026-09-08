@@ -40,11 +40,7 @@ export const uiEn: LocaleCatalog<UiCatalog> = {
   "ui.nav.planNewBadge": "New",
   "ui.nav.organiseLabel": "Organise",
 
-  "ui.topbar.searchRecipes": "Search recipes",
-  "ui.topbar.newRecipe": "Add recipe",
-
   "ui.sidenav.newRecipe": "New recipe",
-  "ui.sidenav.logout": "Sign out",
 
   "ui.offlineBanner.message":
     "Offline – saved recipes are visible, changes can only be saved again once you are back online.",
