@@ -41,6 +41,16 @@
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" sizes="180x180" />
     <link rel="mask-icon" href="/favicon.svg" color="#c2532c" />
 
+    <!--
+      Preload only the two LATIN files. `crossorigin` is required even for a same-origin
+      font or the preload is fetched twice (once anonymously for the preload, once with
+      the CORS mode the CSS font fetch uses). latin-ext is deliberately NOT preloaded: it
+      only matters once a non-Latin-1 character appears, and preloading it would spend
+      ~11 KB of the critical path on most sessions for nothing.
+    -->
+    <link rel="preload" href="/fonts/figtree-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/newsreader-500-latin.woff2" as="font" type="font/woff2" crossorigin />
+
     <script>
       // Apply the saved colour scheme before the first paint (no flash of light UI).
       try {

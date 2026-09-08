@@ -24,7 +24,7 @@
  * amount at all, and adding it to another unknown stays unknown.
  */
 import { roundQuantity } from "./numbers.ts";
-import { nameKey } from "./text.ts";
+import { foldText, nameKey } from "./text.ts";
 import {
   NON_SCALING_UNITS,
   areUnitsCompatible,
@@ -278,4 +278,56 @@ export function formatShoppingAmount(
  */
 export function isVagueAmount(amount: ShoppingAmount): boolean {
   return amount.unit !== null && NON_SCALING_UNITS.includes(normalizeUnit(amount.unit));
+}
+
+/* -------------------------------------------------------------------------- */
+/* progress + frequently bought                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The shopping-trip progress bar (artboards 1c/1g): share of THIS TRIP that is done.
+ *
+ * Denominator is `toBuy + bought`, not a lifetime total — `4` bought against `10`
+ * still to buy is 29 %, which is what the design draws, and `Clear bought` therefore
+ * honestly resets the bar to 0 % rather than freezing it at a historical number.
+ * Returns an integer 0–100; 0 when there is nothing on the list at all, and the UI
+ * hides the bar in that case rather than drawing an empty one.
+ */
+export function shoppingProgressPercent(toBuy: number, bought: number): number {
+  const total = toBuy + bought;
+  if (total <= 0) return 0;
+  return Math.round((bought / total) * 100);
+}
+
+/** How many chips the rail and the phone chip row show (artboards 1d/1h). */
+export const FREQUENT_CHIP_COUNT = 8;
+
+/**
+ * STEP 1 — SELECTION. Which entries make the chip row: the most-bought ones.
+ * Ranks by `useCount` desc, then `lastUsedAt` desc (the same order the API returns,
+ * re-applied here so the function is correct on any input), and takes `limit`.
+ * Says nothing about display order — see {@link sortEntriesByFoldedName} for that.
+ */
+export function selectMostBoughtEntries<T extends { useCount: number; lastUsedAt: string }>(
+  entries: readonly T[],
+  limit: number = FREQUENT_CHIP_COUNT,
+): T[] {
+  return [...entries]
+    .sort((a, b) => b.useCount - a.useCount || b.lastUsedAt.localeCompare(a.lastUsedAt))
+    .slice(0, limit);
+}
+
+/**
+ * STEP 2 — DISPLAY ORDER. Alphabetical by German folded name, so "Äpfel" sits under
+ * A and not after Z: `foldText()` first (the app's single definition of "same word"),
+ * then `localeCompare` on the FOLDED strings, then the raw name as a stable tiebreak.
+ * Never `localeCompare` alone (an unfolded compare sorts `Ä` after `Z`), and never a
+ * `foldSql()` ORDER BY — the parser overflows past 30 nested `replace()` calls and the
+ * table is deliberately half-finished (see FOLD_PAIRS in ./text.ts). This runs
+ * client-side over an already-ranked, already-small array; no fold is added in SQL.
+ */
+export function sortEntriesByFoldedName<T extends { name: string }>(entries: readonly T[]): T[] {
+  return [...entries].sort(
+    (a, b) => foldText(a.name).localeCompare(foldText(b.name)) || a.name.localeCompare(b.name),
+  );
 }

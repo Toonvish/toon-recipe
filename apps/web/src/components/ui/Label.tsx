@@ -12,7 +12,7 @@ export interface LabelProps extends LabelHTMLAttributes<HTMLLabelElement> {
 export function Label({ optional, required, className, children, ...rest }: LabelProps) {
   const t = useT();
   return (
-    <label className={cn("block text-sm font-medium text-fg", className)} {...rest}>
+    <label className={cn("block text-control font-medium text-fg", className)} {...rest}>
       {children}
       {required ? (
         <span aria-hidden="true" className="ml-0.5 text-danger">

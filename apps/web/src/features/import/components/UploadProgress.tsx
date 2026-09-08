@@ -1,8 +1,16 @@
 /**
  * Real upload progress (fed by XHR upload events), plus the file it belongs to.
+ *
+ * The determinate bar is the shared `ProgressBar` (`@/components/ui`) — imported
+ * directly, not through `features/import/lib/shell.tsx`, which is a typing seam onto
+ * the UI primitives and must never gain a second implementation (CLAUDE.md). The
+ * indeterminate case (re-encoding before the upload has a real fraction) stays a plain
+ * pulsing bar of our own: `ProgressBar` has no indeterminate mode, and inventing one
+ * there for this single caller isn't worth the API surface.
  */
 import clsx from "clsx";
 import { FileText, Image as ImageIcon } from "lucide-react";
+import { ProgressBar } from "@/components/ui";
 import { useT } from "@/lib/i18n";
 import { formatBytes } from "../lib/image";
 
@@ -46,22 +54,17 @@ export function UploadProgress({
           {label ?? (indeterminate ? "" : `${percent} %`)}
         </span>
       </div>
-      <div
-        className="h-2 w-full overflow-hidden rounded-full bg-skeleton"
-        role="progressbar"
-        aria-label={t("import.upload.ariaLabel")}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={indeterminate ? undefined : percent}
-      >
+      {indeterminate ? (
         <div
-          className={clsx(
-            "h-full rounded-full bg-brand transition-[width] duration-200 ease-out",
-            indeterminate && "animate-pulse",
-          )}
-          style={{ width: indeterminate ? "100%" : `${percent}%` }}
-        />
-      </div>
+          role="progressbar"
+          aria-label={t("import.upload.ariaLabel")}
+          className="h-2 w-full overflow-hidden rounded-full bg-surface-2"
+        >
+          <div className="h-full w-full animate-pulse rounded-full bg-brand" />
+        </div>
+      ) : (
+        <ProgressBar value={percent} label={t("import.upload.ariaLabel")} tone="brand" />
+      )}
     </div>
   );
 }

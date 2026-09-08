@@ -2,29 +2,45 @@ import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { Spinner } from "./Spinner";
 
-export type ButtonVariant = "primary" | "secondary" | "outline" | "ghost" | "danger" | "accent";
+export type ButtonVariant =
+  | "primary"
+  | "secondary"
+  | "outline"
+  | "ghost"
+  | "danger"
+  | "accent"
+  | "success"
+  | "dashed";
 export type ButtonSize = "sm" | "md" | "lg";
 
 const base =
-  "relative inline-flex select-none items-center justify-center gap-2 rounded-xl font-medium " +
+  "relative inline-flex select-none items-center justify-center gap-2 rounded-control " +
   "transition-[background-color,border-color,color,box-shadow,transform] duration-150 " +
   "active:scale-[0.985] disabled:pointer-events-none disabled:opacity-55 " +
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 
+/** The design paints every filled button at 700 weight; quiet ones stay 600. */
 const variants: Record<ButtonVariant, string> = {
-  primary: "bg-brand text-brand-fg shadow-soft hover:bg-brand-hover",
-  secondary: "bg-surface-2 text-fg hover:bg-line",
-  outline: "border border-line-strong bg-surface text-fg hover:bg-surface-2",
-  ghost: "text-fg hover:bg-surface-2",
-  danger: "bg-danger text-danger-fg shadow-soft hover:bg-danger-hover",
-  accent: "bg-accent text-[#241d18] shadow-soft hover:brightness-105",
+  primary: "bg-brand text-brand-fg font-bold hover:bg-brand-hover",
+  secondary: "bg-surface-2 text-fg font-semibold hover:bg-line",
+  outline: "border border-line-strong bg-surface text-fg font-semibold hover:bg-surface-2",
+  ghost: "text-fg font-semibold hover:bg-surface-2",
+  danger: "bg-danger text-danger-fg font-bold hover:bg-danger-hover",
+  accent: "bg-accent text-[#241d18] font-bold hover:brightness-105",
+  success: "border border-success/40 bg-success-soft text-success-soft-fg font-semibold hover:border-success",
+  dashed:
+    "border border-dashed border-line-strong bg-transparent text-fg-muted font-semibold hover:border-brand hover:text-fg",
 };
 
-/** Every size keeps a >=44px touch target except `sm`, which is for dense toolbars. */
+/**
+ * Every size keeps a >=44px touch target except `sm`, which is for dense toolbars —
+ * the design's 38px desktop toolbar buttons use `size="sm"`, its 40/42px buttons round
+ * up to the 44/52px floor `md`/`lg` already sit at.
+ */
 const sizes: Record<ButtonSize, string> = {
-  sm: "min-h-9 px-3 text-sm",
-  md: "min-h-11 px-4 text-[0.95rem]",
-  lg: "min-h-13 px-5 text-base",
+  sm: "min-h-9 px-3 text-control",
+  md: "min-h-11 px-4 text-control",
+  lg: "min-h-13 px-5 text-sm",
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

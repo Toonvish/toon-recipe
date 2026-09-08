@@ -1,12 +1,17 @@
 /**
  * Servings stepper. Scaling itself happens with `scaleIngredients` from @toon/shared
  * (same function the API uses), so client and server always agree.
+ *
+ * The `− value +` frame is `Stepper` (`@/components/ui`) — this component keeps every
+ * piece of its own semantics on top of it: the halves-below-4 `step()`, the `clamp()`,
+ * `formatQuantity`, the noun resolution and the reset-to-base button. `packages/shared`'s
+ * `scaleIngredients` stays the single source of the scaling arithmetic (CLAUDE.md).
  */
-import { useId } from "react";
-import { Minus, Plus, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import { formatQuantity } from "@toon/shared";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
+import { Stepper, type StepperSize } from "@/components/ui/Stepper";
 
 export interface ServingsScalerProps {
   /** Current servings shown. */
@@ -15,6 +20,8 @@ export interface ServingsScalerProps {
   baseValue: number;
   unit?: string | null;
   onChange: (value: number) => void;
+  /** `sm` (recipe detail page, desktop) / `md` (the "zur Einkaufsliste" dialog, phone). */
+  size?: StepperSize;
   className?: string;
 }
 
@@ -32,47 +39,27 @@ export function ServingsScaler({
   baseValue,
   unit,
   onChange,
+  size = "sm",
   className,
 }: ServingsScalerProps) {
   const t = useT();
-  // A generated id, not a constant: two scalers can be on screen at once (the recipe
-  // page plus the "zur Einkaufsliste" dialog), and a duplicate id breaks both labels.
-  const labelId = useId();
   const noun = typeof unit === "string" && unit.trim().length > 0 ? unit.trim() : t("ui.servings.defaultUnit");
   const changed = Math.abs(value - baseValue) > 0.001;
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      <span id={labelId} className="sr-only">
-        {t("recipes.scaler.srLabel", { noun })}
-      </span>
-      <div className="inline-flex items-center rounded-full border border-line bg-surface shadow-soft">
-        <button
-          type="button"
-          className="tap flex items-center justify-center rounded-l-full px-3 text-fg-muted hover:text-fg disabled:opacity-40"
-          onClick={() => onChange(clamp(value - step(value)))}
-          disabled={value <= 0.5}
-          aria-label={t("recipes.scaler.decreaseAction", { noun })}
-        >
-          <Minus aria-hidden="true" className="size-5" />
-        </button>
-        <output
-          aria-live="polite"
-          aria-labelledby={labelId}
-          className="min-w-24 px-1 text-center font-medium tabular-nums text-fg"
-        >
-          {formatQuantity(value)} {noun}
-        </output>
-        <button
-          type="button"
-          className="tap flex items-center justify-center rounded-r-full px-3 text-fg-muted hover:text-fg disabled:opacity-40"
-          onClick={() => onChange(clamp(value + step(value)))}
-          disabled={value >= 1000}
-          aria-label={t("recipes.scaler.increaseAction", { noun })}
-        >
-          <Plus aria-hidden="true" className="size-5" />
-        </button>
-      </div>
+      <Stepper
+        value={value}
+        onChange={(next) => onChange(clamp(next))}
+        min={0.5}
+        max={1000}
+        step={step}
+        format={(v) => `${formatQuantity(v)} ${noun}`}
+        decreaseLabel={t("recipes.scaler.decreaseAction", { noun })}
+        increaseLabel={t("recipes.scaler.increaseAction", { noun })}
+        srLabel={t("recipes.scaler.srLabel", { noun })}
+        size={size}
+      />
       {changed ? (
         <button
           type="button"

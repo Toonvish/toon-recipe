@@ -15,8 +15,8 @@ import { FieldShell, useControlAria } from "./Field";
  * minimum to zero so the container decides the width, which is what `w-full` implies.
  */
 export const controlClasses =
-  "w-full min-w-0 rounded-xl border border-line bg-surface px-3.5 py-2.5 text-fg " +
-  "placeholder:text-fg-subtle shadow-soft transition-colors duration-150 " +
+  "w-full min-w-0 rounded-xl border border-line bg-surface px-3.5 py-2.5 text-base text-fg " +
+  "placeholder:text-fg-subtle transition-colors duration-150 " +
   "focus:border-brand focus:outline-2 focus:outline-offset-0 focus:outline-brand/40 " +
   "disabled:cursor-not-allowed disabled:opacity-60 " +
   "aria-[invalid=true]:border-danger aria-[invalid=true]:focus:outline-danger/40";
@@ -30,6 +30,13 @@ export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
   leftIcon?: ReactNode;
   /** Element rendered inside the field on the right (e.g. a unit). */
   rightSlot?: ReactNode;
+  /**
+   * `md` (default) is today's `min-h-11` field. `lg` is `min-h-13`, for the
+   * design's 52/54px add bar and search field — `rightSlot`'s own padding
+   * follows this so a `--brand` submit block inside the field never overlaps
+   * the text.
+   */
+  size?: "md" | "lg";
   className?: string;
   /** Class list for the outer wrapper. */
   containerClassName?: string;
@@ -43,6 +50,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     optional,
     leftIcon,
     rightSlot,
+    size = "md",
     className,
     containerClassName,
     id: idProp,
@@ -80,9 +88,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           {...aria}
           className={cn(
             controlClasses,
-            "min-h-11",
+            size === "lg" ? "min-h-13" : "min-h-11",
             leftIcon && "pl-11",
-            rightSlot && "pr-11",
+            rightSlot && (size === "lg" ? "pr-14" : "pr-11"),
             className,
           )}
           {...rest}

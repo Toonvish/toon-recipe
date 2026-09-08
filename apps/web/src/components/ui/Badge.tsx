@@ -15,8 +15,13 @@ const variants: Record<BadgeVariant, string> = {
 };
 
 const sizes: Record<BadgeSize, string> = {
-  sm: "px-2 py-0.5 text-[0.7rem]",
-  md: "px-2.5 py-1 text-xs",
+  // `sm` used to be a raw `text-[0.7rem]` — T10.2's grep gate for arbitrary text sizes
+  // treats every `text-[...]` as a mistake except the deliberate avatar-initial ones,
+  // so this drops to the nearest real step (`text-xs`, 12px) instead of a token that
+  // doesn't exist for 11.2px. `md` moves onto the shared `--text-control` step so a
+  // tag chip and a button read at the same size.
+  sm: "px-2 py-0.5 text-xs",
+  md: "px-2.5 py-1 text-control",
 };
 
 export interface BadgeProps extends Omit<HTMLAttributes<HTMLSpanElement>, "color"> {

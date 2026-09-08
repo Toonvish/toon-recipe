@@ -47,10 +47,24 @@ export const RecipeStepRecordSchema = RecipeStepSchema.extend({
 });
 export type RecipeStepRecord = z.infer<typeof RecipeStepRecordSchema>;
 
+/**
+ * What a tag IS, not what it is called.
+ *
+ * `course` = the recipe's single category, drawn as the honey eyebrow above the title.
+ * `free`   = an ordinary tag, drawn in the filter rail's second half.
+ *
+ * The VALUES are the wire contract; the tag NAMES they classify are German CONTENT and
+ * are never translated (see docs/i18n.md and CLAUDE.md's interface-vs-content gotcha).
+ */
+export const TagKindSchema = z.enum(["course", "free"]);
+export type TagKind = z.infer<typeof TagKindSchema>;
+
 export const TagSchema = z.object({
   id: IdSchema,
   groupId: IdSchema,
   name: z.string(),
+  /** `'course' | 'free'` — required: every row has one after migration 0006. */
+  kind: TagKindSchema,
   /** Hex colour like "#e11d48", chosen in the UI. */
   color: z.string().nullish(),
   createdAt: IsoDateSchema,
@@ -96,6 +110,13 @@ export const RecipeSchema = z.object({
   rating: z.number().int().min(0).max(5).nullish(),
   notes: z.string().nullish(),
   language: z.string().nullish(),
+  /**
+   * When this recipe was last cooked, from `recipe_cook_log` — read-only, derived,
+   * never sent back on a write. Stored on the row (`recipes.last_cooked_at`) rather
+   * than computed per query, because `?sort=lastCooked` would otherwise sort the whole
+   * group in a temp b-tree; see the column comment in apps/api/src/db/schema.ts.
+   */
+  lastCookedAt: IsoDateSchema.nullish(),
   createdBy: IdSchema,
   createdAt: IsoDateSchema,
   updatedAt: IsoDateSchema,
@@ -149,9 +170,24 @@ export const CreateRecipeRequestSchema = z.object({
   language: z.string().max(10).nullish(),
   ingredients: z.array(RecipeIngredientInputSchema).max(200).default([]),
   steps: z.array(RecipeStepInputSchema).max(200).default([]),
-  /** Tag NAMES — created on demand inside the group. */
+  /** Tag NAMES — created on demand inside the group, always as `kind:'free'`. */
   tags: z.array(z.string().trim().min(1).max(60)).max(30).default([]),
   collectionIds: z.array(IdSchema).max(30).default([]),
+  /**
+   * The recipe's category — a tag NAME, created inside the group as `kind:'course'` if
+   * it does not exist. German content; never a catalog key.
+   *
+   * Separate from `tags` because `tags` creates FREE tags: routing the course through it
+   * would create "Dessert" with kind 'free' and lose the eyebrow.
+   *
+   * `course` **absent** (the field omitted from a PATCH) leaves the course link
+   * untouched; `null` unlinks it; a name gets-or-creates it as `kind:'course'` and
+   * replaces the recipe's only course link. Has no `.default()` on purpose, so
+   * `UpdateRecipeRequestSchema` (its `.partial()`) can tell "not sent" from "cleared" —
+   * `course` must therefore never be added to `keepOnlySentKeys` in `routes/recipes.ts`,
+   * which exists only for the child arrays that carry `.default([])`.
+   */
+  course: z.string().trim().min(1).max(60).nullish(),
 });
 export type CreateRecipeRequest = z.infer<typeof CreateRecipeRequestSchema>;
 
@@ -162,7 +198,14 @@ export type CreateRecipeRequest = z.infer<typeof CreateRecipeRequestSchema>;
 export const UpdateRecipeRequestSchema = CreateRecipeRequestSchema.partial();
 export type UpdateRecipeRequest = z.infer<typeof UpdateRecipeRequestSchema>;
 
-export const RecipeSortSchema = z.enum(["newest", "oldest", "title", "rating", "time"]);
+export const RecipeSortSchema = z.enum([
+  "newest",
+  "oldest",
+  "title",
+  "rating",
+  "time",
+  "lastCooked",
+]);
 export type RecipeSort = z.infer<typeof RecipeSortSchema>;
 
 export const RecipeListQuerySchema = z.object({
@@ -173,6 +216,15 @@ export const RecipeListQuerySchema = z.object({
   collectionId: IdSchema.optional(),
   maxMinutes: z.coerce.number().int().min(1).max(100000).optional(),
   difficulty: DifficultySchema.optional(),
+  /**
+   * `1` restricts the list to recipes that have been cooked at least once.
+   * Deliberately NOT `z.coerce.boolean()` — that turns the string `"0"` into `true`,
+   * which is a live trap for a query param.
+   */
+  hasCooked: z
+    .enum(["0", "1"])
+    .optional()
+    .transform((value) => (value === undefined ? undefined : value === "1")),
   sort: RecipeSortSchema.default("newest"),
   limit: z.coerce.number().int().min(1).max(100).default(24),
   offset: z.coerce.number().int().min(0).default(0),
@@ -185,6 +237,8 @@ export const CreateTagRequestSchema = z.object({
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/)
     .optional(),
+  /** Default `'free'` server-side. */
+  kind: TagKindSchema.optional(),
 });
 export type CreateTagRequest = z.infer<typeof CreateTagRequestSchema>;
 

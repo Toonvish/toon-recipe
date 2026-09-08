@@ -170,6 +170,17 @@ export const serverDe = {
   "server.import.pageHttpError": "Die Seite antwortete mit HTTP {status}. Bitte prüfe die Adresse.",
   "server.import.pageNotHtml": "Diese Adresse liefert kein HTML ({contentType}). Bitte den Link zur Rezeptseite verwenden.",
 
+  /* ------------------------------- meal plan ------------------------------ */
+  "server.plan.entryNotFound": "Eintrag im Wochenplan nicht gefunden",
+  "server.plan.invalidDate": "Bitte ein Datum im Format JJJJ-MM-TT angeben",
+  "server.plan.rangeInvalid": "Das Startdatum muss vor dem Enddatum liegen",
+  // The number is inlined, not `{max}`: this fires from a bare `refineKey()`, which
+  // has no `values` to substitute (see i18n/zod.ts). Keep it in sync with
+  // `PLAN_LIMITS.rangeDays` in schemas/plan.ts if that ever changes.
+  "server.plan.rangeTooLong": "Der Zeitraum darf höchstens 62 Tage umfassen",
+  "server.plan.dayFull": "Für einen Tag sind nicht mehr als {max} Rezepte möglich",
+  "server.plan.alreadyPlanned": "Dieses Rezept steht an diesem Tag schon auf dem Plan",
+
   /* -------------------------------- recipes ----------------------------------- */
   "server.recipes.collectionNotFound": "Sammlung nicht gefunden",
   "server.recipes.recipeNotFound": "Rezept nicht gefunden",
@@ -178,6 +189,7 @@ export const serverDe = {
   "server.recipes.noFileInField": 'Es wurde keine Datei im Feld "{field}" gesendet',
   "server.recipes.unsupportedImageType": "Nur Bilder (JPEG, PNG, WebP, HEIC/HEIF, AVIF) werden unterstützt",
   "server.recipes.noServingsToScale": "Dieses Rezept hat keine Portionsangabe und kann nicht skaliert werden",
+  "server.recipes.nothingToUndo": "Es gibt keinen Kochvorgang, der zurückgenommen werden kann",
 
   /* -------------------------------- shopping ----------------------------------- */
   "server.shopping.listFull": "Diese Einkaufsliste ist voll (max. {max} Positionen)",

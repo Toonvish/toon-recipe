@@ -3,9 +3,13 @@ import {
   ApiErrorSchema,
   CreateRecipeRequestSchema,
   ImportDraftSchema,
+  MarkCookedRequestSchema,
+  MealPlanRangeQuerySchema,
   ParsedRecipeSchema,
+  PlanDateSchema,
   RecipeListQuerySchema,
   RegisterRequestSchema,
+  ShoppingListDetailResponseSchema,
   emptyParsedRecipe,
   isHttpUrl,
   roleAtLeast,
@@ -166,5 +170,83 @@ describe("sourceUrl accepts only http(s)", () => {
   test("isHttpUrl matches the schema", () => {
     expect(isHttpUrl("https://a.example")).toBe(true);
     expect(isHttpUrl("javascript:1")).toBe(false);
+  });
+});
+
+describe("ShoppingListDetailResponseSchema", () => {
+  const list = {
+    id: "11111111-1111-4111-8111-111111111111",
+    groupId: "22222222-2222-4222-8222-222222222222",
+    name: "Rewe",
+    createdBy: "33333333-3333-4333-8333-333333333333",
+    createdAt: "2026-09-01T10:00:00.000Z",
+    updatedAt: "2026-09-01T10:00:00.000Z",
+  };
+  // `bought`/`recipes` REQUIRED (no `?`) is what forces `PERSIST_BUSTER`: a v2 blob
+  // restored under the old cache key must fail to parse rather than hydrate
+  // `undefined` into a component that indexes it.
+  const withBoughtAndRecipes = { list, items: [], catalog: [], bought: [], recipes: [] };
+
+  test("accepts a full detail response", () => {
+    expect(ShoppingListDetailResponseSchema.safeParse(withBoughtAndRecipes).success).toBe(true);
+  });
+
+  test("rejects a response missing `bought` (the pre-redesign v2 shape)", () => {
+    const { bought: _bought, ...withoutBought } = withBoughtAndRecipes;
+    expect(ShoppingListDetailResponseSchema.safeParse(withoutBought).success).toBe(false);
+  });
+
+  test("rejects a response missing `recipes`", () => {
+    const { recipes: _recipes, ...withoutRecipes } = withBoughtAndRecipes;
+    expect(ShoppingListDetailResponseSchema.safeParse(withoutRecipes).success).toBe(false);
+  });
+});
+
+describe("PlanDateSchema", () => {
+  test.each(["2026-09-08", "2024-02-29", "2026-01-01"])("accepts %p", (value) => {
+    expect(PlanDateSchema.safeParse(value).success).toBe(true);
+  });
+
+  test.each(["2026-02-31", "2026-13-01", "not-a-date", "2026-9-8", ""])("rejects %p", (value) => {
+    expect(PlanDateSchema.safeParse(value).success).toBe(false);
+  });
+});
+
+describe("MealPlanRangeQuerySchema", () => {
+  test("rejects to < from", () => {
+    expect(MealPlanRangeQuerySchema.safeParse({ from: "2026-09-10", to: "2026-09-01" }).success).toBe(
+      false,
+    );
+  });
+
+  test("accepts a range right at the boundary (rangeDays - 1)", () => {
+    // planDaysBetween < rangeDays (62), so 61 days between the bounds is the widest
+    // range that still passes — a range of EXACTLY rangeDays is rejected below.
+    expect(
+      MealPlanRangeQuerySchema.safeParse({ from: "2026-01-01", to: "2026-03-03" }).success,
+    ).toBe(true);
+  });
+
+  test("rejects a range of exactly rangeDays (62) days", () => {
+    // 2026-01-01 -> 2026-03-04 is 62 days apart, which is the first value the
+    // `< PLAN_LIMITS.rangeDays` refinement rejects.
+    expect(
+      MealPlanRangeQuerySchema.safeParse({ from: "2026-01-01", to: "2026-03-04" }).success,
+    ).toBe(false);
+  });
+});
+
+describe("MarkCookedRequestSchema", () => {
+  test("a bare {} succeeds — everything is optional", () => {
+    expect(MarkCookedRequestSchema.safeParse({}).success).toBe(true);
+  });
+
+  test("accepts plannedOn and mealPlanEntryId together", () => {
+    expect(
+      MarkCookedRequestSchema.safeParse({
+        plannedOn: "2026-09-08",
+        mealPlanEntryId: "11111111-1111-4111-8111-111111111111",
+      }).success,
+    ).toBe(true);
   });
 });

@@ -3,13 +3,17 @@ import { parseIngredientLine, scaleIngredientsToServings } from "../src/ingredie
 import { formatQuantity } from "../src/numbers.ts";
 import {
   addAmounts,
+  FREQUENT_CHIP_COUNT,
   formatShoppingAmount,
   ingredientToShoppingItem,
   isVagueAmount,
   mergeNotes,
   mergeShoppingItems,
   recipeToShoppingItems,
+  selectMostBoughtEntries,
   shoppingItemKey,
+  shoppingProgressPercent,
+  sortEntriesByFoldedName,
   unitBucket,
   type ShoppingDraftItem,
 } from "../src/shopping.ts";
@@ -366,5 +370,53 @@ describe("isVagueAmount", () => {
     expect(isVagueAmount({ quantity: 1, unit: "Msp." })).toBe(true);
     expect(isVagueAmount({ quantity: 200, unit: "g" })).toBe(false);
     expect(isVagueAmount({ quantity: 2, unit: null })).toBe(false);
+  });
+});
+
+describe("shoppingProgressPercent", () => {
+  test.each([
+    [10, 4, 29], // the mock's "10 to buy · 4 bought today" -> 29%
+    [0, 0, 0], // nothing on the list at all: 0, not NaN
+    [0, 7, 100], // everything already bought
+    [7, 0, 0], // nothing bought yet
+  ])("(%i, %i) -> %i", (toBuy, bought, expected) => {
+    expect(shoppingProgressPercent(toBuy, bought)).toBe(expected);
+  });
+});
+
+interface CatalogFixture {
+  name: string;
+  useCount: number;
+  lastUsedAt: string;
+}
+
+function entry(name: string, useCount: number, lastUsedAt: string): CatalogFixture {
+  return { name, useCount, lastUsedAt };
+}
+
+describe("sortEntriesByFoldedName", () => {
+  test("orders by folded name, not raw codepoint order", () => {
+    const entries = [entry("Zwiebel", 1, "2026-01-01T00:00:00.000Z"), entry("Äpfel", 1, "2026-01-01T00:00:00.000Z"), entry("Brot", 1, "2026-01-01T00:00:00.000Z")];
+    expect(sortEntriesByFoldedName(entries).map((e) => e.name)).toEqual(["Äpfel", "Brot", "Zwiebel"]);
+  });
+});
+
+describe("selectMostBoughtEntries", () => {
+  test("ranks by useCount then lastUsedAt, caps at the limit, and does not alphabetise", () => {
+    const entries = [
+      entry("Zwiebel", 5, "2026-01-01T00:00:00.000Z"),
+      entry("Äpfel", 9, "2026-01-02T00:00:00.000Z"),
+      entry("Brot", 9, "2026-01-03T00:00:00.000Z"), // same useCount as Äpfel, more recent
+      entry("Milch", 1, "2026-01-04T00:00:00.000Z"),
+    ];
+    const selected = selectMostBoughtEntries(entries, 3);
+    expect(selected.map((e) => e.name)).toEqual(["Brot", "Äpfel", "Zwiebel"]);
+    expect(selected).toHaveLength(3);
+  });
+
+  test("defaults its limit to FREQUENT_CHIP_COUNT", () => {
+    expect(FREQUENT_CHIP_COUNT).toBe(8);
+    const entries = Array.from({ length: 12 }, (_, i) => entry(`Item ${i}`, 12 - i, "2026-01-01T00:00:00.000Z"));
+    expect(selectMostBoughtEntries(entries)).toHaveLength(FREQUENT_CHIP_COUNT);
   });
 });

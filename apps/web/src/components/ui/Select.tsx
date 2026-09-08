@@ -10,7 +10,8 @@ export interface SelectOption {
   disabled?: boolean;
 }
 
-export interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "children"> {
+export interface SelectProps
+  extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "children" | "size"> {
   label?: ReactNode;
   hint?: ReactNode;
   error?: string | undefined;
@@ -19,6 +20,8 @@ export interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement
   options: readonly SelectOption[];
   /** Shown as a disabled first entry when the value is empty. */
   placeholder?: string;
+  /** Mirrors `Input`'s `size` for symmetry — `md` (default, `min-h-11`) or `lg` (`min-h-13`). */
+  size?: "md" | "lg";
   containerClassName?: string;
 }
 
@@ -30,6 +33,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
     optional,
     options,
     placeholder,
+    size = "md",
     className,
     containerClassName,
     id: idProp,
@@ -55,7 +59,12 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
           ref={ref}
           required={required}
           {...aria}
-          className={cn(controlClasses, "min-h-11 appearance-none pr-10", className)}
+          className={cn(
+            controlClasses,
+            size === "lg" ? "min-h-13" : "min-h-11",
+            "appearance-none pr-10",
+            className,
+          )}
           {...rest}
         >
           {placeholder ? (

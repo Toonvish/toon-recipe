@@ -12,8 +12,15 @@ import { Check, CircleAlert, Info, TriangleAlert, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
 import { errorMessage } from "@/lib/api";
+import { Button } from "./Button";
 
 export type ToastVariant = "info" | "success" | "warning" | "error";
+
+export interface ToastAction {
+  /** Ready-to-render label — the caller has already run it through `t()`. */
+  label: string;
+  onClick: () => void;
+}
 
 export interface ToastOptions {
   title: string;
@@ -21,11 +28,18 @@ export interface ToastOptions {
   variant?: ToastVariant;
   /** Milliseconds until auto-dismiss; 0 keeps it until the user closes it. */
   duration?: number;
+  /**
+   * One tap instead of a second confirm dialog — the cooked/bought undo (T8.4, T8.6)
+   * are the reason this exists. Takes no `t()` of its own; the caller supplies an
+   * already-localized label.
+   */
+  action?: ToastAction;
 }
 
-interface ToastEntry extends Required<Omit<ToastOptions, "description">> {
+interface ToastEntry extends Required<Omit<ToastOptions, "description" | "action">> {
   id: number;
   description?: string;
+  action?: ToastAction;
 }
 
 export interface ToastApi {
@@ -82,6 +96,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         variant: options.variant ?? "info",
         duration: options.duration ?? (options.variant === "error" ? 7000 : 4000),
         ...(options.description !== undefined ? { description: options.description } : {}),
+        ...(options.action !== undefined ? { action: options.action } : {}),
       };
       setEntries((current) => [...current.slice(-2), entry]);
       if (entry.duration > 0) {
@@ -156,6 +171,27 @@ function ToastViewport({
               <p className="text-sm font-semibold">{entry.title}</p>
               {entry.description ? (
                 <p className="mt-0.5 text-sm break-words opacity-90">{entry.description}</p>
+              ) : null}
+              {entry.action ? (
+                <div className="mt-1.5">
+                  {/*
+                   * The design calls this a "quiet" button (see Button.tsx's own
+                   * comment: filled variants are 700 weight, quiet ones stay 600) —
+                   * there is no literal `variant="quiet"` on `Button`, and `ghost` is
+                   * its unfilled 600-weight variant, so it is the one that reads as
+                   * quiet sitting on a tinted toast surface.
+                   */}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      entry.action?.onClick();
+                      onDismiss(entry.id);
+                    }}
+                  >
+                    {entry.action.label}
+                  </Button>
+                </div>
               ) : null}
             </div>
             <button

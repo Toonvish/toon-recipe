@@ -155,6 +155,14 @@ export const serverEn: LocaleCatalog<ServerCatalog> = {
   "server.import.pageHttpError": "The page responded with HTTP {status}. Please check the address.",
   "server.import.pageNotHtml": "This address does not return HTML ({contentType}). Please use the link to the recipe page.",
 
+  /* ------------------------------- meal plan ------------------------------ */
+  "server.plan.entryNotFound": "Meal plan entry not found",
+  "server.plan.invalidDate": "Please provide a date in the format YYYY-MM-DD",
+  "server.plan.rangeInvalid": "The start date must be before the end date",
+  "server.plan.rangeTooLong": "The range may cover at most 62 days",
+  "server.plan.dayFull": "No more than {max} recipes can be planned for one day",
+  "server.plan.alreadyPlanned": "This recipe is already planned for that day",
+
   /* -------------------------------- recipes ----------------------------------- */
   "server.recipes.collectionNotFound": "Collection not found",
   "server.recipes.recipeNotFound": "Recipe not found",
@@ -163,6 +171,7 @@ export const serverEn: LocaleCatalog<ServerCatalog> = {
   "server.recipes.noFileInField": 'No file was sent in the "{field}" field',
   "server.recipes.unsupportedImageType": "Only images (JPEG, PNG, WebP, HEIC/HEIF, AVIF) are supported",
   "server.recipes.noServingsToScale": "This recipe has no servings amount, so it cannot be scaled",
+  "server.recipes.nothingToUndo": "There is no cook entry that can be undone",
 
   /* -------------------------------- shopping ----------------------------------- */
   "server.shopping.listFull": "This shopping list is full (max. {max} items)",

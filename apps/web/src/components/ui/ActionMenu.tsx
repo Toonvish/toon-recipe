@@ -80,7 +80,20 @@ export function ActionMenu({
         className={className}
       />
 
-      <Dialog open={open} onClose={() => setOpen(false)} title={title} size="sm">
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title={title}
+        size="sm"
+        // `Dialog`'s default sheet variant is `rounded-t-sheet` on a phone and
+        // `sm:rounded-sheet` from `sm` up — right for the phone half (an overflow
+        // sheet reads at the same radius as any other sheet), wrong for the desktop
+        // half, where this is a small centred panel and reads at the card radius
+        // instead. The `!` forces it: two same-specificity `rounded-*` utilities at
+        // the same breakpoint otherwise resolve by generation order, not by which one
+        // is written last in this className.
+        className="sm:rounded-card!"
+      >
         <ul className="flex flex-col gap-1 pb-2">
           {actions.map((item) => (
             <li key={item.label}>
@@ -103,7 +116,7 @@ export function ActionMenu({
                   </span>
                 ) : null}
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{item.label}</span>
+                  <span className="block truncate font-medium text-control">{item.label}</span>
                   {item.description ? (
                     <span className="mt-0.5 block truncate text-xs text-fg-muted">
                       {item.description}

@@ -96,6 +96,8 @@ export const ERROR_CODES = [
   /** Unlinking would leave the user with no way to sign in. */
   "last_login_method",
   "internal_error",
+  /** A single day already holds `PLAN_LIMITS.entriesPerDay` planned recipes. */
+  "meal_plan_day_full",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

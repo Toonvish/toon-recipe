@@ -7,6 +7,18 @@
  * Dark mode swaps the variables, so no component needs `dark:` classes.
  */
 
+/*
+ * FOUR BLOCKS, ONE LIST. The palette is declared four times — :root (light), the
+ * prefers-color-scheme:dark media query, :root[data-theme="light"] and
+ * :root[data-theme="dark"] — and the two attribute blocks only override what they
+ * NAME. A token added to some of them is a silent bug: the media query's value stands
+ * for anything [data-theme] omits, so "light theme on a dark phone" renders that
+ * token's DARK value. This is not hypothetical — [data-theme="light"] was missing
+ * accent/success/warning/ring and all three --elevation-*, and [data-theme="dark"] was
+ * missing the elevations, which is why an explicitly-dark app on a light OS had no
+ * card shadows. ADD EVERY NEW TOKEN TO ALL FOUR BLOCKS.
+ */
+
 :root {
   color-scheme: light dark;
 
@@ -27,6 +39,7 @@
   --toon-accent-400: #eab54f;
   --toon-accent-500: #d99a24;
   --toon-accent-600: #b47a15;
+  --toon-accent-700: #9a6710;
 
   /* --- herbs, warnings, danger ------------------------------------------ */
   --toon-herb-400: #7ba05b;
@@ -69,7 +82,8 @@
   --accent: var(--toon-accent-500);
   --accent-soft: #fdf1d8;
   --accent-soft-fg: var(--toon-accent-600);
-  --success: var(--toon-herb-500);
+  --accent-strong: var(--toon-accent-700);
+  --success: var(--toon-herb-600);
   --success-soft: #e9f0e0;
   --success-soft-fg: var(--toon-herb-600);
   --warning: var(--toon-accent-600);
@@ -83,6 +97,9 @@
   --ring: var(--toon-brand-400);
   --overlay: rgb(33 27 22 / 45%);
   --skeleton: var(--toon-sand-200);
+  --bg-sunken: var(--toon-sand-100);
+  --fg-body: var(--toon-sand-700);
+  --fg-faint: #7f6f5b;
 
   --elevation-soft: 0 1px 2px rgb(41 31 24 / 6%), 0 1px 3px rgb(41 31 24 / 5%);
   --elevation-card: 0 1px 2px rgb(41 31 24 / 5%), 0 4px 14px -6px rgb(41 31 24 / 12%);
@@ -113,6 +130,7 @@
     --accent: var(--toon-accent-400);
     --accent-soft: #3a2c0f;
     --accent-soft-fg: var(--toon-accent-300);
+    --accent-strong: var(--toon-accent-400);
     --success: var(--toon-herb-400);
     --success-soft: #26301b;
     --success-soft-fg: #a9c68c;
@@ -127,6 +145,9 @@
     --ring: var(--toon-brand-300);
     --overlay: rgb(8 5 3 / 66%);
     --skeleton: #322922;
+    --bg-sunken: #130f0c;
+    --fg-body: #e8dccd;
+    --fg-faint: #8d7c67;
 
     --elevation-soft: 0 1px 2px rgb(0 0 0 / 40%);
     --elevation-card: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 18px -8px rgb(0 0 0 / 55%);
@@ -152,12 +173,31 @@
   --brand-fg: #ffffff;
   --brand-soft: var(--toon-brand-100);
   --brand-soft-fg: var(--toon-brand-700);
+  --accent: var(--toon-accent-500);
+  --accent-soft: #fdf1d8;
+  --accent-soft-fg: var(--toon-accent-600);
+  --accent-strong: var(--toon-accent-700);
+  --success: var(--toon-herb-600);
+  --success-soft: #e9f0e0;
+  --success-soft-fg: var(--toon-herb-600);
+  --warning: var(--toon-accent-600);
+  --warning-soft: #fbeccd;
+  --warning-soft-fg: #7d5406;
   --danger: var(--toon-danger-500);
+  --danger-hover: var(--toon-danger-600);
   --danger-fg: #ffffff;
   --danger-soft: #fbe6e3;
   --danger-soft-fg: var(--toon-danger-600);
+  --ring: var(--toon-brand-400);
   --overlay: rgb(33 27 22 / 45%);
   --skeleton: var(--toon-sand-200);
+  --bg-sunken: var(--toon-sand-100);
+  --fg-body: var(--toon-sand-700);
+  --fg-faint: #7f6f5b;
+
+  --elevation-soft: 0 1px 2px rgb(41 31 24 / 6%), 0 1px 3px rgb(41 31 24 / 5%);
+  --elevation-card: 0 1px 2px rgb(41 31 24 / 5%), 0 4px 14px -6px rgb(41 31 24 / 12%);
+  --elevation-pop: 0 10px 30px -10px rgb(41 31 24 / 28%), 0 2px 8px rgb(41 31 24 / 10%);
 }
 
 :root[data-theme="dark"] {
@@ -180,6 +220,7 @@
   --accent: var(--toon-accent-400);
   --accent-soft: #3a2c0f;
   --accent-soft-fg: var(--toon-accent-300);
+  --accent-strong: var(--toon-accent-400);
   --success: var(--toon-herb-400);
   --success-soft: #26301b;
   --success-soft-fg: #a9c68c;
@@ -194,4 +235,11 @@
   --ring: var(--toon-brand-300);
   --overlay: rgb(8 5 3 / 66%);
   --skeleton: #322922;
+  --bg-sunken: #130f0c;
+  --fg-body: #e8dccd;
+  --fg-faint: #8d7c67;
+
+  --elevation-soft: 0 1px 2px rgb(0 0 0 / 40%);
+  --elevation-card: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 18px -8px rgb(0 0 0 / 55%);
+  --elevation-pop: 0 12px 34px -12px rgb(0 0 0 / 70%), 0 2px 10px rgb(0 0 0 / 45%);
 }

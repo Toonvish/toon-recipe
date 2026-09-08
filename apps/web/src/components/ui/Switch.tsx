@@ -37,9 +37,9 @@ export function Switch({
     >
       {label || description ? (
         <span className="min-w-0">
-          {label ? <span className="block text-sm font-medium text-fg">{label}</span> : null}
+          {label ? <span className="block text-control font-medium text-fg">{label}</span> : null}
           {description ? (
-            <span className="mt-0.5 block text-sm text-fg-muted">{description}</span>
+            <span className="mt-0.5 block text-xs text-fg-muted">{description}</span>
           ) : null}
         </span>
       ) : null}

@@ -7,14 +7,18 @@
  *    lists per group are supported ("Rewe", "Drogerie").
  *  - Checking an item off DELETES it and bumps a catalog entry instead of setting a
  *    flag, which is why there is no `checked` field anywhere. The catalog is the
- *    "Häufig gekauft" row (see `ShoppingCatalogEntry`).
+ *    "Häufig gekauft" row (see `ShoppingCatalogEntry`). The check-off ALSO appends a
+ *    row to `shopping_bought_items` — that log is what draws "Bought today" and the
+ *    history panel, and it is a log, not a flag: there is still no `checked` column
+ *    on `shopping_list_items`, and undoing a check-off deletes the log row and
+ *    re-merges the amount back onto the list rather than clearing a bit.
  *  - Every mutating request may carry a client-generated `mutationId`. The API
  *    remembers applied ids per list, so a mutation replayed after an offline spell
  *    cannot add the same ingredients twice. See services/shopping/idempotency.ts.
  */
 import { z } from "zod";
 import { refineKey } from "../i18n/zod.ts";
-import { IdSchema, IsoDateSchema } from "./common.ts";
+import { IdSchema, IsoDateSchema, listResponse } from "./common.ts";
 
 /** Upper bounds, mirrored by the UI so a phone never sends a doomed request. */
 export const SHOPPING_LIMITS = {
@@ -24,6 +28,10 @@ export const SHOPPING_LIMITS = {
   catalogPerList: 200,
   /** How many "Häufig gekauft" suggestions a list detail returns. */
   catalogSuggestions: 24,
+  /** Rows the "Bought today" section carries in the detail payload. */
+  boughtSectionMax: 100,
+  /** Item names the overview card previews per list; "+N" is itemCount - this. */
+  listPreviewItems: 8,
 } as const;
 
 /**
@@ -34,6 +42,14 @@ export const MutationIdSchema = z.uuid();
 
 /* --------------------------------- entities ------------------------------- */
 
+/** One item name previewed on an overview card, index-only like `itemCount`. */
+export const ShoppingItemPreviewSchema = z.object({
+  name: z.string(),
+  quantity: z.number().nullable(),
+  unit: z.string().nullable(),
+});
+export type ShoppingItemPreview = z.infer<typeof ShoppingItemPreviewSchema>;
+
 export const ShoppingListSchema = z.object({
   id: IdSchema,
   groupId: IdSchema,
@@ -43,6 +59,12 @@ export const ShoppingListSchema = z.object({
   updatedAt: IsoDateSchema,
   /** Present in listings and after a mutation. */
   itemCount: z.number().int().nonnegative().optional(),
+  /** How many rows are in today's "Bought today" log. Index-only, like `itemCount`. */
+  boughtCount: z.number().int().nonnegative().optional(),
+  /** The `Clear bought` watermark — null until the first clear. Index-only. */
+  boughtClearedAt: IsoDateSchema.nullable().optional(),
+  /** First `SHOPPING_LIMITS.listPreviewItems` items, `position` order. Index-only. */
+  previewItems: z.array(ShoppingItemPreviewSchema).optional(),
 });
 export type ShoppingList = z.infer<typeof ShoppingListSchema>;
 
@@ -74,8 +96,49 @@ export const ShoppingItemSchema = z.object({
 export type ShoppingItem = z.infer<typeof ShoppingItemSchema>;
 
 /**
+ * One row of the check-off log — "Bought today" and the history panel read this,
+ * never a flag on `ShoppingItemSchema`. `boughtBy`/`boughtByName` are null for a row
+ * whose user has since left the group; the name is kept because the log outlives
+ * membership.
+ */
+export const ShoppingBoughtItemSchema = z.object({
+  id: IdSchema,
+  listId: IdSchema,
+  name: z.string(),
+  quantity: z.number().nullable(),
+  unit: z.string().nullable(),
+  note: z.string().nullable(),
+  boughtBy: IdSchema.nullable(),
+  boughtByName: z.string().nullable(),
+  boughtAt: IsoDateSchema,
+  sourceRecipeIds: z.array(IdSchema),
+});
+export type ShoppingBoughtItem = z.infer<typeof ShoppingBoughtItemSchema>;
+
+/**
+ * One recipe currently attached to a list (`shopping_list_recipes`), resolved for
+ * display. `ingredientTotal` counts the recipe's ingredients AS IT IS TODAY, not as
+ * it was when added — a recipe that gained a line since reads "5 of 6", which is the
+ * prompt to add the missing one, not a bug.
+ */
+export const ShoppingListRecipeSchema = z.object({
+  recipeId: IdSchema,
+  title: z.string(),
+  thumbnailUrl: z.string().nullable(),
+  servings: z.number().nullable(),
+  servingsUnit: z.string().nullable(),
+  ingredientTotal: z.number().int().nonnegative(),
+  onListCount: z.number().int().nonnegative(),
+  sharedCount: z.number().int().nonnegative(),
+  addedAt: IsoDateSchema,
+});
+export type ShoppingListRecipe = z.infer<typeof ShoppingListRecipeSchema>;
+
+/**
  * One "Häufig gekauft" entry: something that has been on this list before.
  * `useCount` counts CHECK-OFFS, not adds — it ranks what actually gets bought.
+ * A hidden entry (`hiddenAt` non-null) keeps its `use_count` — hiding removes it from
+ * the chip row without losing its rank if it is ever unhidden.
  */
 export const ShoppingCatalogEntrySchema = z.object({
   id: IdSchema,
@@ -84,6 +147,7 @@ export const ShoppingCatalogEntrySchema = z.object({
   unit: z.string().nullable(),
   useCount: z.number().int().nonnegative(),
   lastUsedAt: IsoDateSchema,
+  hiddenAt: IsoDateSchema.nullable(),
 });
 export type ShoppingCatalogEntry = z.infer<typeof ShoppingCatalogEntrySchema>;
 
@@ -162,6 +226,14 @@ export const CheckShoppingItemRequestSchema = z.object({
 });
 export type CheckShoppingItemRequest = z.infer<typeof CheckShoppingItemRequestSchema>;
 
+/** Hide or unhide one "Häufig gekauft" entry without losing its `useCount`. */
+export const UpdateShoppingCatalogEntryRequestSchema = z.object({
+  hidden: z.boolean(),
+});
+export type UpdateShoppingCatalogEntryRequest = z.infer<
+  typeof UpdateShoppingCatalogEntryRequestSchema
+>;
+
 /* -------------------------------- responses ------------------------------- */
 
 export const ShoppingListResponseSchema = z.object({ list: ShoppingListSchema });
@@ -173,14 +245,60 @@ export const ShoppingListListResponseSchema = z.object({
 export type ShoppingListListResponse = z.infer<typeof ShoppingListListResponseSchema>;
 
 /**
- * The whole screen in one payload: the list, its open items in `position` order and
- * the suggestions. Every mutation returns this shape too, so the client can replace
- * its cache entry instead of patching it — which is what keeps an offline replay from
- * drifting from the server.
+ * The whole screen in one payload: the list, its open items in `position` order, the
+ * suggestions, today's bought log and the recipes attached to the list. Every
+ * mutation returns this shape too, so the client can replace its cache entry instead
+ * of patching it — which is what keeps an offline replay from drifting from the
+ * server. `bought` and `recipes` are REQUIRED (not optional): one origin, one
+ * deploy — a persisted v2 blob restored under an older `PERSIST_BUSTER` would
+ * otherwise hydrate `undefined` into components that index them, drawing an empty
+ * "Bought today" section over a list where things were bought. The client-side
+ * bump that forces a cold reload past that blob lives in `apps/web/src/lib/persist.ts`.
  */
 export const ShoppingListDetailResponseSchema = z.object({
   list: ShoppingListSchema,
   items: z.array(ShoppingItemSchema),
   catalog: z.array(ShoppingCatalogEntrySchema),
+  bought: z.array(ShoppingBoughtItemSchema),
+  recipes: z.array(ShoppingListRecipeSchema),
 });
 export type ShoppingListDetailResponse = z.infer<typeof ShoppingListDetailResponseSchema>;
+
+/** `GET …/shopping-lists/bought` — the cross-list "Bought today" / history feed. */
+export const ShoppingBoughtListResponseSchema = listResponse(ShoppingBoughtItemSchema);
+export type ShoppingBoughtListResponse = z.infer<typeof ShoppingBoughtListResponseSchema>;
+
+/** `GET …/shopping-lists/:listId/catalog` — the full "Häufig gekauft" sheet. */
+export const ShoppingCatalogListResponseSchema = listResponse(ShoppingCatalogEntrySchema);
+export type ShoppingCatalogListResponse = z.infer<typeof ShoppingCatalogListResponseSchema>;
+
+/**
+ * One recipe from the current week's plan, previewed for "add missing ingredients"
+ * (`GET …/shopping-lists/:listId/from-plan`). `missingIngredientIds` are
+ * `recipe_ingredients` ids passed straight back as `ingredientIds`.
+ */
+export const PlanShoppingPreviewRecipeSchema = z.object({
+  recipeId: IdSchema,
+  title: z.string(),
+  thumbnailUrl: z.string().nullable(),
+  /** Earliest planned day in the window, YYYY-MM-DD — the row's "Tue" label. */
+  plannedOn: z.string(),
+  /** Portions from the plan entry; null = the recipe's own count. */
+  servings: z.number().nullable(),
+  ingredientTotal: z.number().int().nonnegative(),
+  /** Distinct merge keys not yet on the target list — the row's "9 ingredients". */
+  missingCount: z.number().int().nonnegative(),
+  missingIngredientIds: z.array(IdSchema),
+});
+export type PlanShoppingPreviewRecipe = z.infer<typeof PlanShoppingPreviewRecipeSchema>;
+
+export const PlanShoppingPreviewResponseSchema = z.object({
+  listId: IdSchema,
+  listName: z.string(),
+  from: z.string(),
+  to: z.string(),
+  /** Sum of the per-recipe missingCounts — the panel's "22 ingredients". */
+  totalMissingCount: z.number().int().nonnegative(),
+  recipes: z.array(PlanShoppingPreviewRecipeSchema),
+});
+export type PlanShoppingPreviewResponse = z.infer<typeof PlanShoppingPreviewResponseSchema>;
