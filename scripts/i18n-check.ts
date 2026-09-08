@@ -127,6 +127,7 @@ const ALLOW_LIST = [
   "packages/shared/src/numbers.ts",
   "packages/shared/src/text.ts",
   "packages/shared/src/duration.ts",
+  "packages/shared/src/tags.ts",
   "apps/api/src/services/import/ocr/quantity-fix.ts",
   "apps/api/src/services/import/ocr/segment.ts",
   "apps/api/src/services/import/url/schema-map.ts",

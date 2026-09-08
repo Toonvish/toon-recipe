@@ -334,10 +334,10 @@ letting it inherit, since inheriting would enable PDFs against an image with no 
 Current status of the gates (run from the repo root):
 
 ```
-bun install        Checked 435 installs across 632 packages (no changes)
+bun install        Checked 436 installs across 625 packages (no changes)
 bun run typecheck  [typecheck] OK           (packages/shared, apps/api, apps/web)
-bun test           934 pass, 0 fail, 4862 expect() calls across 35 files
-bun run build      ✓ built in ~0.3s + PWA precache 115 entries (1359 KiB)
+bun test           1182 pass, 0 fail, 6314 expect() calls across 50 files
+bun run build      ✓ built in ~0.3s + PWA precache 88 entries (1620 KiB)
 bun run i18n:check catalog parity OK; the remaining hits are the documented
                    content-vocabulary and quoted-label false positives
 ```
@@ -476,6 +476,32 @@ Honest list of what is **not** finished. Nothing here blocks the flows above.
 > `/uploads`**, **no offline support** — are now implemented; the decisions taken and what each one
 > actually shipped are recorded in [`docs/open-work.md`](./docs/open-work.md). What follows is the
 > honest remainder.
+
+**Redesign (2026-09)**
+- **Existing installs start with no course eyebrows.** The `Hauptspeise · Eintopf` line above a
+  recipe title reads a tag's `kind` column, which every pre-existing tag gets as `'free'` — there is
+  no name-matching backfill (R41: guessing that a group's "Dessert" tag is a course would write an
+  irreversible wrong answer into somebody else's data). A recipe with no course tag renders no
+  eyebrow at all, on purpose, so nothing looks broken; an admin marks their course tags on `/tags`
+  and the eyebrows appear from then on.
+- **The "Kürzlich gekocht" shelf and the library's week strip start empty**, for the same reason:
+  there is no backfill for `cook_log` or `meal_plan_entries` either, and both surfaces are designed
+  to render nothing rather than an apology until somebody actually cooks or plans something.
+- **`/plan` and `/shopping/history` are extrapolated screens with no artboard.** The design only
+  drew four screens; these two follow the same tokens and component shapes by extrapolation (see
+  decisions D6/D7/D11 in `docs/redesign/SPEC.md`), so their exact layout is this repo's own call,
+  not a drawn reference.
+- **`PERSIST_BUSTER` moved to `v3`**, which discards the persisted offline cache once per device —
+  everyone's next load after the redesign ships is one cold re-fetch instead of an instant restore
+  from IndexedDB. After that first load, offline behaves exactly as before.
+- **Light mode changes visibly on ~15 unrelated screens for anyone forcing an explicit `data-theme`
+  against the opposite OS setting.** `theme.css`'s `:root[data-theme="light"]` block was missing 14
+  of the 39 semantic tokens (`--accent-strong`, `--success`, `--warning`, `--ring`, all three
+  `--elevation-*` and more), so "light theme on a dark-mode phone" silently rendered those tokens'
+  *dark* values — no shadow under a light card being the visible symptom. All four palette blocks
+  now name the same 39 tokens. This is a bug fix carried in with the redesign, not a redesign
+  choice — worth naming here so it is not mistaken for a regression when a light-themed screen looks
+  different than it did before.
 
 **Auth / accounts**
 - **Mail delivery is opt-in**, in the Docker stack too. Two real transports ship —

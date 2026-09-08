@@ -394,7 +394,7 @@ export default function RecipeDetailPage() {
 
   const notesCard = recipe.notes ? (
     <Card padding="md" className="rounded-2xl">
-      <h2 className="mb-2 font-display text-lg font-semibold">{t("recipes.detail.notesHeading")}</h2>
+      <h2 className="mb-2 font-display text-lg font-medium">{t("recipes.detail.notesHeading")}</h2>
       <p className="leading-relaxed whitespace-pre-line text-fg-muted">{recipe.notes}</p>
     </Card>
   ) : null;
