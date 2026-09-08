@@ -23,6 +23,10 @@ export const recipesDe = {
   "recipes.difficulty.mittel": "Mittel",
   "recipes.difficulty.schwer": "Schwer",
 
+  // `lastCooked` label for `SORT_LABELS` (features/recipes/lib/format.ts, T8.1). The
+  // wire value `"lastCooked"` is locked in packages/shared; only the label moves.
+  "recipes.sort.lastCooked": "Zuletzt gekocht",
+
   /* -------------------------------- RecipeListPage --------------------------- */
   "recipes.list.title": "Rezepte",
   "recipes.list.groupSummary": { one: "{name} · {count} Rezept", other: "{name} · {count} Rezepte" },
@@ -39,6 +43,27 @@ export const recipesDe = {
   "recipes.list.resultsCount": { one: "{shown} von {count} Rezept", other: "{shown} von {count} Rezepten" },
   "recipes.list.loadMore": "Mehr laden",
   "recipes.list.refreshing": "Liste wird aktualisiert",
+  // The library search field: a plural key with a count from `totalCount`, not a
+  // static placeholder (i18n-keys.md §8.1) — falls back to no count while it's
+  // `undefined` (render nothing, never "0").
+  "recipes.list.searchPlaceholder": {
+    one: "{count} Rezept durchsuchen",
+    other: "{count} Rezepte durchsuchen",
+  },
+  "recipes.list.sharedSummary": "Geteilt mit {group} · {members} · {recipes}",
+  "recipes.list.filterAction": "Filter",
+  "recipes.list.filterActionWithCount": "Filter · {count}",
+  "recipes.list.allRecipes": "Alle Rezepte",
+  "recipes.list.recentlyCooked": "Kürzlich gekocht",
+  "recipes.list.rowMeta": "{time} · {servings}",
+  "recipes.list.cookedRelative": "Gekocht {relative}",
+
+  /* -------------------------------- LibraryCreateMenu (the "+" sheet) --------- */
+  // Composed mostly of existing keys (recipes.list.newAction, ui.sidenav.newRecipe,
+  // ui.nav.import) plus these three — see i18n-keys.md §8.2 for the slot map.
+  "recipes.create.triggerLabel": "Rezept hinzufügen",
+  "recipes.create.newRecipeHint": "Von Hand eingeben",
+  "recipes.create.importHint": "Aus URL, Foto oder PDF",
 
   /* -------------------------------- RecipeNewPage ----------------------------- */
   "recipes.new.title": "Neues Rezept",
@@ -107,6 +132,35 @@ export const recipesDe = {
   "recipes.detail.deletedToast": "Rezept gelöscht",
   "recipes.detail.deleteFailedToast": "Löschen fehlgeschlagen",
 
+  // recipes.detail.planDayAction and .cookedAction take useCanMutate() (online-only);
+  // recipes.detail.addToShoppingList above stays on useEmailVerificationBlock()
+  // because it queues offline — two gates on one screen, deliberately not unified
+  // (R38, i18n-keys.md §8.5).
+  "recipes.detail.planDayAction": "Für einen Tag planen",
+  "recipes.detail.cookedAction": "Gekocht",
+  "recipes.detail.markCookedAriaLabel": "Als gekocht markieren",
+  "recipes.detail.cookedToast": "Als gekocht markiert",
+  // R18's 10-minute, own-row-only undo, offered in the success Toast (T8.4).
+  "recipes.detail.cookedUndo": "Rückgängig",
+  "recipes.detail.cookedUndoneToast": "Rückgängig gemacht",
+  "recipes.detail.cookedFailedToast": "Konnte nicht gespeichert werden",
+  // .meta.lastCooked (desktop) and .meta.cooked (phone 4-up grid) are two keys for
+  // the same English word in different slots, split so a translator can shorten
+  // the phone caption without touching the desktop one.
+  "recipes.detail.meta.lastCooked": "Zuletzt gekocht",
+  "recipes.detail.meta.cooked": "Gekocht",
+  "recipes.detail.meta.never": "noch nie",
+  "recipes.detail.stepCount": { one: "{count} Schritt", other: "{count} Schritte" },
+  "recipes.detail.addAllToShoppingList": {
+    one: "{count} Zutat zur Einkaufsliste",
+    other: "Alle {count} Zutaten zur Einkaufsliste",
+  },
+  "recipes.detail.addAllToShoppingListShort": "Alles zur Liste",
+  "recipes.detail.tabs.ingredients": "Zutaten · {count}",
+  "recipes.detail.tabs.steps": "Zubereitung · {count}",
+  "recipes.detail.backAriaLabel": "Zurück",
+  "recipes.detail.planDialogTitle": "„{title}“ einplanen",
+
   "recipes.rating.outOfFive": "von 5 Sternen",
 
   /* -------------------------------- ingredients / steps (shared) -------------- */
@@ -152,6 +206,13 @@ export const recipesDe = {
   "recipes.form.rating.label": "Bewertung",
   "recipes.form.rating.none": "Keine Bewertung",
   "recipes.form.rating.stars": { one: "{count} Stern", other: "{count} Sterne" },
+  // Single-select over the group's kind==="course" tags plus .none — this is where
+  // the "one course per recipe" invariant actually lives (no DB constraint enforces
+  // it). Writes CreateRecipeRequest.course, a tag NAME, not an id. Option labels are
+  // the German tag names rendered verbatim — CONTENT, not this key.
+  "recipes.form.course.label": "Gang",
+  "recipes.form.course.none": "Keine Angabe",
+  "recipes.form.course.hint": "Ein Rezept hat genau einen Gang. Alles andere sind Tags.",
   "recipes.form.collectionsLegend": "Sammlungen",
   "recipes.form.notes.label": "Notizen",
   "recipes.form.notes.placeholder": "Mit Vanilleeis servieren. Hält sich 2 Tage.",
@@ -164,9 +225,21 @@ export const recipesDe = {
   "recipes.form.unsavedConfirm.cancel": "Hier bleiben",
 
   /* -------------------------------- RecipeFilters ------------------------------ */
-  "recipes.filters.searchPlaceholder": "Titel, Beschreibung oder Zutat …",
+  // recipes.filters.searchPlaceholder is GONE: RecipeFilters.tsx is deleted (T8.2)
+  // and the search field moves into RecipeListPage with recipes.list.searchPlaceholder
+  // above. searchAriaLabel is kept — a placeholder is not an accessible name.
   "recipes.filters.searchAriaLabel": "Rezepte durchsuchen",
   "recipes.filters.advancedToggle": "Erweiterte Suche",
+  "recipes.filters.sheetTitle": "Filter",
+  // The rail's HEADING for the course group is interface; the course NAMES listed
+  // under it are CONTENT and never go through t() — i18n-keys.md §8.3.
+  "recipes.filters.courseLegend": "Gänge",
+  "recipes.filters.courseAny": "Alle Gänge",
+  "recipes.filters.moreFilters": "Mehr Filter",
+  // The only phone route to /collections and /tags (R30) — repeated in both the
+  // rail and the "Mehr Filter" sheet.
+  "recipes.filters.manageCollections": "Sammlungen verwalten",
+  "recipes.filters.manageTags": "Tags verwalten",
   "recipes.filters.sort.label": "Sortierung",
   "recipes.filters.collection.label": "Sammlung",
   "recipes.filters.collection.all": "Alle Sammlungen",

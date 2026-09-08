@@ -67,8 +67,12 @@ export const PERSIST_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  * v2: the blob now also carries paused shopping-list mutations (see
  * {@link shouldPersistMutation}). A v1 blob has none, which would restore fine — the
  * bump is the conservative choice, and its cost is one cold reload per device.
+ *
+ * v3: `ShoppingListDetailResponse` gained required `bought`/`recipes`, `RecipeResponse`
+ * gained `lastCookedAt`, and `TagResponse` gained `kind` — an old blob's cached objects
+ * are missing fields the redesigned screens now assume are always present.
  */
-export const PERSIST_BUSTER = "v2";
+export const PERSIST_BUSTER = "v3";
 
 /** IndexedDB key of one account's cache. */
 export function cacheKeyForUser(userId: string): string {
@@ -171,6 +175,14 @@ const PERSISTED_GROUP_SEGMENTS = new Set([
   // basement), so both the overview and the open list have to survive a cold start.
   "shopping-lists",
   "shopping-list",
+  // The meal planner — read-only offline, like recipes/tags/collections above.
+  // NOT "plan-shopping" (the shopping list's own read of the planner) — that key
+  // is a live server diff against one list and stale offline is worse than absent
+  // — and NOT "shopping-catalog" (the "Häufig gekauft" suggestions), which is a
+  // convenience feed with no offline use case. See R24.
+  "plan",
+  // The cross-list "Bought today" / history feed — read-only, same as the planner.
+  "shopping-bought",
 ]);
 
 /** The bootstrap payload — see "WHY /api/auth/me IS PERSISTED" in the header. */

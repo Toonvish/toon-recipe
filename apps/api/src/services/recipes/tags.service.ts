@@ -3,7 +3,7 @@
  * always get-or-create when a recipe references a tag NAME, so tagging can
  * never 404.
  */
-import type { CreateTagRequest, Tag, UpdateTagRequest } from "@toon/shared";
+import type { CreateTagRequest, Tag, TagKind, UpdateTagRequest } from "@toon/shared";
 import { and, asc, count, eq, inArray, ne } from "drizzle-orm";
 import { recipeTags, tags } from "../../db/schema.ts";
 import type { TagRow } from "../../db/schema.ts";
@@ -52,6 +52,7 @@ export async function createTag(
     groupId,
     name: input.name,
     color: input.color ?? null,
+    kind: input.kind ?? "free",
     createdAt: nowMs(),
   };
   await db.insert(tags).values(row);
@@ -81,6 +82,7 @@ export async function updateTag(
   const patch: Partial<TagRow> = {};
   if (input.name !== undefined) patch.name = input.name;
   if (input.color !== undefined) patch.color = input.color ?? null;
+  if (input.kind !== undefined) patch.kind = input.kind;
   if (Object.keys(patch).length > 0) {
     await db.update(tags).set(patch).where(eq(tags.id, tagId));
   }
@@ -102,11 +104,17 @@ export async function deleteTag(db: DbLike, groupId: string, tagId: string): Pro
 /**
  * Maps tag NAMES to ids inside a group, creating the missing ones.
  * Two queries in total (one select, one bulk insert) — never one per name.
+ *
+ * `kind` is applied ONLY to tags this call CREATES. It must never update the kind
+ * of a tag it FOUND — an old client that sends the course name inside `tags` (no
+ * `course` field at all) links the existing course tag as-is, rather than
+ * flipping it to `free` under it.
  */
 export async function getOrCreateTagIds(
   db: DbLike,
   groupId: string,
   names: readonly string[],
+  kind: TagKind = "free",
 ): Promise<string[]> {
   const wanted = new Map<string, string>();
   for (const name of names) {
@@ -133,6 +141,7 @@ export async function getOrCreateTagIds(
       groupId,
       name,
       color: null,
+      kind,
       createdAt: nowMs(),
     };
     inserts.push(row);

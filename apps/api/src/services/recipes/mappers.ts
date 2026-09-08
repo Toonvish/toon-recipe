@@ -16,7 +16,7 @@ import type {
   RecipeStepRow,
   TagRow,
 } from "../../db/schema.ts";
-import { toIso } from "../../lib/http.ts";
+import { toIso, toIsoOrNull } from "../../lib/http.ts";
 import { signUploadUrl } from "../../lib/uploadUrls.ts";
 import { thumbnailUrlFor } from "../media/thumbnails.ts";
 
@@ -53,6 +53,9 @@ export function toRecipe(row: RecipeRow): Recipe {
     createdBy: row.createdBy,
     createdAt: toIso(row.createdAt),
     updatedAt: toIso(row.updatedAt),
+    // Derived, stored, one writer (services/recipes/cookLog.ts) — see the column
+    // comment in db/schema.ts for why this is not a per-query join.
+    lastCookedAt: toIsoOrNull(row.lastCookedAt),
   };
 }
 
@@ -87,6 +90,7 @@ export function toTag(row: TagRow, recipeCount?: number): Tag {
     groupId: row.groupId,
     name: row.name,
     color: row.color,
+    kind: row.kind,
     createdAt: toIso(row.createdAt),
   };
   return recipeCount === undefined ? tag : { ...tag, recipeCount };

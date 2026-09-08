@@ -24,7 +24,7 @@ import type {
 } from "@toon/shared";
 import { formatIngredient, formatQuantity, scaleIngredientsToServings } from "@toon/shared";
 import type { SQL } from "drizzle-orm";
-import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { Database } from "../../db/client.ts";
 import {
   collectionRecipes,
@@ -33,6 +33,7 @@ import {
   recipeSteps,
   recipeTags,
   recipes,
+  tags,
   users,
 } from "../../db/schema.ts";
 import type { RecipeIngredientRow, RecipeRow, RecipeStepRow } from "../../db/schema.ts";
@@ -125,6 +126,12 @@ function orderFor(sort: RecipeSort): SQL[] {
       return [sql`${recipes.rating} is null`, desc(recipes.rating), desc(recipes.createdAt)];
     case "time":
       return [sql`${effectiveMinutes} is null`, asc(effectiveMinutes), desc(recipes.createdAt)];
+    case "lastCooked":
+      // NULLs sort LAST under DESC in SQLite, so this needs no `is null` leading
+      // term — which is exactly what lets `recipes_group_last_cooked_idx` supply
+      // the order by a reverse index scan. `?sort=rating` pays a temp b-tree for
+      // its `is null`; this must not.
+      return [desc(recipes.lastCookedAt), desc(recipes.createdAt)];
     default:
       return [desc(recipes.createdAt)];
   }
@@ -174,6 +181,10 @@ export async function listRecipes(
   }
 
   if (query.difficulty) conditions.push(eq(recipes.difficulty, query.difficulty));
+
+  // A column predicate, never a subquery — the `total` half is a `count(*)` that
+  // cannot stop early, so this must stay index-narrowed rather than per-row work.
+  if (query.hasCooked === true) conditions.push(isNotNull(recipes.lastCookedAt));
 
   const where = and(...conditions);
 
@@ -304,7 +315,12 @@ async function replaceSteps(
   if (rows.length > 0) await tx.insert(recipeSteps).values(rows);
 }
 
-/** Replaces the tag links, creating unknown tag names on the fly. */
+/**
+ * Replaces the FREE tag links only, creating unknown tag names on the fly.
+ * `tags` (the free-form field) must never touch a `kind:'course'` link — see
+ * `replaceCourse` below — or `PATCH { tags: [...] }` from the recipe form would
+ * silently drop the recipe's category on every save.
+ */
 async function replaceTags(
   tx: DbLike,
   groupId: string,
@@ -312,10 +328,48 @@ async function replaceTags(
   names: readonly string[],
 ): Promise<void> {
   const tagIds = await getOrCreateTagIds(tx, groupId, names);
-  await tx.delete(recipeTags).where(eq(recipeTags.recipeId, recipeId));
+  await tx.delete(recipeTags).where(
+    and(
+      eq(recipeTags.recipeId, recipeId),
+      inArray(
+        recipeTags.tagId,
+        tx.select({ id: tags.id }).from(tags).where(and(eq(tags.groupId, groupId), eq(tags.kind, "free"))),
+      ),
+    ),
+  );
   if (tagIds.length > 0) {
     await tx.insert(recipeTags).values(tagIds.map((tagId) => ({ recipeId, tagId })));
   }
+}
+
+/**
+ * Replaces the recipe's single `kind:'course'` link. `courseName` absent from the
+ * caller means "leave it alone" and is handled by the caller not invoking this at
+ * all; `null` here means "unlink" (the tag row itself survives — only
+ * `recipe_tags` changes); a name gets-or-creates it as `kind:'course'` (never
+ * flipping an existing tag's kind) and becomes the recipe's only course link.
+ * There is no DB constraint enforcing "at most one course tag" — see
+ * `recipeEyebrow()` in `@toon/shared`, which just takes the alphabetically first
+ * if a recipe somehow ends up with two.
+ */
+async function replaceCourse(
+  tx: DbLike,
+  groupId: string,
+  recipeId: string,
+  courseName: string | null,
+): Promise<void> {
+  await tx.delete(recipeTags).where(
+    and(
+      eq(recipeTags.recipeId, recipeId),
+      inArray(
+        recipeTags.tagId,
+        tx.select({ id: tags.id }).from(tags).where(and(eq(tags.groupId, groupId), eq(tags.kind, "course"))),
+      ),
+    ),
+  );
+  if (!courseName) return;
+  const [tagId] = await getOrCreateTagIds(tx, groupId, [courseName], "course");
+  if (tagId) await tx.insert(recipeTags).values({ recipeId, tagId });
 }
 
 /** Replaces the collection memberships of a recipe (appends at the end). */
@@ -447,6 +501,7 @@ export async function createRecipe(
     await replaceIngredients(tx, id, input.ingredients);
     await replaceSteps(tx, id, input.steps);
     await replaceTags(tx, groupId, id, input.tags);
+    if (input.course !== undefined) await replaceCourse(tx, groupId, id, input.course ?? null);
     await replaceCollections(tx, groupId, id, input.collectionIds);
   });
 
@@ -496,6 +551,9 @@ export async function updateRecipe(
     if (input.ingredients !== undefined) await replaceIngredients(tx, recipeId, input.ingredients);
     if (input.steps !== undefined) await replaceSteps(tx, recipeId, input.steps);
     if (input.tags !== undefined) await replaceTags(tx, groupId, recipeId, input.tags);
+    // Absent -> untouched (no `.default()` on `course`, so this is genuinely
+    // undefined rather than a sent-but-empty value); `null` unlinks.
+    if (input.course !== undefined) await replaceCourse(tx, groupId, recipeId, input.course ?? null);
     if (input.collectionIds !== undefined) {
       await replaceCollections(tx, groupId, recipeId, input.collectionIds);
     }

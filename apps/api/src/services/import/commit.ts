@@ -18,6 +18,7 @@ import {
   type RecipeIngredientRecord,
   type RecipeStepRecord,
   type Tag,
+  type TagKind,
   foldText,
   serverText,
 } from "@toon/shared";
@@ -243,7 +244,14 @@ async function resolveTags(
   const byLower = new Map(existing.map((tag) => [tag.name.toLocaleLowerCase("de-DE"), tag]));
 
   const out: Tag[] = [];
-  const toInsert: Array<{ id: string; groupId: string; name: string; color: null; createdAt: number }> = [];
+  const toInsert: Array<{
+    id: string;
+    groupId: string;
+    name: string;
+    color: null;
+    kind: TagKind;
+    createdAt: number;
+  }> = [];
 
   for (const name of names) {
     const key = name.toLocaleLowerCase("de-DE");
@@ -254,14 +262,27 @@ async function resolveTags(
         groupId: found.groupId,
         name: found.name,
         color: found.color,
+        // Passed THROUGH, never rewritten: an import that names an existing
+        // `kind: "course"` tag links it as-is (the same rule
+        // `getOrCreateTagIds` follows — it sets `kind` only on a tag it creates).
+        kind: found.kind,
         createdAt: toIso(found.createdAt),
       });
       continue;
     }
-    const row = { id: crypto.randomUUID(), groupId, name, color: null, createdAt: now };
+    // An imported tag name is free-form vocabulary; a course is set explicitly
+    // through `CreateRecipeRequest.course`, never inferred from a tag name.
+    const row = {
+      id: crypto.randomUUID(),
+      groupId,
+      name,
+      color: null,
+      kind: "free" as const,
+      createdAt: now,
+    };
     toInsert.push(row);
     byLower.set(key, { ...row, color: null });
-    out.push({ id: row.id, groupId, name, color: null, createdAt: toIso(now) });
+    out.push({ id: row.id, groupId, name, color: null, kind: "free", createdAt: toIso(now) });
   }
 
   if (toInsert.length > 0) await tx.insert(tags).values(toInsert);

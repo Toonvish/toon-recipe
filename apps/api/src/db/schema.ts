@@ -315,6 +315,16 @@ export const recipes = sqliteTable(
      * `ORDER BY x DESC` puts NULLs LAST for free, so `recipes_group_last_cooked_idx`
      * supplies `[desc(lastCookedAt), desc(createdAt)]` with no `is null` leading term.
      *
+     * MEASURED (2000 recipes in one group, ~6000 log rows over 400 of them, scratch
+     * FILE db through `@libsql/client`, median of 20 runs), list query only:
+     * correlated `max()` subquery 0.781 ms · grouped-max LEFT JOIN 1.091 ms ·
+     * this stored column 0.049 ms. At that row count the absolute gap is
+     * sub-millisecond; the durable signal is the PLAN, not the timing —
+     * `explain query plan` shows `USE TEMP B-TREE FOR ORDER BY` for both derived
+     * forms and a bare `SEARCH recipes USING INDEX recipes_group_last_cooked_idx`
+     * for this one, i.e. only this one scales with the library. That plan is what
+     * `test/recipes-cooked.test.ts` pins; the numbers are here for context.
+     *
      * No backfill on introduction: `recipe_cook_log` is a brand-new table, so NULL is
      * correct for every pre-existing recipe.
      */

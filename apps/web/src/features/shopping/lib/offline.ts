@@ -59,6 +59,7 @@ import {
   checkShoppingItem,
   clearShoppingList,
   deleteShoppingItem,
+  undoBoughtItem,
   updateShoppingItem,
 } from "@/lib/api";
 import { queryKeys } from "@/lib/queries";
@@ -81,6 +82,7 @@ export const SHOPPING_MUTATION_KEYS = {
   clear: ["toon", "shopping", "clear"] as const,
   addRecipe: ["toon", "shopping", "add-recipe"] as const,
   addSuggestion: ["toon", "shopping", "add-suggestion"] as const,
+  undoBought: ["toon", "shopping", "undo-bought"] as const,
 } as const;
 
 /** Variables every shopping mutation carries. */
@@ -99,6 +101,21 @@ export interface ItemVariables extends ShoppingTarget {
 }
 export interface UpdateItemVariables extends ItemVariables {
   patch: UpdateShoppingItemRequest;
+}
+/**
+ * The current session's user, resolved at CALL time (`features/shopping/lib/queries.ts`)
+ * from the cached `["toon","me"]` payload — never inside `mutationFn`, which re-runs on
+ * replay and would resolve to whoever is signed in when the queue drains, not who
+ * checked the item off. Not sent to the server (`CheckShoppingItemRequest` carries only
+ * `mutationId`; the API reads the buyer from the session), only used to draw the
+ * optimistic "Heute gekauft" row before the server has told us anything.
+ */
+export interface CheckItemVariables extends ItemVariables {
+  boughtBy: { id: string; name: string };
+}
+/** One "Bought today" row is put back on the list. */
+export interface UndoBoughtVariables extends ShoppingTarget {
+  boughtId: string;
 }
 export interface AddRecipeVariables extends ShoppingTarget {
   recipeId: string;
@@ -227,14 +244,23 @@ function mergeIntoCache(
     list: { ...current.list, itemCount: items.length, updatedAt: timestamp },
     items,
     catalog: current.catalog.filter((entry) => !onList.has(nameKey(entry.name))),
+    // Neither the bought log nor the attached-recipes list is touched by an add —
+    // callers that DO change one of those (the undo default clears its own row first)
+    // pass in a `current` that already reflects it.
+    bought: current.bought,
+    recipes: current.recipes,
   };
 }
 
-/** Removes a line from the cached list. Used by both check-off and delete. */
-function removeFromCache(
+/**
+ * Removes a line from the cached list. Used by both check-off and delete, and exported
+ * for `offline.test.ts` — the cache algebra is the whole point of this module and is
+ * cheapest to pin directly rather than through a registered mutation's `onMutate`.
+ */
+export function removeFromCache(
   current: ShoppingListDetailResponse,
   itemId: string,
-  options: { asBought: boolean },
+  options: { asBought: boolean; boughtBy?: { id: string; name: string } },
 ): ShoppingListDetailResponse {
   const removed = current.items.find((item) => item.id === itemId);
   const items = current.items.filter((item) => item.id !== itemId);
@@ -261,15 +287,41 @@ function removeFromCache(
             unit: removed.unit,
             useCount: 1,
             lastUsedAt: timestamp,
+            hiddenAt: null,
           },
           ...catalog,
         ];
+  }
+
+  // A checked-off line must MOVE, not vanish: "Heute gekauft" gets its own optimistic
+  // row, `pending:`-prefixed like every other id this module invents, so
+  // `isPendingItemId` can disable undo on it until the server assigns a real one. A
+  // plain delete (`asBought: false`) never touches the bought log.
+  let bought = current.bought;
+  if (options.asBought && removed) {
+    bought = [
+      {
+        id: `pending:${itemId}`,
+        listId: current.list.id,
+        name: removed.name,
+        quantity: removed.quantity,
+        unit: removed.unit,
+        note: removed.note,
+        boughtBy: options.boughtBy?.id ?? null,
+        boughtByName: options.boughtBy?.name ?? null,
+        boughtAt: timestamp,
+        sourceRecipeIds: removed.sourceRecipeIds,
+      },
+      ...current.bought,
+    ];
   }
 
   return {
     list: { ...current.list, itemCount: items.length, updatedAt: timestamp },
     items,
     catalog,
+    bought,
+    recipes: current.recipes,
   };
 }
 
@@ -367,15 +419,18 @@ export function registerShoppingMutationDefaults(client: QueryClient): void {
 
   client.setMutationDefaults(SHOPPING_MUTATION_KEYS.check, {
     ...shared,
-    mutationFn: (variables: ItemVariables) =>
+    mutationFn: (variables: CheckItemVariables) =>
       checkShoppingItem(variables.groupId, variables.listId, variables.itemId, {
         mutationId: variables.mutationId,
       }),
-    onMutate: (variables: ItemVariables) =>
+    onMutate: (variables: CheckItemVariables) =>
       patchCache(client, variables.groupId, variables.listId, (current) =>
-        removeFromCache(current, variables.itemId, { asBought: true }),
+        removeFromCache(current, variables.itemId, {
+          asBought: true,
+          boughtBy: variables.boughtBy,
+        }),
       ),
-    onError: (_error, variables: ItemVariables, snapshot) =>
+    onError: (_error, variables: CheckItemVariables, snapshot) =>
       rollbackCache(client, variables.groupId, variables.listId, snapshot as never),
     onSuccess: commit,
   });
@@ -423,6 +478,37 @@ export function registerShoppingMutationDefaults(client: QueryClient): void {
         mergeIntoCache(current, [{ name: variables.name }]),
       ),
     onError: (_error, variables: AddSuggestionVariables, snapshot) =>
+      rollbackCache(client, variables.groupId, variables.listId, snapshot as never),
+    onSuccess: commit,
+  });
+
+  client.setMutationDefaults(SHOPPING_MUTATION_KEYS.undoBought, {
+    ...shared,
+    mutationFn: (variables: UndoBoughtVariables) =>
+      undoBoughtItem(variables.groupId, variables.listId, variables.boughtId, {
+        mutationId: variables.mutationId,
+      }),
+    // Pulls the row out of `bought` and folds its amount back onto `items` with the
+    // SAME merge algebra the server runs (`mergeIntoCache`), so a restored 500 g line
+    // that lands on an existing 200 g one shows 700 g immediately and does not jump
+    // when the real response arrives. A boughtId no longer present (a replay, or a
+    // second undo click before the first one's response lands) is a no-op — there is
+    // nothing left to restore.
+    onMutate: (variables: UndoBoughtVariables) =>
+      patchCache(client, variables.groupId, variables.listId, (current) => {
+        const row = current.bought.find((entry) => entry.id === variables.boughtId);
+        if (!row) return current;
+        const withoutRow = {
+          ...current,
+          bought: current.bought.filter((entry) => entry.id !== variables.boughtId),
+        };
+        return mergeIntoCache(
+          withoutRow,
+          [{ name: row.name, quantity: row.quantity, unit: row.unit, note: row.note }],
+          row.sourceRecipeIds,
+        );
+      }),
+    onError: (_error, variables: UndoBoughtVariables, snapshot) =>
       rollbackCache(client, variables.groupId, variables.listId, snapshot as never),
     onSuccess: commit,
   });

@@ -13,6 +13,11 @@ import { groupsDe } from "./groups.de.ts";
 import { groupsEn } from "./groups.en.ts";
 import { importDe } from "./import.de.ts";
 import { importEn } from "./import.en.ts";
+// NEW namespace, T6.1: `plan` cannot register itself in this FINAL file, so
+// this is the one sanctioned exception (docs/i18n.md §1/§9, PLAN.md §8.2) —
+// two imports and two spread entries, nothing else.
+import { planDe } from "./plan.de.ts";
+import { planEn } from "./plan.en.ts";
 import { recipesDe } from "./recipes.de.ts";
 import { recipesEn } from "./recipes.en.ts";
 import { shoppingDe } from "./shopping.de.ts";
@@ -20,8 +25,26 @@ import { shoppingEn } from "./shopping.en.ts";
 import { uiDe } from "./ui.de.ts";
 import { uiEn } from "./ui.en.ts";
 
-const de = { ...authDe, ...recipesDe, ...importDe, ...shoppingDe, ...cardsDe, ...groupsDe, ...uiDe };
-const en = { ...authEn, ...recipesEn, ...importEn, ...shoppingEn, ...cardsEn, ...groupsEn, ...uiEn };
+const de = {
+  ...authDe,
+  ...recipesDe,
+  ...importDe,
+  ...shoppingDe,
+  ...cardsDe,
+  ...groupsDe,
+  ...planDe,
+  ...uiDe,
+};
+const en = {
+  ...authEn,
+  ...recipesEn,
+  ...importEn,
+  ...shoppingEn,
+  ...cardsEn,
+  ...groupsEn,
+  ...planEn,
+  ...uiEn,
+};
 
 export const CATALOGS = { de, en } as const;
 export type MessageKey = keyof typeof de;

@@ -229,6 +229,8 @@ Mounted at `/api/groups/:groupId`, so this router also owns tags and collections
 | DELETE | `/api/groups/:groupId/recipes/:recipeId` | group:member (author or admin) | – | – | 204, 403, 404 |
 | POST | `/api/groups/:groupId/recipes/:recipeId/image` | group:member | multipart `file` | `UploadResponse` | 200, 403, 413, 415 |
 | GET | `/api/groups/:groupId/recipes/:recipeId/scale` | group:member | `ScaleRecipeQuery` (query) | `ScaledRecipeResponse` | 200, 403, 404, 422 |
+| POST | `/api/groups/:groupId/recipes/:recipeId/cooked` | group:member | `MarkCookedRequest` | `RecipeCookedResponse` | 200, 403, 404 |
+| DELETE | `/api/groups/:groupId/recipes/:recipeId/cooked` | group:member | – | – | 204, 403, 404 `server.recipes.nothingToUndo` |
 | GET | `/api/groups/:groupId/tags` | group:member | – | `TagListResponse` | 200, 403 |
 | POST | `/api/groups/:groupId/tags` | group:member | `CreateTagRequest` | `TagResponse` | 201, 403, 409 `tag_name_taken`, 422 |
 | PATCH | `/api/groups/:groupId/tags/:tagId` | group:member | `UpdateTagRequest` | `TagResponse` | 200, 403, 404, 409 |
@@ -251,6 +253,49 @@ Notes
   out of scope). Matching is unchanged: case- and diacritic-insensitive, German folding.
 - `tags` in `RecipeListQuery` is a comma-separated list of tag **ids**; a recipe must carry all.
 - `scale` uses `scaleIngredients` from `@toon/shared` so client and server agree.
+- **`?sort=lastCooked`** puts the most-recently-cooked recipe first and never-cooked recipes
+  **last** — `ORDER BY last_cooked_at DESC` puts SQLite `NULL`s at the end for free, so the sort
+  needs no `IS NULL` leading term and stays index-served (`recipes_group_last_cooked_idx`).
+  **`?hasCooked=1`** restricts the list to recipes cooked at least once (`last_cooked_at IS NOT
+  NULL`, a plain column predicate — never a subquery, so the envelope's `count(*)` stays
+  index-narrowed). `hasCooked` is intentionally absent from `RecipeListQuery`'s persisted URL
+  filters; it exists only for the "Kürzlich gekocht" carousel's own request.
+- **`recipe.lastCookedAt` is READ-ONLY and derived** from `recipe_cook_log`, never accepted on a
+  write. It changes only through `POST`/`DELETE …/cooked` below, and cooking a recipe never bumps
+  `recipe.updatedAt` — a cook is not an edit, and bumping it would reorder `?sort=newest`.
+- **`POST …/recipes/:recipeId/cooked`** ("Gekocht") appends one `recipe_cook_log` row stamped with
+  the caller's id, sets `recipe.lastCookedAt` to that instant, and — **only if the client says
+  so** — stamps a meal-plan entry's `cookedAt`: `mealPlanEntryId` when the caller already knows it
+  (must actually name this recipe, else 404 `server.plan.entryNotFound`), otherwise the entry for
+  `plannedOn` **if one exists that day**, otherwise nothing. The server never derives a date or an
+  entry itself; `MarkCookedRequest`'s body is all-optional, so a bare `POST {}` marks the recipe
+  cooked with no plan entry touched and `mealPlanEntry: null` in the response.
+- **`DELETE …/recipes/:recipeId/cooked`** undoes the **caller's own** most recent cook of that
+  recipe, but only within `COOK_UNDO_WINDOW_MS` (10 minutes) of it — outside that window, or with
+  nothing to undo, it is 404 `server.recipes.nothingToUndo`. It recomputes `lastCookedAt` from
+  `max(cookedAt)` over the remaining log rows (`null` if none remain, since another member may have
+  cooked the same recipe in between) and clears the stamped plan entry's `cookedAt` **only if the
+  undone row was the one that set it**.
+- **`course` (create/PATCH) is one tag NAME, separate from `tags`.** Sending it gets-or-creates that
+  name inside the group as `kind: 'course'` and replaces the recipe's one course link (a recipe has
+  at most one). **Absent** (the field left out of a PATCH) leaves the course link untouched;
+  **`null`** unlinks it. `course` therefore has no default and is deliberately **not** one of the
+  child arrays `keepOnlySentKeys` restores — that mechanism exists only for `ingredients` / `steps`
+  / `tags` / `collectionIds`, which carry a schema `.default([])` and would otherwise read "field
+  omitted" as "send an empty array".
+- **`tags` (create/PATCH) always creates and links `kind: 'free'` tags, and a PATCH's `tags` array
+  replaces only the recipe's FREE links** — a course link set through `course` is left alone by a
+  `tags`-only PATCH. This is why `course` is its own field instead of one more tag name: routing it
+  through `tags` would create "Dessert" as a `free` tag and lose the eyebrow.
+- **An older client that has never heard of `course`** and instead sends the category's name inside
+  `tags` still works: the name is get-or-created as `kind: 'free'` like any other tag NAME, **except**
+  when a tag by that exact name already exists as `kind: 'course'` — then the existing tag is linked
+  as-is, never flipped to `free`. `getOrCreateTagIds` changes the `kind` only of a tag it CREATES,
+  never one it finds.
+- `Tag.kind` (`'course' | 'free'`) is returned on every tag, in `GET /tags` and everywhere a recipe's
+  `tags` array appears. `CreateTagRequest.kind` defaults to `'free'` server-side.
+- Tag and course **names are CONTENT** (German recipe vocabulary), never routed through the locale
+  catalogs — see CLAUDE.md's interface-vs-content gotcha.
 
 ## Imports — `apps/api/src/routes/imports.ts`
 
@@ -334,11 +379,14 @@ Notes
 
 Mounted at `/api/groups/:groupId/shopping-lists`, **before** the catch-all recipes router (same
 reason as `imports`). Several named lists per group ("Rewe", "Drogerie"); a list belongs to the
-group, not to a user.
+group, not to a user. **`GET …/shopping-lists/bought` is registered before `GET …/shopping-lists/:listId`**
+— Hono matches in registration order, so the static path has to come first or a request for it
+would be read as a request for the list literally named `"bought"`.
 
 | Method | Path | Auth | Request | Response | Status |
 | --- | --- | --- | --- | --- | --- |
-| GET | `…/shopping-lists` | group:member | – | `ShoppingListListResponse` | 200, 403 |
+| GET | `…/shopping-lists` | group:member | optional `since` (query) | `ShoppingListListResponse` | 200, 403 |
+| GET | `…/shopping-lists/bought` | group:member | `listId?`, `limit?`, `offset?` (query) | `ShoppingBoughtListResponse` | 200, 403 |
 | POST | `…/shopping-lists` | group:member | `CreateShoppingListRequest` | `ShoppingListResponse` | 201, 403, 409 `shopping_list_name_taken`, 409 `too_many_shopping_lists`, 422 |
 | GET | `…/shopping-lists/:listId` | group:member | – | `ShoppingListDetailResponse` | 200, 403, 404 |
 | PATCH | `…/shopping-lists/:listId` | group:member | `UpdateShoppingListRequest` | `ShoppingListResponse` | 200, 403, 404, 409, 422 |
@@ -348,7 +396,13 @@ group, not to a user.
 | PATCH | `…/shopping-lists/:listId/items/:itemId` | group:member | `UpdateShoppingItemRequest` | `ShoppingListDetailResponse` | 200, 403, 404, 422 |
 | DELETE | `…/shopping-lists/:listId/items/:itemId` | group:member | – | `ShoppingListDetailResponse` | 200, 403, 404 |
 | POST | `…/shopping-lists/:listId/items/:itemId/check` | group:member | `CheckShoppingItemRequest` (optional) | `ShoppingListDetailResponse` | 200, 403, 404 |
+| POST | `…/shopping-lists/:listId/bought/clear` | group:member | – | `ShoppingListDetailResponse` | 200, 403, 404 |
+| POST | `…/shopping-lists/:listId/bought/:boughtId/undo` | group:member | `CheckShoppingItemRequest` (optional) | `ShoppingListDetailResponse` | 200, 403, 404 |
 | POST | `…/shopping-lists/:listId/recipes` | group:member | `AddRecipeToShoppingListRequest` | `ShoppingListDetailResponse` | 200, 403, 404, 422 |
+| DELETE | `…/shopping-lists/:listId/recipes/:recipeId` | group:member | – | `ShoppingListDetailResponse` | 200, 403, 404 |
+| GET | `…/shopping-lists/:listId/from-plan` | group:member | `MealPlanRangeQuery` (query: `from`, `to`, both required) | `PlanShoppingPreviewResponse` | 200, 403, 404, 422 |
+| GET | `…/shopping-lists/:listId/catalog` | group:member | `includeHidden?`, `limit?`, `offset?` (query) | `ShoppingCatalogListResponse` | 200, 403, 404 |
+| PATCH | `…/shopping-lists/:listId/catalog/:entryId` | group:member | `UpdateShoppingCatalogEntryRequest` | `ShoppingListDetailResponse` | 200, 403, 404, 422 |
 | POST | `…/shopping-lists/:listId/catalog/:entryId` | group:member | `CheckShoppingItemRequest` (optional) | `ShoppingListDetailResponse` | 200, 403, 404 |
 | DELETE | `…/shopping-lists/:listId/catalog/:entryId` | group:member | – | – | 204, 403, 404 |
 
@@ -380,6 +434,88 @@ Notes
   `DELETE` of an item and `check` are idempotent by construction and safe without one.
 - Free text ("500g Mehl") is parsed **client-side** with `parseIngredientLine`
   (`apps/web/src/features/shopping/lib/parse.ts`); the API only accepts structured items.
+- **The bought log and the `Clear bought` watermark are two different things (D4).** Checking an
+  item off still DELETEs the row (see above) and still bumps `shopping_list_catalog`; it
+  additionally appends one row to `shopping_bought_items`, a log that is never itself deleted or
+  edited. `shopping_lists.boughtClearedAt` is a single per-list watermark: `POST
+  …/bought/clear` only moves it to "now" (200, idempotent, no `mutationId` — "set the watermark to
+  now" cannot disagree with itself). The list DETAIL payload's `bought` array shows only rows
+  **newer than the watermark** (`bought_at >= boughtClearedAt ?? 0`); `GET …/bought`, the
+  cross-list archive, **ignores the watermark entirely** and returns every row in the group's
+  90-day (`BOUGHT_LOG_TTL_MS`) window, because clearing a list's "Bought today" section must never
+  make something the group actually bought disappear from the history it can still be found in.
+  `POST …/bought/:boughtId/undo` reverses one row: deletes the log entry and re-adds its amount
+  through the **same merge** every other add goes through (so an undo folds into whatever is on the
+  list now instead of creating a second line), decrements the matching `shopping_list_catalog`
+  entry's `useCount` (floored at 0), and is idempotent — an unknown or already-undone `boughtId` is
+  a 200 no-op.
+- **`?since` (on `GET …/shopping-lists`) is an INSTANT, and day grouping happens client-side.** It
+  is the caller's own calendar-day boundary (their device's local midnight), sent as an ISO instant
+  because the server only ever COMPARES instants and never derives a calendar day from one — the
+  same reasoning `meal_plan_entries.planned_on` is documented against below. A value that fails to
+  parse is **ignored, not 422** (a bad query param must not blank the whole overview), and any value
+  is clamped to `[now - 7d, now]` so a wrong device clock cannot invent a nonsense count. It only
+  narrows `ShoppingList.boughtCount`; nothing about `GET …/bought`'s day-by-day grouping is
+  server-side either — that response is a flat, `boughtAt`-ordered list, and the history panel
+  buckets it into days itself (the same `groupByLocalDay` from `packages/shared/src/calendar.ts`
+  the planner uses), because "what day was this bought on" is exactly as timezone-dependent as
+  "what day is this recipe planned for".
+- **The "Häufig gekauft" ranking is two deliberately separate steps, never one `sortBy`.** Both the
+  list detail's `catalog` array and `GET …/catalog` are ordered `use_count DESC, last_used_at DESC`
+  — SELECTION by actual purchase frequency. Client-side, `packages/shared/src/shopping.ts` picks the
+  chip row's top `FREQUENT_CHIP_COUNT` from that same ranking (`selectMostBoughtEntries`) and only
+  THEN re-sorts the picked set alphabetically by folded German name for DISPLAY
+  (`sortEntriesByFoldedName`) — "Äpfel" sits under A, not after Z, and a name never moves the
+  selection just because it folds differently. Collapsing the two into one comparator is the bug
+  this split exists to prevent.
+
+## Meal plan — `apps/api/src/routes/plan.ts`
+
+Mounted at `/api/groups/:groupId/plan`, alongside `imports` and `shopping-lists`, above the
+catch-all `recipes` router. **Any member may plan, move or unplan any entry** — a shared week is
+shared property, the same rule `PATCH …/shopping-lists/:listId` already applies to renaming a list;
+there is no author-or-admin check anywhere in this router.
+
+| Method | Path | Auth | Request | Response | Status |
+| --- | --- | --- | --- | --- | --- |
+| GET | `/api/groups/:groupId/plan` | group:member | `MealPlanRangeQuery` (query: `from`, `to`) | `MealPlanRangeResponse` | 200, 403, 422 |
+| POST | `/api/groups/:groupId/plan` | group:member | `CreateMealPlanEntryRequest` | `MealPlanEntryResponse` | 200, 201, 403, 404, 409 `meal_plan_day_full`, 422 |
+| PATCH | `/api/groups/:groupId/plan/:entryId` | group:member | `UpdateMealPlanEntryRequest` | `MealPlanEntryResponse` | 200, 403, 404, 409 `conflict` / `meal_plan_day_full`, 422 |
+| DELETE | `/api/groups/:groupId/plan/:entryId` | group:member | – | – | 204, 403, 404 |
+
+Notes
+- **`plannedOn` is a CALENDAR DATE (`YYYY-MM-DD`), not a timestamp, and it is the CLIENT's calendar
+  date, not the server's.** It is computed from the viewing DEVICE's local calendar
+  (`toPlanDate()` in `@toon/shared`'s `calendar.ts`) and sent as-is; nothing in this router or its
+  service ever calls `new Date()` to decide what day it is. That matters concretely: the API runs
+  in UTC (Docker) and its users are in Europe/Berlin, so a date the server derived from an instant
+  would be a day out for two hours every night. The server only stores and compares the string —
+  see the `meal_plan_entries.planned_on` column comment in `apps/api/src/db/schema.ts`.
+- **`GET` returns `{ from, to, items }`, not the `{ items, total, limit, offset }` list envelope.**
+  That envelope is for PAGINATED lists; a week is bounded by its own `from`/`to`, not a page, so
+  `total`/`limit`/`offset` would be three fields that always say the same thing. `items` is FLAT
+  (not grouped by day) and sorted `(plannedOn, position)`; a day with nothing planned is simply
+  absent, and the seven-slot week — including empty "+ Plan" cards — is built client-side.
+  `PLAN_LIMITS.rangeDays` (62) bounds the request; a longer or inverted range is 422.
+- **`POST` is idempotent, and that is deliberate: planner writes are ONLINE-ONLY, so there is no
+  `mutationId` ledger like the shopping list's.** Planning a recipe that is already on that day
+  returns the EXISTING entry with **200**, not a duplicate, and the second call's `servings` still
+  applies (a new one returns **201**). The `(group_id, planned_on, recipe_id)` unique index is the
+  whole idempotency story, including under a race between two members' simultaneous POSTs.
+- `POST` 404s for a `recipeId` outside the group. A day already holding
+  `PLAN_LIMITS.entriesPerDay` (12) entries answers 409 `meal_plan_day_full`.
+- **`PATCH` moves an entry between days by setting `plannedOn`.** Moving re-tails `position` on the
+  TARGET day unless `position` is sent explicitly. Moving onto a day that already holds the SAME
+  recipe never silently merges the two entries — it is 409 `conflict` (`server.plan.alreadyPlanned`)
+  — which is the opposite answer from `POST`'s idempotent 200, because a drag-and-drop move losing
+  data silently would be far worse than a duplicate add.
+- A cross-group `:entryId` answers 404 rather than leaking the entry's existence — `entryId` is
+  deliberately not one of `middleware/group.ts`'s `RESOURCE_PARAMS`; the service itself scopes every
+  lookup by `and(eq(id), eq(groupId))`.
+- **"Gekocht" lives on the RECIPE router**, not here: `POST`/`DELETE
+  /api/groups/:groupId/recipes/:recipeId/cooked` (see "Recipes" above) is what stamps a plan
+  entry's `cookedAt`, because cooking is something you do to a recipe that may or may not be on a
+  plan that day — the planner itself never writes `cooked_at` outside that path.
 
 ## Saved cards — `apps/api/src/routes/cards.ts`
 
@@ -470,8 +606,9 @@ sweeper keeps it while its original is referenced and deletes it in the same pas
 
 `users`, `oauth_accounts`, `sessions`, `password_reset_tokens`, `email_verification_tokens`,
 `groups`, `group_members`, `group_invites`, `recipes`, `recipe_ingredients`, `recipe_steps`, `tags`,
-`recipe_tags`, `collections`, `collection_recipes`, `import_drafts`, `shopping_lists`,
-`shopping_list_items`, `shopping_list_catalog`, `shopping_mutations`, `cards`.
+`recipe_tags`, `collections`, `collection_recipes`, `meal_plan_entries`, `recipe_cook_log`,
+`import_drafts`, `shopping_lists`, `shopping_list_items`, `shopping_list_catalog`,
+`shopping_bought_items`, `shopping_list_recipes`, `shopping_mutations`, `cards`.
 
 `password_reset_tokens` / `email_verification_tokens` store a **SHA-256 hash** of the token, never
 the token — the deliberate difference from `group_invites.token`, which keeps the raw value (a leaked
@@ -482,14 +619,31 @@ Unique indexes: `users.email`, `oauth_accounts(provider, provider_user_id)`,
 `group_members(group_id, user_id)`, `tags(group_id, name)`, `group_invites.token`,
 `password_reset_tokens.token_hash`, `email_verification_tokens.token_hash`,
 `shopping_lists(group_id, name)`, `shopping_list_items(list_id, merge_key)`,
-`shopping_list_catalog(list_id, name_key)`, `cards(user_id, format, value)`.
+`shopping_list_catalog(list_id, name_key)`, `cards(user_id, format, value)`,
+`meal_plan_entries(group_id, planned_on, recipe_id)`, `shopping_list_recipes(list_id, recipe_id)`.
 
 `shopping_list_items.merge_key` is the item's *identity*, not a cache: the unique index on it is what
 performs the merging, so two members adding the same ingredient at once cannot produce two lines.
 `shopping_mutations` is an idempotency ledger keyed by the client's `mutationId` (TTL 14 days, pruned
 on write) — see the Shopping lists notes above for why it has to exist.
+`meal_plan_entries(group_id, planned_on, recipe_id)` is what makes `POST /plan` idempotent (see the
+"Meal plan" section): planning the same recipe on the same day twice hits the index instead of
+inserting a duplicate. `shopping_list_recipes(list_id, recipe_id)` is why adding a recipe to a list
+twice, at a different portion count, upserts the "Recipes on this list" rail row instead of adding a
+second one.
 Composite primary keys: `recipe_tags(recipe_id, tag_id)`, `collection_recipes(collection_id, recipe_id)`.
-All group-scoped tables cascade from `groups`; child rows cascade from `recipes`.
+All group-scoped tables cascade from `groups`; child rows cascade from `recipes`, with one
+exception: `recipe_cook_log.meal_plan_entry_id` is `ON DELETE set null` — deleting a plan entry must
+not erase the fact that the meal was cooked, only the link between the two facts.
+
+**`meal_plan_entries.planned_on` is the one column in this whole schema that is NOT an instant.**
+Every other timestamp in every table (`created_at`, `updated_at`, `cooked_at`, `bought_at`,
+`last_cooked_at`, `bought_cleared_at`, …) is integer unix ms, resolved into a moment the same way
+everywhere. `planned_on` is `YYYY-MM-DD` text instead, because a plan entry is a DATE — "Thursday"
+— and an integer midnight is an instant that every reader has to re-interpret in some timezone,
+which is wrong twice a night for a UTC server and Europe/Berlin users. It is always the CLIENT's
+calendar date (never derived server-side, see the "Meal plan" section above), sorts
+lexicographically = chronologically, and needs no timezone to be wrong about.
 
 `cards` is the one table that hangs off `users` instead of `groups` — a saved loyalty barcode is
 personal property (see the Saved cards section). It cascades from `users`, so deleting an account

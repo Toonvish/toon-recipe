@@ -6,8 +6,8 @@
  *            /forgot-password  /reset-password/$token  /verify-email/$token
  *   guarded  /  /recipes/new  /recipes/$recipeId  /recipes/$recipeId/edit
  *            /import  /import/$draftId  /collections  /collections/$collectionId  /tags
- *            /shopping  /shopping/cards  /shopping/$listId
- *            /groups  /groups/$groupId  /settings
+ *            /shopping  /shopping/cards  /shopping/history  /shopping/$listId
+ *            /plan  /groups  /groups/$groupId  /settings
  *   redirect /search -> / (search lives in the recipe list; old links keep working)
  *
  * SCREENS ARE CODE-SPLIT WITH `lazyRouteComponent`, not a bare `React.lazy`, and the
@@ -29,6 +29,7 @@ import {
   lazyRouteComponent,
   redirect,
 } from "@tanstack/react-router";
+import { isPlanDate, startOfPlanWeek, todayPlanDate } from "@toon/shared";
 import { AppShell } from "@/components/layout/AppShell";
 import { NotFoundPage } from "@/components/layout/NotFoundPage";
 import { LoadingBlock } from "@/components/ui/Spinner";
@@ -81,6 +82,12 @@ const RECIPE_FILTER_PARAMS = [
   "difficulty",
   "sort",
 ] as const;
+
+/** The meal planner's one search param — the Monday of the week on screen. */
+const PLAN_SEARCH_PARAMS = ["week"] as const;
+
+/** The bought/history feed's params: an optional list filter and an offset page. */
+const SHOPPING_HISTORY_PARAMS = ["listId", "offset"] as const;
 
 /* -------------------------------------------------------------------------- */
 /* root                                                                       */
@@ -294,6 +301,23 @@ const cardsRoute = createRoute({
   component: lazyRouteComponent(() => import("@/features/cards/CardsPage")),
 });
 
+/**
+ * The cross-list "Bought today" / history feed. `listId` filters to one list
+ * (omitted = the whole group), `offset` pages it — both sanitised here rather than
+ * trusted raw, since a URL is user input: an unparsable `offset` must not become
+ * `NaN` and reach the API as the literal string "NaN".
+ */
+const shoppingHistoryRoute = createRoute({
+  getParentRoute: () => groupScopedRoute,
+  path: "/shopping/history",
+  validateSearch: (search: Record<string, unknown>): { listId?: string; offset: number } => {
+    const picked = pick(search, SHOPPING_HISTORY_PARAMS);
+    const offset = Number.parseInt(picked.offset ?? "", 10);
+    return { listId: picked.listId, offset: Number.isNaN(offset) ? 0 : offset };
+  },
+  component: lazyRouteComponent(() => import("@/features/shopping/ShoppingHistoryPage")),
+});
+
 const shoppingListRoute = createRoute({
   getParentRoute: () => groupScopedRoute,
   path: "/shopping/$listId",
@@ -304,6 +328,22 @@ const tagsRoute = createRoute({
   getParentRoute: () => groupScopedRoute,
   path: "/tags",
   component: lazyRouteComponent(() => import("@/features/tags/TagsPage")),
+});
+
+/**
+ * The meal planner. `week` is normalised to the MONDAY of its week here rather
+ * than left to the page: a URL is user input, and `?week=2026-02-15` (a Sunday)
+ * or a garbage string must not desync the strip from the day cards it renders.
+ * Falls back to the current week when the param is missing or unparsable.
+ */
+const planRoute = createRoute({
+  getParentRoute: () => groupScopedRoute,
+  path: "/plan",
+  validateSearch: (search: Record<string, unknown>): { week: string } => {
+    const raw = pick(search, PLAN_SEARCH_PARAMS).week;
+    return { week: startOfPlanWeek(raw !== undefined && isPlanDate(raw) ? raw : todayPlanDate()) };
+  },
+  component: lazyRouteComponent(() => import("@/features/plan/PlanPage")),
 });
 
 const groupsRoute = createRoute({
@@ -351,8 +391,10 @@ const routeTree = rootRoute.addChildren([
       collectionDetailRoute,
       shoppingRoute,
       cardsRoute,
+      shoppingHistoryRoute,
       shoppingListRoute,
       tagsRoute,
+      planRoute,
     ]),
     // Session only — these are how a user without a group gets one.
     searchRoute,
@@ -396,8 +438,10 @@ export const routes = {
   collectionDetail: collectionDetailRoute,
   shopping: shoppingRoute,
   cards: cardsRoute,
+  shoppingHistory: shoppingHistoryRoute,
   shoppingList: shoppingListRoute,
   tags: tagsRoute,
+  plan: planRoute,
   groups: groupsRoute,
   groupDetail: groupDetailRoute,
   settings: settingsRoute,

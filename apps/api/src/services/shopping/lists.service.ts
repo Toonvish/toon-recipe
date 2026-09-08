@@ -10,26 +10,52 @@ import {
   SHOPPING_LIMITS,
   nameKey,
   type CreateShoppingListRequest,
+  type ShoppingItemPreview,
   type ShoppingList,
   type ShoppingListDetailResponse,
   type UpdateShoppingListRequest,
 } from "@toon/shared";
-import { and, asc, count, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
 import {
+  recipeIngredients,
   recipes,
+  shoppingBoughtItems,
   shoppingListCatalog,
   shoppingListItems,
+  shoppingListRecipes,
   shoppingLists,
+  users,
 } from "../../db/schema.ts";
 import type { ShoppingListRow } from "../../db/schema.ts";
 import { ApiError } from "../../lib/errors.ts";
 import type { Membership } from "../../lib/types.ts";
 import { assertCanModifyOwned } from "../groups/membership.ts";
-import { type DbLike, eqFolded, foldText, nowMs } from "../groups/support.ts";
-import { toShoppingCatalogEntry, toShoppingItem, toShoppingList } from "./mappers.ts";
+import { type DbLike, eqFolded, foldText, nowMs, toCountMap } from "../groups/support.ts";
+import {
+  toShoppingBoughtItem,
+  toShoppingCatalogEntry,
+  toShoppingItem,
+  toShoppingList,
+  toShoppingListRecipe,
+} from "./mappers.ts";
 
-/** All lists of a group with their open-item counts — ONE grouped query. */
-export async function listShoppingLists(db: DbLike, groupId: string): Promise<ShoppingList[]> {
+/**
+ * All lists of a group, each with its open-item count plus the two overview-card
+ * extras (SPEC § 6.6 / A03 § 2.2a): `boughtCount` ("4 bought today") and
+ * `previewItems` (the item names the card shows before "+N"). THREE bounded
+ * queries total, never a per-list N+1 — a local libSQL file is one serialised
+ * write lane, and eight parallel queries cost eight times one (CLAUDE.md).
+ *
+ * `sinceMs` is the already-clamped instant the route computed from `?since`
+ * (`[now - 7d, now]`, or `undefined` for "no floor beyond the watermark") — the
+ * calendar-day boundary itself is a CLIENT concept (S4); this function only ever
+ * compares instants.
+ */
+export async function listShoppingLists(
+  db: DbLike,
+  groupId: string,
+  sinceMs?: number,
+): Promise<ShoppingList[]> {
   const rows = await db
     .select({ list: shoppingLists, itemCount: count(shoppingListItems.id) })
     .from(shoppingLists)
@@ -37,7 +63,58 @@ export async function listShoppingLists(db: DbLike, groupId: string): Promise<Sh
     .where(eq(shoppingLists.groupId, groupId))
     .groupBy(shoppingLists.id)
     .orderBy(asc(shoppingLists.name));
-  return rows.map((row) => toShoppingList(row.list, Number(row.itemCount)));
+  if (rows.length === 0) return [];
+
+  const boughtCountRows = await db
+    .select({ listId: shoppingBoughtItems.listId, value: count() })
+    .from(shoppingBoughtItems)
+    .innerJoin(shoppingLists, eq(shoppingLists.id, shoppingBoughtItems.listId))
+    .where(
+      and(
+        eq(shoppingLists.groupId, groupId),
+        // SQLite's max() with two arguments is the scalar (not aggregate) form.
+        sql`${shoppingBoughtItems.boughtAt} >= max(coalesce(${shoppingLists.boughtClearedAt}, 0), ${sinceMs ?? 0})`,
+      ),
+    )
+    .groupBy(shoppingBoughtItems.listId);
+  const boughtCounts = toCountMap(
+    boughtCountRows.map((row) => ({ key: row.listId, value: Number(row.value) })),
+  );
+
+  // Window function: the top listPreviewItems (8) rows per list, `position` order.
+  // Verified through @libsql/client (bun test against file::memory: does exactly
+  // that) — never through bun:sqlite, which is a newer SQLite than the one this
+  // app ships (CLAUDE.md).
+  const previewRows = await db.all<{
+    listId: string;
+    name: string;
+    quantity: number | null;
+    unit: string | null;
+  }>(sql`
+    select list_id as "listId", name, quantity, unit from (
+      select i.list_id, i.name, i.quantity, i.unit,
+             row_number() over (partition by i.list_id
+                                order by i.position asc, i.created_at asc) as rn
+        from shopping_list_items i
+        join shopping_lists l on l.id = i.list_id
+       where l.group_id = ${groupId}
+    ) where rn <= ${SHOPPING_LIMITS.listPreviewItems}
+  `);
+  const previewByList = new Map<string, ShoppingItemPreview[]>();
+  for (const row of previewRows) {
+    const bucket = previewByList.get(row.listId);
+    const item = { name: row.name, quantity: row.quantity, unit: row.unit };
+    if (bucket) bucket.push(item);
+    else previewByList.set(row.listId, [item]);
+  }
+
+  return rows.map((row) =>
+    toShoppingList(row.list, {
+      itemCount: Number(row.itemCount),
+      boughtCount: boughtCounts.get(row.list.id) ?? 0,
+      previewItems: previewByList.get(row.list.id) ?? [],
+    }),
+  );
 }
 
 /** The raw list row inside the group, or a 404 that never leaks other groups. */
@@ -97,11 +174,12 @@ export async function createShoppingList(
     groupId,
     name: input.name,
     createdBy: userId,
+    boughtClearedAt: null,
     createdAt: nowMs(),
     updatedAt: nowMs(),
   };
   await db.insert(shoppingLists).values(row);
-  return toShoppingList(row, 0);
+  return toShoppingList(row, { itemCount: 0 });
 }
 
 /** Renames a list. Any member may rename — the list is shared property. */
@@ -118,7 +196,7 @@ export async function updateShoppingList(
 
   const patch = { name: input.name, updatedAt: nowMs() };
   await db.update(shoppingLists).set(patch).where(eq(shoppingLists.id, listId));
-  return toShoppingList({ ...row, ...patch }, await countListItems(db, listId));
+  return toShoppingList({ ...row, ...patch }, { itemCount: await countListItems(db, listId) });
 }
 
 /**
@@ -193,17 +271,72 @@ export async function getShoppingListDetail(
   const catalogRows = await db
     .select()
     .from(shoppingListCatalog)
-    .where(eq(shoppingListCatalog.listId, listId))
+    .where(and(eq(shoppingListCatalog.listId, listId), isNull(shoppingListCatalog.hiddenAt)))
     .orderBy(desc(shoppingListCatalog.useCount), desc(shoppingListCatalog.lastUsedAt))
     // Over-fetch, because the filter below removes an unknown number of rows.
     .limit(SHOPPING_LIMITS.catalogSuggestions * 3);
 
+  // "Bought today" section: rows past the `Clear bought` watermark, newest first.
+  // The watermark and the log itself are two different things (S1) — clearing
+  // never deletes a row, it only moves this boundary.
+  const boughtRows = await db
+    .select({ item: shoppingBoughtItems, boughtByName: users.name })
+    .from(shoppingBoughtItems)
+    .leftJoin(users, eq(users.id, shoppingBoughtItems.boughtBy))
+    .where(
+      and(
+        eq(shoppingBoughtItems.listId, listId),
+        gte(shoppingBoughtItems.boughtAt, row.boughtClearedAt ?? 0),
+      ),
+    )
+    .orderBy(desc(shoppingBoughtItems.boughtAt))
+    .limit(SHOPPING_LIMITS.boughtSectionMax);
+
+  // "Recipes on this list" rail (SPEC § 4.5). `ingredientTotal` is the recipe's
+  // CURRENT ingredient count (R22), never a snapshot; `onListCount`/`sharedCount`
+  // are pure JS over `itemRows`, already in memory — no `json_each` needed.
+  const listRecipeRows = await db
+    .select({ listRecipe: shoppingListRecipes, recipe: recipes })
+    .from(shoppingListRecipes)
+    .innerJoin(recipes, and(eq(recipes.id, shoppingListRecipes.recipeId), eq(recipes.groupId, groupId)))
+    .where(eq(shoppingListRecipes.listId, listId))
+    .orderBy(asc(shoppingListRecipes.addedAt));
+
+  const recipeIds = listRecipeRows.map((r) => r.recipe.id);
+  const ingredientCountRows =
+    recipeIds.length === 0
+      ? []
+      : await db
+          .select({ key: recipeIngredients.recipeId, value: count() })
+          .from(recipeIngredients)
+          .where(inArray(recipeIngredients.recipeId, recipeIds))
+          .groupBy(recipeIngredients.recipeId);
+  const ingredientCounts = toCountMap(ingredientCountRows);
+
+  const recipesRail = listRecipeRows.map(({ listRecipe, recipe }) => {
+    let onListCount = 0;
+    let sharedCount = 0;
+    for (const item of itemRows) {
+      const sources = Array.isArray(item.sourceRecipeIds) ? item.sourceRecipeIds : [];
+      if (!sources.includes(recipe.id)) continue;
+      onListCount += 1;
+      if (sources.length > 1) sharedCount += 1;
+    }
+    return toShoppingListRecipe(listRecipe, recipe, {
+      ingredientTotal: ingredientCounts.get(recipe.id) ?? 0,
+      onListCount,
+      sharedCount,
+    });
+  });
+
   return {
-    list: toShoppingList(row, itemRows.length),
+    list: toShoppingList(row, { itemCount: itemRows.length }),
     items: itemRows.map((item) => toShoppingItem(item, titles)),
     catalog: catalogRows
       .filter((entry) => !onList.has(entry.nameKey))
       .slice(0, SHOPPING_LIMITS.catalogSuggestions)
       .map(toShoppingCatalogEntry),
+    bought: boughtRows.map(({ item, boughtByName }) => toShoppingBoughtItem(item, boughtByName)),
+    recipes: recipesRail,
   };
 }

@@ -34,6 +34,11 @@ export const uiEn: LocaleCatalog<UiCatalog> = {
   "ui.nav.collections": "Collections",
   "ui.nav.tags": "Tags",
   "ui.nav.mainNavLabel": "Main navigation",
+  // "Plan" is the same word in both locales — not a missing translation, see
+  // ui.de.ts.
+  "ui.nav.plan": "Plan",
+  "ui.nav.planNewBadge": "New",
+  "ui.nav.organiseLabel": "Organise",
 
   "ui.topbar.searchRecipes": "Search recipes",
   "ui.topbar.newRecipe": "Add recipe",
@@ -105,4 +110,7 @@ export const uiEn: LocaleCatalog<UiCatalog> = {
   "ui.session.noGroupDescription":
     "Recipes always belong to a group. Create a group (e.g. “Family”) or accept an invite.",
   "ui.session.createGroup": "Create group",
+
+  /* -------------------------------- SideNav.tsx ------------------------------ */
+  "ui.sidenav.accountAction": "Account and settings",
 };

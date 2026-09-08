@@ -80,9 +80,19 @@ interface ItemPayload {
 }
 
 interface DetailPayload {
-  list: { id: string; name: string; itemCount: number };
+  list: { id: string; name: string; itemCount: number; boughtClearedAt: string | null };
   items: ItemPayload[];
-  catalog: Array<{ id: string; name: string; unit: string | null; useCount: number }>;
+  catalog: Array<{
+    id: string;
+    name: string;
+    unit: string | null;
+    useCount: number;
+    hiddenAt: string | null;
+  }>;
+  // Full shapes are pinned by test/shopping-bought.test.ts; this file's own
+  // assertions never index into either array, so `unknown[]` is enough here.
+  bought: unknown[];
+  recipes: unknown[];
 }
 
 interface ErrorPayload {

@@ -18,7 +18,16 @@ import { getLocale, setLocaleForTest, translate } from "./store.ts";
 
 describe("catalog integrity", () => {
   test("every namespace's keys are prefixed and prefixes never collide", () => {
-    const prefixes = ["auth.", "recipes.", "import.", "shopping.", "cards.", "groups.", "ui."];
+    const prefixes = [
+      "auth.",
+      "recipes.",
+      "import.",
+      "shopping.",
+      "cards.",
+      "groups.",
+      "plan.",
+      "ui.",
+    ];
     for (const key of Object.keys(CATALOGS.de)) {
       const matches = prefixes.filter((prefix) => key.startsWith(prefix));
       expect(matches.length).toBe(1);

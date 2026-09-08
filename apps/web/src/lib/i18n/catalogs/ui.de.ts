@@ -46,6 +46,13 @@ export const uiDe = {
   "ui.nav.collections": "Sammlungen",
   "ui.nav.tags": "Tags",
   "ui.nav.mainNavLabel": "Hauptnavigation",
+  // "Plan" is the same word in both locales — not a missing translation, it's
+  // just the tab bar's name for the /plan screen and reads fine unchanged.
+  "ui.nav.plan": "Plan",
+  "ui.nav.planNewBadge": "Neu",
+  // Used twice in SideNav.tsx: the visible eyebrow above the secondary nav
+  // items AND that <nav>'s own aria-label. One key, two slots, one sentence.
+  "ui.nav.organiseLabel": "Organisieren",
 
   /* -------------------------------- TopBar.tsx ------------------------------ */
   "ui.topbar.searchRecipes": "Rezepte suchen",
@@ -134,6 +141,11 @@ export const uiDe = {
   "ui.session.noGroupDescription":
     "Rezepte gehören immer zu einer Gruppe. Lege eine Gruppe an (z. B. „Familie“) oder nimm eine Einladung an.",
   "ui.session.createGroup": "Gruppe anlegen",
+
+  /* -------------------------------- SideNav.tsx ------------------------------ */
+  // The footer user row's aria-label: the row's *visible* name is the user's
+  // own name, which does not say where the link goes.
+  "ui.sidenav.accountAction": "Konto und Einstellungen",
 } as const satisfies NamespaceCatalog<"ui">;
 
 export type UiCatalog = typeof uiDe;

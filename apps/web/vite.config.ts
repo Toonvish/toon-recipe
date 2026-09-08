@@ -61,6 +61,15 @@ const RUNTIME_CACHING = [
     handler: "NetworkOnly" as const,
   },
   {
+    // The meal planner — same rule as shopping lists, and for the same reason: its
+    // offline copy is the persisted TanStack cache (now on the persist.ts allow-list
+    // too), and a `NetworkFirst` hit here would hand it a stale week that looks like
+    // a fresh success. Must come before the recipes rule below for the same reason
+    // rule 1 does.
+    urlPattern: /\/api\/groups\/[^/]+\/plan/,
+    handler: "NetworkOnly" as const,
+  },
+  {
     /**
      * SAVED CARDS, same rule and same reason. `/api/cards` is the user's loyalty
      * barcodes, read at a till where there is often no signal — and its offline
@@ -203,7 +212,12 @@ export default defineConfig(({ mode }) => {
           // Drawing a saved card is pure JS in the main bundle (see
           // packages/shared/src/barcode.ts), so the till path stays offline-proof
           // either way. Adding "wasm" here is a real decision, not a typo fix.
-          globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest}"],
+          //
+          // `woff2` IS PRESENT and `wasm` is not, for opposite reasons. The four font
+          // files total ~55 KB, are needed by EVERY screen, and are needed OFFLINE —
+          // an unavailable webfont reflows the shopping list at the till. zxing-wasm is
+          // 1.1 MB, is needed by one screen, once per card, at home, with a connection.
+          globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest,woff2}"],
           globIgnores: ["**/*.map"],
           navigateFallback: "/index.html",
           // NEVER serve the SPA shell for API calls or uploads. Unchanged, and it

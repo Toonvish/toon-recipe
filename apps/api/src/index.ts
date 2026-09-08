@@ -26,6 +26,7 @@ import { authRoutes } from "./routes/auth.ts";
 import { cardRoutes } from "./routes/cards.ts";
 import { groupRoutes } from "./routes/groups.ts";
 import { importRoutes } from "./routes/imports.ts";
+import { planRoutes } from "./routes/plan.ts";
 import { recipeRoutes } from "./routes/recipes.ts";
 import { shoppingRoutes } from "./routes/shopping.ts";
 import { serverFeatures } from "./services/import/capabilities.ts";
@@ -144,6 +145,7 @@ app.route("/api/cards", cardRoutes);
 app.route("/api/groups", groupRoutes);
 app.route("/api/groups/:groupId/imports", importRoutes);
 app.route("/api/groups/:groupId/shopping-lists", shoppingRoutes);
+app.route("/api/groups/:groupId/plan", planRoutes);
 // LAST: this one owns the /api/groups/:groupId catch-all, so anything mounted on a
 // deeper path has to be registered above it.
 app.route("/api/groups/:groupId", recipeRoutes);

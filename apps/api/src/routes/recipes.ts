@@ -16,6 +16,7 @@ import {
   CreateCollectionRequestSchema,
   CreateRecipeRequestSchema,
   CreateTagRequestSchema,
+  MarkCookedRequestSchema,
   RecipeListQuerySchema,
   ScaleRecipeQuerySchema,
   UpdateCollectionRequestSchema,
@@ -47,6 +48,7 @@ import {
   setRecipeImage,
   updateRecipe,
 } from "../services/recipes/recipes.service.ts";
+import { recordCooked, undoCooked } from "../services/recipes/cookLog.ts";
 import { createTag, deleteTag, listTags, updateTag } from "../services/recipes/tags.service.ts";
 import { storeUploadedImage } from "../services/recipes/uploads.ts";
 
@@ -130,6 +132,36 @@ recipeRoutes.post("/recipes/:recipeId/image", async (c) => {
   const upload = await storeUploadedImage(await c.req.formData());
   await setRecipeImage(db, membership.groupId, recipeId, upload.url);
   return json(c, upload);
+});
+
+/**
+ * POST /recipes/:recipeId/cooked — "Gekocht": append a log row, bump
+ * `recipes.last_cooked_at`, and stamp the plan entry the client names (or the one
+ * for `plannedOn`, if it sent a date). NEVER guesses the date — see calendar.ts.
+ */
+recipeRoutes.post(
+  "/recipes/:recipeId/cooked",
+  zValidator("json", MarkCookedRequestSchema, onValidationError),
+  async (c) => {
+    const membership = requireMembership(c);
+    const user = requireUser(c);
+    return json(
+      c,
+      await recordCooked(db, membership.groupId, user.id, c.req.param("recipeId"), c.req.valid("json")),
+    );
+  },
+);
+
+/**
+ * DELETE /recipes/:recipeId/cooked — undo the CALLER's own most recent cook of
+ * this recipe within `COOK_UNDO_WINDOW_MS` (R18); 404 `server.recipes.nothingToUndo`
+ * outside the window or with nothing to undo.
+ */
+recipeRoutes.delete("/recipes/:recipeId/cooked", async (c) => {
+  const membership = requireMembership(c);
+  const user = requireUser(c);
+  await undoCooked(db, membership.groupId, user.id, c.req.param("recipeId"));
+  return noContent(c);
 });
 
 /**

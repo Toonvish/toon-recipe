@@ -14,6 +14,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   CreateShoppingListRequest,
+  MeResponse,
   ShoppingItemInput,
   ShoppingList,
   ShoppingListDetailResponse,
@@ -25,19 +26,32 @@ import {
   deleteShoppingList,
   updateShoppingList,
 } from "@/lib/api";
-import { invalidate, shoppingListQuery, shoppingListsQuery } from "@/lib/queries";
+import { invalidate, queryKeys, shoppingListQuery, shoppingListsQuery } from "@/lib/queries";
 import {
   SHOPPING_MUTATION_KEYS,
   type AddItemsVariables,
   type AddRecipeVariables,
   type AddSuggestionVariables,
+  type CheckItemVariables,
   type ItemVariables,
+  type UndoBoughtVariables,
   type UpdateItemVariables,
 } from "./offline";
 
 /** A fresh at-most-once token for one queued mutation. */
 function newMutationId(): string {
   return crypto.randomUUID();
+}
+
+/**
+ * The signed-in user, read from the `["toon","me"]` CACHE, not a fresh fetch — offline
+ * is exactly when this has to work. Used only to draw the optimistic "Heute gekauft"
+ * row before the server has told us anything; a session-less caller (which should not
+ * be able to reach this screen at all) draws a nameless row rather than crashing.
+ */
+function currentBuyer(client: ReturnType<typeof useQueryClient>): { id: string; name: string } {
+  const me = client.getQueryData<MeResponse | null>(queryKeys.me());
+  return { id: me?.user.id ?? "", name: me?.user.name ?? "" };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -153,13 +167,34 @@ export function useUpdateShoppingItem(groupId: string, listId: string) {
 
 /** Checks a line off: it leaves the list and shows up under "Häufig gekauft". */
 export function useCheckShoppingItem(groupId: string, listId: string) {
-  const mutation = useMutation<Detail, Error, ItemVariables>({
+  const client = useQueryClient();
+  const mutation = useMutation<Detail, Error, CheckItemVariables>({
     mutationKey: SHOPPING_MUTATION_KEYS.check,
   });
   return {
     ...mutation,
     check: (itemId: string) =>
-      mutation.mutate({ groupId, listId, itemId, mutationId: newMutationId() }),
+      mutation.mutate({
+        groupId,
+        listId,
+        itemId,
+        mutationId: newMutationId(),
+        // Resolved HERE, at call time, from the cache — never inside `mutationFn`,
+        // which re-runs on replay (see the type's doc comment in ./offline).
+        boughtBy: currentBuyer(client),
+      }),
+  };
+}
+
+/** Puts a "Heute gekauft" row back on the list, folding its amount onto `items`. */
+export function useUndoBoughtItem(groupId: string, listId: string) {
+  const mutation = useMutation<Detail, Error, UndoBoughtVariables>({
+    mutationKey: SHOPPING_MUTATION_KEYS.undoBought,
+  });
+  return {
+    ...mutation,
+    undo: (boughtId: string) =>
+      mutation.mutate({ groupId, listId, boughtId, mutationId: newMutationId() }),
   };
 }
 

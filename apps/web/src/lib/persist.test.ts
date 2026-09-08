@@ -11,7 +11,7 @@
  * file — apps/web/tsconfig.json excludes it.
  */
 import { describe, expect, test } from "bun:test";
-import { cacheKeyForUser, shouldPersistMutation, shouldPersistQuery } from "./persist";
+import { PERSIST_BUSTER, cacheKeyForUser, shouldPersistMutation, shouldPersistQuery } from "./persist";
 
 type QueryLike = Parameters<typeof shouldPersistQuery>[0];
 
@@ -22,6 +22,12 @@ function query(queryKey: readonly unknown[], overrides: Partial<QueryLike["state
     state: { status: "success", data: { items: [] }, ...overrides } as QueryLike["state"],
   };
 }
+
+describe("PERSIST_BUSTER", () => {
+  test("is v3 — asserted so the bump cannot be lost in a merge", () => {
+    expect(PERSIST_BUSTER).toBe("v3");
+  });
+});
 
 describe("cacheKeyForUser", () => {
   test("namespaces by user id — two accounts can never read one blob", () => {
@@ -57,6 +63,16 @@ describe("shouldPersistQuery — what MAY be written", () => {
   test("saved cards — a barcode is shown at a till, where there is no signal", () => {
     expect(shouldPersistQuery(query(["toon", "cards"]))).toBe(true);
   });
+
+  test("the meal planner — read-only offline, like recipes/tags/collections", () => {
+    expect(shouldPersistQuery(query(["toon", "group", groupId, "plan", { from: "a", to: "b" }]))).toBe(
+      true,
+    );
+  });
+
+  test("the bought/history feed — read-only offline", () => {
+    expect(shouldPersistQuery(query(["toon", "group", groupId, "shopping-bought"]))).toBe(true);
+  });
 });
 
 describe("shouldPersistQuery — what may NOT be written", () => {
@@ -87,6 +103,14 @@ describe("shouldPersistQuery — what may NOT be written", () => {
     expect(shouldPersistQuery(query(["toon", "group", groupId, "meal-plan"]))).toBe(false);
     expect(shouldPersistQuery(query(["something-else", "recipes"]))).toBe(false);
     expect(shouldPersistQuery(query([]))).toBe(false);
+  });
+
+  test("plan-shopping — a live server diff against one list, not the planner itself", () => {
+    expect(shouldPersistQuery(query(["toon", "group", groupId, "plan-shopping", "l1"]))).toBe(false);
+  });
+
+  test("shopping-catalog — the 'Häufig gekauft' feed has no offline use case", () => {
+    expect(shouldPersistQuery(query(["toon", "group", groupId, "shopping-catalog"]))).toBe(false);
   });
 
   test("a pending or failed query — restoring it would read as 'no recipes'", () => {

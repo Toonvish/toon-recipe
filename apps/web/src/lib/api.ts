@@ -31,6 +31,7 @@ import {
   type CreateCollectionRequest,
   type CreateGroupRequest,
   type CreateInviteRequest,
+  type CreateMealPlanEntryRequest,
   type CreateRecipeRequest,
   type CreateShoppingListRequest,
   type CreateTagRequest,
@@ -51,11 +52,17 @@ import {
   type ImportUrlRequest,
   type InvitePreviewResponse,
   type LoginRequest,
+  type MarkCookedRequest,
+  type MealPlanEntryResponse,
+  type MealPlanRangeQuery,
+  type MealPlanRangeResponse,
   type MeResponse,
   type OAuthProvider,
   type OAuthProvidersResponse,
   type OAuthStartResponse,
   type PaginationQuery,
+  type PlanShoppingPreviewResponse,
+  type RecipeCookedResponse,
   type RecipeListQuery,
   type RecipeListResponse,
   type RecipeResponse,
@@ -63,6 +70,8 @@ import {
   type ResetPasswordRequest,
   type ScaledRecipeResponse,
   type SessionListResponse,
+  type ShoppingBoughtListResponse,
+  type ShoppingCatalogListResponse,
   type ShoppingListDetailResponse,
   type ShoppingListListResponse,
   type ShoppingListResponse,
@@ -72,9 +81,11 @@ import {
   type UpdateCollectionRequest,
   type UpdateGroupRequest,
   type UpdateImportDraftRequest,
+  type UpdateMealPlanEntryRequest,
   type UpdateMemberRoleRequest,
   type UpdateProfileRequest,
   type UpdateRecipeRequest,
+  type UpdateShoppingCatalogEntryRequest,
   type UpdateShoppingItemRequest,
   type UpdateShoppingListRequest,
   type UpdateTagRequest,
@@ -779,6 +790,43 @@ export function fetchScaledRecipe(
   );
 }
 
+/**
+ * "Gekocht": appends a cook-log row, bumps `recipes.lastCookedAt` and — when the
+ * recipe was on the plan that day — stamps the plan entry's `cookedAt` too. Body is
+ * optional-everything, so a bare tap (`{}`) works.
+ */
+export function markRecipeCooked(
+  groupId: string,
+  recipeId: string,
+  body: MarkCookedRequest = {},
+  options?: RequestOptions,
+): Promise<RecipeCookedResponse> {
+  return request<RecipeCookedResponse>(`/api/groups/${groupId}/recipes/${recipeId}/cooked`, {
+    ...options,
+    method: "POST",
+    body,
+  });
+}
+
+/**
+ * Undoes the CALLER's own most recent "Gekocht" tap for this recipe, within the
+ * server's short undo window. Recomputes `lastCookedAt` from what remains in the log.
+ *
+ * Answers **204, no body** (docs/API.md), so this resolves to `undefined` — the
+ * caller refetches the recipe rather than reading a new `lastCookedAt` off the
+ * response, because the recomputed value may be another member's cook.
+ */
+export function undoRecipeCooked(
+  groupId: string,
+  recipeId: string,
+  options?: RequestOptions,
+): Promise<void> {
+  return request<void>(`/api/groups/${groupId}/recipes/${recipeId}/cooked`, {
+    ...options,
+    method: "DELETE",
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 /* tags                                                                       */
 /* -------------------------------------------------------------------------- */
@@ -905,6 +953,64 @@ export function removeRecipeFromCollection(
   options?: RequestOptions,
 ): Promise<void> {
   return collectionRecipe("DELETE", groupId, collectionId, recipeId, options);
+}
+
+/* -------------------------------------------------------------------------- */
+/* meal planner ("Wochenplan")                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A flat, `(plannedOn, position)`-ordered range — never the `{ items, total, limit,
+ * offset }` envelope, because a week is bounded by its own `from`/`to`, not a page.
+ * `from`/`to` are `YYYY-MM-DD` calendar dates the CLIENT computed
+ * (`packages/shared/src/calendar.ts`); the server never derives a date from its clock.
+ */
+export function fetchPlanRange(
+  groupId: string,
+  query: MealPlanRangeQuery,
+  options?: RequestOptions,
+): Promise<MealPlanRangeResponse> {
+  return request<MealPlanRangeResponse>(
+    `/api/groups/${groupId}/plan${queryString({ from: query.from, to: query.to })}`,
+    options,
+  );
+}
+
+export function createPlanEntry(
+  groupId: string,
+  body: CreateMealPlanEntryRequest,
+  options?: RequestOptions,
+): Promise<MealPlanEntryResponse> {
+  return request<MealPlanEntryResponse>(`/api/groups/${groupId}/plan`, {
+    ...options,
+    method: "POST",
+    body,
+  });
+}
+
+/** Moving an entry to another day is a PATCH of `plannedOn` — that is the drag-and-drop. */
+export function updatePlanEntry(
+  groupId: string,
+  entryId: string,
+  body: UpdateMealPlanEntryRequest,
+  options?: RequestOptions,
+): Promise<MealPlanEntryResponse> {
+  return request<MealPlanEntryResponse>(`/api/groups/${groupId}/plan/${entryId}`, {
+    ...options,
+    method: "PATCH",
+    body,
+  });
+}
+
+export function deletePlanEntry(
+  groupId: string,
+  entryId: string,
+  options?: RequestOptions,
+): Promise<void> {
+  return request<void>(`/api/groups/${groupId}/plan/${entryId}`, {
+    ...options,
+    method: "DELETE",
+  });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1192,6 +1298,139 @@ export function deleteShoppingCatalogEntry(
   });
 }
 
+/**
+ * Hides or unhides a "Häufig gekauft" entry WITHOUT losing its `useCount` — the
+ * long-press action the redesign replaces the per-chip `×` with. The existing
+ * `deleteShoppingCatalogEntry` ("nicht mehr vorschlagen") stays as it is; this is a
+ * different, reversible action.
+ */
+export function setShoppingCatalogEntryHidden(
+  groupId: string,
+  listId: string,
+  entryId: string,
+  body: UpdateShoppingCatalogEntryRequest,
+  options?: RequestOptions,
+): Promise<ShoppingListDetailResponse> {
+  return request<ShoppingListDetailResponse>(
+    `${shoppingBase(groupId, listId)}/catalog/${entryId}`,
+    { ...options, method: "PATCH", body },
+  );
+}
+
+/** `GET …/shopping-lists/:listId/catalog` query — the "Show all" sheet. */
+export type ShoppingCatalogPageQuery = Partial<PaginationQuery> & {
+  includeHidden?: boolean;
+};
+
+/** The full "Häufig gekauft" sheet — every entry, hidden ones included on request. */
+export function fetchShoppingCatalogPage(
+  groupId: string,
+  listId: string,
+  query: ShoppingCatalogPageQuery = {},
+  options?: RequestOptions,
+): Promise<ShoppingCatalogListResponse> {
+  return request<ShoppingCatalogListResponse>(
+    `${shoppingBase(groupId, listId)}/catalog${queryString({
+      includeHidden: query.includeHidden ? 1 : undefined,
+      limit: query.limit,
+      offset: query.offset,
+    })}`,
+    options,
+  );
+}
+
+/**
+ * `GET …/shopping-lists/bought` — the cross-list "Bought today" / history feed.
+ * `listId` omitted means the whole group, which is what the overview panel wants.
+ */
+export type ShoppingBoughtHistoryQuery = Partial<PaginationQuery> & {
+  listId?: string;
+};
+
+export function fetchShoppingBoughtHistory(
+  groupId: string,
+  query: ShoppingBoughtHistoryQuery = {},
+  options?: RequestOptions,
+): Promise<ShoppingBoughtListResponse> {
+  return request<ShoppingBoughtListResponse>(
+    `/api/groups/${groupId}/shopping-lists/bought${queryString({
+      listId: query.listId,
+      limit: query.limit,
+      offset: query.offset,
+    })}`,
+    options,
+  );
+}
+
+/**
+ * `Clear bought`: stamps the per-list watermark. The log itself is never deleted —
+ * the history panel reads past the watermark, so nothing bought is forgotten.
+ */
+export function clearBoughtSection(
+  groupId: string,
+  listId: string,
+  options?: RequestOptions,
+): Promise<ShoppingListDetailResponse> {
+  return request<ShoppingListDetailResponse>(`${shoppingBase(groupId, listId)}/bought/clear`, {
+    ...options,
+    method: "POST",
+  });
+}
+
+/**
+ * Undoes one "Bought today" row: deletes the log row and re-merges the amount back
+ * onto the list (folding into whatever is already there under the same
+ * `(name, unit)` bucket — nothing is lost, nothing is invented).
+ */
+export function undoBoughtItem(
+  groupId: string,
+  listId: string,
+  boughtId: string,
+  body: CheckShoppingItemRequest = {},
+  options?: RequestOptions,
+): Promise<ShoppingListDetailResponse> {
+  return request<ShoppingListDetailResponse>(
+    `${shoppingBase(groupId, listId)}/bought/${boughtId}/undo`,
+    { ...options, method: "POST", body },
+  );
+}
+
+/**
+ * Removes a recipe from "Recipes on this list". Deletes only the ingredient lines
+ * that came SOLELY from this recipe; a line still shared with another recipe on the
+ * list keeps its quantity unchanged. Online-only — never queued (see
+ * features/shopping/lib/offline.ts): a bulk delete replayed against a list the user
+ * can no longer see is exactly the class the offline outbox excludes.
+ */
+export function removeRecipeFromShoppingList(
+  groupId: string,
+  listId: string,
+  recipeId: string,
+  options?: RequestOptions,
+): Promise<ShoppingListDetailResponse> {
+  return request<ShoppingListDetailResponse>(
+    `${shoppingBase(groupId, listId)}/recipes/${recipeId}`,
+    { ...options, method: "DELETE" },
+  );
+}
+
+/**
+ * "From this week's plan": which planned recipes are missing from this list, and by
+ * how much. `from`/`to` are both required `YYYY-MM-DD` calendar dates — the server
+ * never guesses where a week starts; the client sends `localWeekRange(new Date())`.
+ */
+export function fetchPlanShoppingPreview(
+  groupId: string,
+  listId: string,
+  range: { from: string; to: string },
+  options?: RequestOptions,
+): Promise<PlanShoppingPreviewResponse> {
+  return request<PlanShoppingPreviewResponse>(
+    `${shoppingBase(groupId, listId)}/from-plan${queryString({ from: range.from, to: range.to })}`,
+    options,
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /* saved cards (loyalty barcodes — the user's own, NOT a group's)              */
 /* -------------------------------------------------------------------------- */
@@ -1286,6 +1525,14 @@ export const api = {
     remove: deleteRecipe,
     uploadImage: uploadRecipeImage,
     scale: fetchScaledRecipe,
+    markCooked: markRecipeCooked,
+    undoCooked: undoRecipeCooked,
+  },
+  plan: {
+    range: fetchPlanRange,
+    create: createPlanEntry,
+    update: updatePlanEntry,
+    remove: deletePlanEntry,
   },
   tags: {
     list: fetchTags,
@@ -1316,6 +1563,13 @@ export const api = {
     addRecipe: addRecipeToShoppingList,
     addSuggestion: addShoppingCatalogEntry,
     removeSuggestion: deleteShoppingCatalogEntry,
+    setSuggestionHidden: setShoppingCatalogEntryHidden,
+    catalogPage: fetchShoppingCatalogPage,
+    boughtHistory: fetchShoppingBoughtHistory,
+    clearBought: clearBoughtSection,
+    undoBought: undoBoughtItem,
+    removeRecipe: removeRecipeFromShoppingList,
+    fromPlan: fetchPlanShoppingPreview,
   },
   cards: {
     list: fetchCards,

@@ -14,6 +14,7 @@
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import type {
   ImportDraftListQuery,
+  MealPlanRangeQuery,
   PaginationQuery,
   RecipeListQuery,
 } from "@toon/shared";
@@ -31,14 +32,20 @@ import {
   fetchInvitePreview,
   fetchMe,
   fetchOAuthProviders,
+  fetchPlanRange,
+  fetchPlanShoppingPreview,
   fetchRecipe,
   fetchRecipes,
   fetchScaledRecipe,
   fetchSessions,
+  fetchShoppingBoughtHistory,
+  fetchShoppingCatalogPage,
   fetchShoppingList,
   fetchShoppingLists,
   fetchTags,
   isApiError,
+  type ShoppingBoughtHistoryQuery,
+  type ShoppingCatalogPageQuery,
 } from "./api";
 
 /* -------------------------------------------------------------------------- */
@@ -127,6 +134,41 @@ export const queryKeys = {
   shoppingLists: (groupId: string) => [ROOT, "group", groupId, "shopping-lists"] as const,
   shoppingList: (groupId: string, listId: string) =>
     [ROOT, "group", groupId, "shopping-list", listId] as const,
+
+  /**
+   * The meal planner. `planRoot` is the prefix `invalidateAfterPlanMutation`
+   * invalidates — every range fetched for the group hangs off it, so moving an
+   * entry between two ranges refreshes both without knowing which ones are mounted.
+   */
+  planRoot: (groupId: string) => [ROOT, "group", groupId, "plan"] as const,
+  plan: (groupId: string, range: { from: string; to: string }) =>
+    [ROOT, "group", groupId, "plan", filterKey(range)] as const,
+
+  /**
+   * "From this week's plan" (the shopping list's own read of the planner) — segment
+   * `"plan-shopping"` on purpose, distinct from `"plan"`: R24 persists the planner's
+   * own range reads but NOT this one, since its only affordance is an online-only
+   * bulk add and a restored diff would draw an `Add` button that cannot run.
+   */
+  planShopping: (groupId: string, listId: string) =>
+    [ROOT, "group", groupId, "plan-shopping", listId] as const,
+
+  /**
+   * The cross-list "Bought today" / history feed. Segment `"shopping-bought"` is
+   * what `PERSISTED_GROUP_SEGMENTS` (lib/persist.ts) allow-lists — it sits on the
+   * already-offline `/shopping` screen, so leaving it unpersisted would be a
+   * spinner that never resolves.
+   */
+  boughtHistory: (groupId: string, query?: ShoppingBoughtHistoryQuery) =>
+    [ROOT, "group", groupId, "shopping-bought", filterKey(query)] as const,
+
+  /**
+   * The full "Häufig gekauft" sheet (`Show all`). Segment `"shopping-catalog"` is
+   * deliberately NOT on the persist allow-list — a sheet opened on demand, not the
+   * always-visible chip row (which comes from the list detail payload instead).
+   */
+  catalogPage: (groupId: string, listId: string, query?: ShoppingCatalogPageQuery) =>
+    [ROOT, "group", groupId, "shopping-catalog", listId, filterKey(query)] as const,
 } as const;
 
 /* -------------------------------------------------------------------------- */
@@ -313,6 +355,52 @@ export const shoppingListQuery = (groupId: string, listId: string) =>
     networkMode: "offlineFirst",
   });
 
+/**
+ * A week (or other bounded range) of the meal planner. `offlineFirst`, same reason
+ * as the shopping list: the library's week strip is on a screen that has to survive
+ * a cold start with no signal.
+ */
+export const planQuery = (groupId: string, range: MealPlanRangeQuery) =>
+  queryOptions({
+    queryKey: queryKeys.plan(groupId, range),
+    queryFn: ({ signal }) => fetchPlanRange(groupId, range, { signal }),
+    staleTime: STALE_TIME.list,
+    networkMode: "offlineFirst",
+  });
+
+/**
+ * "From this week's plan" — a server-computed diff against ONE list. Deliberately
+ * the default (online) network mode, not `offlineFirst`: its only affordance is a
+ * bulk add that cannot run offline anyway (R24), so there is nothing useful to
+ * restore from a stale copy.
+ */
+export const planShoppingQuery = (groupId: string, listId: string, range: { from: string; to: string }) =>
+  queryOptions({
+    queryKey: queryKeys.planShopping(groupId, listId),
+    queryFn: ({ signal }) => fetchPlanShoppingPreview(groupId, listId, range, { signal }),
+    staleTime: STALE_TIME.list,
+  });
+
+/** The cross-list "Bought today" / history feed — the overview panel and `/shopping/history`. */
+export const boughtHistoryQuery = (groupId: string, query: ShoppingBoughtHistoryQuery = {}) =>
+  queryOptions({
+    queryKey: queryKeys.boughtHistory(groupId, query),
+    queryFn: ({ signal }) => fetchShoppingBoughtHistory(groupId, query, { signal }),
+    staleTime: STALE_TIME.list,
+  });
+
+/** The full "Häufig gekauft" sheet (`Show all`). */
+export const catalogPageQuery = (
+  groupId: string,
+  listId: string,
+  query: ShoppingCatalogPageQuery = {},
+) =>
+  queryOptions({
+    queryKey: queryKeys.catalogPage(groupId, listId, query),
+    queryFn: ({ signal }) => fetchShoppingCatalogPage(groupId, listId, query, { signal }),
+    staleTime: STALE_TIME.list,
+  });
+
 /* -------------------------------------------------------------------------- */
 /* invalidation helpers                                                       */
 /* -------------------------------------------------------------------------- */
@@ -350,11 +438,25 @@ export const invalidate = {
     qc.invalidateQueries({ queryKey: queryKeys.shoppingLists(groupId) }),
   shoppingList: (qc: QueryClient, groupId: string, listId: string) =>
     qc.invalidateQueries({ queryKey: queryKeys.shoppingList(groupId, listId) }),
+  /** Every range fetched for the group — a prefix, so any mounted week refetches. */
+  planRoot: (qc: QueryClient, groupId: string) =>
+    qc.invalidateQueries({ queryKey: queryKeys.planRoot(groupId) }),
+  planShopping: (qc: QueryClient, groupId: string, listId: string) =>
+    qc.invalidateQueries({ queryKey: queryKeys.planShopping(groupId, listId) }),
+  boughtHistory: (qc: QueryClient, groupId: string) =>
+    qc.invalidateQueries({ queryKey: [ROOT, "group", groupId, "shopping-bought"] }),
+  catalogPage: (qc: QueryClient, groupId: string, listId: string) =>
+    qc.invalidateQueries({ queryKey: [ROOT, "group", groupId, "shopping-catalog", listId] }),
 } as const;
 
 /**
  * After creating/updating/deleting a recipe: refresh the lists, the recipe itself
  * and the tag/collection counts that depend on it.
+ *
+ * `invalidate.me` is in this `Promise.all` because the sidebar and the group
+ * switcher read `recipeCount` off `["toon","me"]` (there is no
+ * `GET …/summary` endpoint — R23), so without it the count sticks at yesterday's
+ * number after every new recipe.
  */
 export async function invalidateAfterRecipeMutation(
   qc: QueryClient,
@@ -366,6 +468,21 @@ export async function invalidateAfterRecipeMutation(
     invalidate.tags(qc, groupId),
     invalidate.collections(qc, groupId),
     invalidate.groups(qc),
+    invalidate.me(qc),
     recipeId ? invalidate.recipe(qc, groupId, recipeId) : Promise.resolve(),
+  ]);
+}
+
+/**
+ * After creating/moving/deleting a plan entry: refresh every mounted range for the
+ * group (`planRoot` is a prefix) and the shopping list's own "from this week's
+ * plan" diff, which is stale the moment a recipe is added to or removed from the
+ * week. Does NOT touch `invalidate.recipes` — planning a recipe does not change the
+ * recipe itself, only the week it sits in.
+ */
+export async function invalidateAfterPlanMutation(qc: QueryClient, groupId: string): Promise<void> {
+  await Promise.all([
+    invalidate.planRoot(qc, groupId),
+    qc.invalidateQueries({ queryKey: [ROOT, "group", groupId, "plan-shopping"] }),
   ]);
 }

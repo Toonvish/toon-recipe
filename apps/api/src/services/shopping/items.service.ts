@@ -36,16 +36,18 @@ import {
   shoppingItemKey,
   type AddRecipeToShoppingListRequest,
   type AddShoppingItemsRequest,
+  type ShoppingCatalogListResponse,
   type ShoppingDraftItem,
   type ShoppingListDetailResponse,
   type UpdateShoppingItemRequest,
 } from "@toon/shared";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "../../db/client.ts";
 import {
   recipeIngredients,
   shoppingListCatalog,
   shoppingListItems,
+  shoppingListRecipes,
   shoppingLists,
 } from "../../db/schema.ts";
 import type { ShoppingListItemRow } from "../../db/schema.ts";
@@ -53,8 +55,10 @@ import { ApiError } from "../../lib/errors.ts";
 import { type DbLike, nowMs, withTransaction } from "../groups/support.ts";
 import { toIngredientRecord } from "../recipes/mappers.ts";
 import { loadRecipeRow } from "../recipes/recipes.service.ts";
+import { appendBoughtItem, pruneBoughtLog } from "./bought.service.ts";
 import { claimMutation, pruneMutationLedger } from "./idempotency.ts";
 import { getShoppingListDetail, loadShoppingListRow } from "./lists.service.ts";
+import { toShoppingCatalogEntry } from "./mappers.ts";
 
 /* -------------------------------------------------------------------------- */
 /* the merge engine                                                           */
@@ -107,8 +111,12 @@ async function maxPosition(db: DbLike, listId: string): Promise<number> {
  * Also records every added NAME in the catalog with `useCount` untouched, so a
  * hand-typed item becomes a suggestion for next time without pretending it was ever
  * bought — only {@link checkShoppingItem} increments the count.
+ *
+ * Exported: {@link undoBoughtItem} in `bought.service.ts` re-adds a check-off through
+ * this SAME function, which is what makes 500 g undone onto 200 g fold into one
+ * 700 g line rather than a separate function re-deriving the merge rule.
  */
-async function applyAdditions(
+export async function applyAdditions(
   tx: DbLike,
   listId: string,
   additions: readonly ShoppingDraftItem[],
@@ -270,6 +278,75 @@ export async function deleteCatalogEntry(
     .where(and(eq(shoppingListCatalog.id, entryId), eq(shoppingListCatalog.listId, listId)));
 }
 
+/**
+ * Hides or unhides a "Häufig gekauft" entry WITHOUT touching its `useCount`
+ * (SPEC § 4.6) — the design replaced the per-chip `×` with a long-press hide, and
+ * deleting the entry would only make it come back on the next check-off having
+ * lost its rank. `hidden: true` stamps `hidden_at`; `false` clears it.
+ */
+export async function setCatalogEntryHidden(
+  db: DbLike,
+  groupId: string,
+  listId: string,
+  entryId: string,
+  hidden: boolean,
+): Promise<ShoppingListDetailResponse> {
+  await loadShoppingListRow(db, groupId, listId);
+  const [row] = await db
+    .select({ id: shoppingListCatalog.id })
+    .from(shoppingListCatalog)
+    .where(and(eq(shoppingListCatalog.id, entryId), eq(shoppingListCatalog.listId, listId)))
+    .limit(1);
+  if (!row) throw ApiError.notFound("server.shopping.suggestionNotFound");
+
+  await db
+    .update(shoppingListCatalog)
+    .set({ hiddenAt: hidden ? nowMs() : null })
+    .where(eq(shoppingListCatalog.id, entryId));
+
+  return getShoppingListDetail(db, groupId, listId);
+}
+
+/**
+ * The "Show all" sheet's unhide surface (R20): the full catalog, hidden entries
+ * included when `includeHidden` is set, ranked the same as the detail payload's
+ * suggestions (`use_count desc, last_used_at desc`). Online-only, never persisted
+ * (see `apps/web/src/lib/persist.ts`'s allow-list) — the detail payload's own
+ * `catalog` already covers the common, offline-capable path.
+ *
+ * No index on `hidden_at`: the table is capped at `SHOPPING_LIMITS.catalogPerList`
+ * (200) rows per list, and scanning 200 rows needs no index.
+ */
+export async function listShoppingCatalog(
+  db: DbLike,
+  groupId: string,
+  listId: string,
+  options: { includeHidden: boolean; limit: number; offset: number },
+): Promise<ShoppingCatalogListResponse> {
+  await loadShoppingListRow(db, groupId, listId);
+  const conditions = options.includeHidden
+    ? eq(shoppingListCatalog.listId, listId)
+    : and(eq(shoppingListCatalog.listId, listId), isNull(shoppingListCatalog.hiddenAt));
+
+  const [totalRow, rows] = await Promise.all([
+    db.select({ value: count() }).from(shoppingListCatalog).where(conditions),
+    db
+      .select()
+      .from(shoppingListCatalog)
+      .where(conditions)
+      .orderBy(desc(shoppingListCatalog.useCount), desc(shoppingListCatalog.lastUsedAt))
+      .limit(options.limit)
+      .offset(options.offset),
+  ]);
+
+  return {
+    items: rows.map(toShoppingCatalogEntry),
+    total: Number(totalRow[0]?.value ?? 0),
+    limit: options.limit,
+    offset: options.offset,
+  };
+}
+
 /* -------------------------------------------------------------------------- */
 /* public operations                                                          */
 /* -------------------------------------------------------------------------- */
@@ -312,6 +389,7 @@ export async function addRecipeToShoppingList(
   db: Database,
   groupId: string,
   listId: string,
+  userId: string,
   input: AddRecipeToShoppingListRequest,
 ): Promise<ShoppingListDetailResponse> {
   await loadShoppingListRow(db, groupId, listId);
@@ -342,8 +420,77 @@ export async function addRecipeToShoppingList(
   await withTransaction(db, async (tx) => {
     if (!(await claimMutation(tx, listId, input.mutationId))) return;
     await applyAdditions(tx, listId, additions);
+
+    // "Recipes on this list" rail (SPEC § 4.5): re-adding at a DIFFERENT portion
+    // count is the newest intent, so this upserts rather than ignoring a repeat.
+    const timestamp = nowMs();
+    await tx
+      .insert(shoppingListRecipes)
+      .values({
+        id: crypto.randomUUID(),
+        listId,
+        recipeId: recipe.id,
+        servings: input.servings ?? null,
+        addedBy: userId,
+        addedAt: timestamp,
+        updatedAt: timestamp,
+      })
+      .onConflictDoUpdate({
+        target: [shoppingListRecipes.listId, shoppingListRecipes.recipeId],
+        set: { servings: input.servings ?? null, updatedAt: timestamp },
+      });
   });
   await pruneMutationLedger(db);
+
+  return getShoppingListDetail(db, groupId, listId);
+}
+
+/**
+ * Removes a recipe from the "Recipes on this list" rail (SPEC § 4.5 / A03 § 4.3).
+ *
+ * Deletes only the lines whose ENTIRE provenance was this recipe; a shared line
+ * (also sourced from another recipe) is kept with its quantity UNCHANGED and the
+ * id dropped from `sourceRecipeIds` — the merge that produced a combined amount is
+ * not reversible (see the file header's "recipes -> list" section and A03 § 4.3
+ * for why recompute-and-subtract was rejected). Idempotent: an unknown recipe id
+ * is a no-op, matching `deleteShoppingItem`.
+ */
+export async function removeRecipeFromList(
+  db: Database,
+  groupId: string,
+  listId: string,
+  recipeId: string,
+): Promise<ShoppingListDetailResponse> {
+  await loadShoppingListRow(db, groupId, listId);
+
+  await withTransaction(db, async (tx) => {
+    const itemRows = await tx
+      .select()
+      .from(shoppingListItems)
+      .where(eq(shoppingListItems.listId, listId));
+    const timestamp = nowMs();
+
+    for (const item of itemRows) {
+      const sources = Array.isArray(item.sourceRecipeIds) ? item.sourceRecipeIds : [];
+      if (!sources.includes(recipeId)) continue;
+      if (sources.length === 1) {
+        await tx.delete(shoppingListItems).where(eq(shoppingListItems.id, item.id));
+      } else {
+        await tx
+          .update(shoppingListItems)
+          .set({
+            sourceRecipeIds: sources.filter((id) => id !== recipeId),
+            updatedAt: timestamp,
+          })
+          .where(eq(shoppingListItems.id, item.id));
+      }
+    }
+
+    await tx
+      .delete(shoppingListRecipes)
+      .where(and(eq(shoppingListRecipes.listId, listId), eq(shoppingListRecipes.recipeId, recipeId)));
+    await tx.update(shoppingLists).set({ updatedAt: timestamp }).where(eq(shoppingLists.id, listId));
+  });
 
   return getShoppingListDetail(db, groupId, listId);
 }
@@ -442,11 +589,28 @@ export async function deleteShoppingItem(
 }
 
 /**
- * Checks a line off: it LEAVES the list and its catalog entry is bumped, so it shows
- * up under "Häufig gekauft" for a one-tap re-add.
+ * Checks a line off: it LEAVES the list, its catalog entry is bumped, and one row
+ * is appended to `shopping_bought_items` — the "Bought today" section and the
+ * history panel read that log, never a flag on this table (see the header).
  *
- * Idempotent by construction — an already-checked item is simply gone, and a replayed
- * check finds nothing to do. It therefore needs no `mutationId` to be safe, though one
+ * `boughtBy` is the checking user (the route passes `requireUser(c).id`) — recorded
+ * on the log row, never on the item, which has no such column.
+ *
+ * ## Exactly-once, with and without a `mutationId`
+ *
+ * The DELETE and its guard are ONE statement (`… RETURNING`), and the append sits
+ * strictly behind `if (!row) return`. That is what makes the whole operation
+ * idempotent three ways at once, any one of which would suffice on its own:
+ *  1. the ledger — a replayed `mutationId` never reaches the DELETE at all;
+ *  2. the row's existence — a plain retry (no `mutationId`) finds nothing to
+ *     delete, so `row` is `undefined` and the append never runs;
+ *  3. the race — two members checking the same item at the same instant used to
+ *     both see a row and both bump `use_count` (a pre-existing bug); `DELETE …
+ *     RETURNING` makes exactly one of them see a row, so exactly one log row is
+ *     written. `RETURNING` on DELETE needs SQLite >= 3.35 — libSQL ships 3.45.1,
+ *     verified through `@libsql/client` (never `bun:sqlite`, which is newer).
+ *
+ * Needs no `mutationId` to be safe (gate 2 above covers a plain retry), though one
  * is accepted so the client can queue every mutation the same way.
  */
 export async function checkShoppingItem(
@@ -454,24 +618,27 @@ export async function checkShoppingItem(
   groupId: string,
   listId: string,
   itemId: string,
+  boughtBy: string,
   mutationId?: string,
 ): Promise<ShoppingListDetailResponse> {
   await loadShoppingListRow(db, groupId, listId);
 
   await withTransaction(db, async (tx) => {
     if (!(await claimMutation(tx, listId, mutationId))) return;
+
+    // ONE statement is both the removal and the guard — see the function comment.
     const [row] = await tx
-      .select()
-      .from(shoppingListItems)
+      .delete(shoppingListItems)
       .where(and(eq(shoppingListItems.id, itemId), eq(shoppingListItems.listId, listId)))
-      .limit(1);
+      .returning();
     if (!row) return;
 
-    await tx.delete(shoppingListItems).where(eq(shoppingListItems.id, row.id));
+    await appendBoughtItem(tx, row, boughtBy);
     await touchCatalog(tx, listId, row.name, row.unit, { bought: true });
     await tx.update(shoppingLists).set({ updatedAt: nowMs() }).where(eq(shoppingLists.id, listId));
   });
   await pruneMutationLedger(db);
+  await pruneBoughtLog(db);
 
   return getShoppingListDetail(db, groupId, listId);
 }
@@ -490,6 +657,9 @@ export async function clearShoppingList(
 ): Promise<ShoppingListDetailResponse> {
   await loadShoppingListRow(db, groupId, listId);
   await db.delete(shoppingListItems).where(eq(shoppingListItems.listId, listId));
+  // An emptied list has no recipes ON it any more — the rail would otherwise show
+  // stale "0 of N" rows for recipes whose lines just vanished.
+  await db.delete(shoppingListRecipes).where(eq(shoppingListRecipes.listId, listId));
   await db.update(shoppingLists).set({ updatedAt: nowMs() }).where(eq(shoppingLists.id, listId));
   return getShoppingListDetail(db, groupId, listId);
 }
