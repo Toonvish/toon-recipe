@@ -844,6 +844,13 @@ panel are gone (T8.2); the rule they carried is not.
   font-medium` plus a `--text-display-*` step. The scale contract, which is the rest of this rule:
   type comes from `--text-control` (13.5px), `--text-item` (15px), the eight `--text-display-*`
   steps and the `.eyebrow` utility, and an arbitrary `text-[13px]` is a review-blocking mistake.
+  **The rule is not yet true of the tree, so do not read the greps as permission.** The redesign
+  transcribed artboard pixel values instead of mapping them to steps: an arbitrary `text-[…px]` or
+  `text-[…rem]` was 19 hits before it and is **36** after, and four uppercase
+  `text-sm font-semibold tracking-wide` labels never became `.eyebrow` (`IngredientList`,
+  `StepList`, `ItemDetailDialog`, `RecipeDetailPage`), down from 11 such labels. Both are open in
+  `docs/redesign/PR.md`; converting them changes drawn screens, so it is a design pass rather than
+  a cleanup. New code still obeys the scale.
   **`.eyebrow` is deliberately NOT named `.text-eyebrow`**: the hand-written utilities in
   `styles/index.css` are emitted after everything Tailwind generates, so a `text-*`-shaped name
   would silently override a real size utility on the same element — the same cascade trap as
@@ -853,7 +860,11 @@ panel are gone (T8.2); the rule they carried is not.
   shopping list also shifts the sticky add bar under the keyboard. And **no arrow, chevron, check or
   ellipsis is ever a text glyph**: `→ ← ✓ ▾` all fall outside both font subsets and render from the
   fallback family or as tofu, so use `lucide-react` (`ArrowRight`, `ArrowLeft`, `Check`,
-  `ChevronDown`) with `aria-hidden`.
+  `ChevronDown`) with `aria-hidden`. **Four pre-existing violations survive the redesign**, all of
+  them `←` inside a translated VALUE rather than in markup: `groups.detail.backLink` and
+  `groups.collectionDetail.backLink` in both locales. Fixing them is a copy change in two catalogs
+  plus a `lucide` `ArrowLeft` at each call site — which trips `i18n:check`'s parity check, so it
+  needs an `i18n-keys.md` entry. Open in `docs/redesign/PR.md`.
 - **NEVER write `px-4 px-safe` (or `px-2 px-safe`) on one element.** `.px-safe` is
   `padding-inline: env(safe-area-inset-left)` — a flat OVERRIDE, not an addition — and the
   hand-written utilities in `styles/index.css` are emitted after everything Tailwind generates, so it
@@ -949,7 +960,9 @@ panel are gone (T8.2); the rule they carried is not.
   library's 84px editorial squares, the planner day cards and the library week strip, the "Aus dem
   Wochenplan" thumbs, the "Kürzlich gekocht" shelf and the list rail's "Rezepte auf dieser Liste"
   rows — `/plan` alone asks for seven at once. **Only the two recipe-detail heroes render
-  `imageUrl`**, and they are the only `mediaUrl(imageUrl)` call sites in the app.
+  `imageUrl`**, and they share the app's single `mediaUrl(recipe.imageUrl)` call site —
+  `RecipeDetailPage`, which resolves it once and hands it to both the desktop `<img>` and
+  `RecipeHeroMobile`. Grep for one hit, not two.
 - **The recipe list switches MARKUP at `sm`, in JS, and `sm:hidden` on both is the trap.** A
   `display:none` `<img>` is still fetched, so rendering both trees would load every thumbnail twice —
   24 of them on the first screen. `useIsWideViewport()` (`lib/viewport.ts`, `SM_QUERY =
@@ -1128,12 +1141,13 @@ panel are gone (T8.2); the rule they carried is not.
   (light), not the artboard's
   `#6b5c4b`**: the drawn hex measures 2.88:1 on `--bg` across 24 pieces of 11px/700 copy, under both
   WCAG AA (4.5:1) and the large-text floor (3:1). It is the only place the app knowingly does not
-  match the artboards' colour, and it is one line in `theme.css`.
+  match the artboards' colour, and it is one token in all four `theme.css` blocks.
 - **`features/recipes/print.css` is invisible to all five gates, and it was dead for as long as it
   has existed.** It hides `header[data-app-shell]`, `nav[data-app-shell]`, `aside[data-app-shell]`
   and `[data-print="hide"]` — and until the redesign **no element carried `data-app-shell`**, so
-  every print of a recipe included the whole app chrome. `SideNav`'s `<nav>`, `BottomTabBar`'s
-  `<nav>` and `PhoneHeaderRow` now carry it, and the phone hero's scrim controls, the segmented
+  every print of a recipe included the whole app chrome. One element now carries it per selector:
+  `SideNav`'s `<aside>`, `BottomTabBar`'s `<nav>` and `PhoneHeaderRow`'s `<header>` — so match the
+  TAG, not the component name, when you add a fourth. The phone hero's scrim controls, the segmented
   control and the detail bottom bar carry `data-print="hide"`. Two rules follow. **The phone
   detail screen's two panels must both stay in the DOM**, toggled with the `hidden` attribute rather
   than rendered conditionally — the segmented control shows one at a time, so a conditional render
