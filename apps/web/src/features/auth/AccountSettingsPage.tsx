@@ -95,7 +95,7 @@ export function AccountSettingsPage() {
   });
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
       <PageHeader title={t("auth.settings.title")} description={t("auth.settings.description")} />
 
       <Card padding="lg">

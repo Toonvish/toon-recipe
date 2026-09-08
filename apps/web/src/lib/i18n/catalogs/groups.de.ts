@@ -169,6 +169,22 @@ export const groupsDe = {
   "groups.tags.customHexLabel": "Eigener Hex-Wert",
   "groups.tags.previewLabel": "Vorschau:",
   "groups.tags.previewName": "Beispiel",
+  /**
+   * The `kind` toggle (T9.2, R41): how an existing library adopts the eyebrow, since
+   * the migration's `DEFAULT 'free'` is the whole backfill — no name-matching guess at
+   * somebody else's German content. `kindFree` is the word "Tag" in both locales, same
+   * as `ui.nav.plan` — not a missing translation.
+   */
+  "groups.tags.kindLegend": "Art",
+  "groups.tags.kindCourse": "Gang",
+  "groups.tags.kindFree": "Tag",
+  "groups.tags.kindToggleLabel": "Art von „{name}“ ändern",
+  "groups.tags.kindHint":
+    "Ein Gang erscheint als Kategorie über dem Rezepttitel. Jedes Rezept hat höchstens einen.",
+  "groups.tags.kindChangedToast": "Art geändert",
+  "groups.tags.kindChangeFailedToast": "Ändern fehlgeschlagen",
+  "groups.tags.sectionCourses": "Gänge",
+  "groups.tags.sectionFree": "Tags",
 
   /* --------------------------- components/TagCombobox.tsx ------------------- */
   "groups.tagCombobox.label": "Tags",

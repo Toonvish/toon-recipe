@@ -16,8 +16,8 @@ export function NotFoundPage() {
         >
           <CookingPot className="size-7" />
         </span>
-        <p className="mt-4 text-sm font-semibold tracking-wide text-fg-muted uppercase">404</p>
-        <h1 className="mt-1 text-xl font-semibold text-fg">{t("ui.notFound.title")}</h1>
+        <p className="eyebrow mt-4 text-fg-faint">404</p>
+        <h1 className="mt-1 font-display text-display-md font-medium text-fg">{t("ui.notFound.title")}</h1>
         <p className="mt-2 text-sm text-fg-muted">{t("ui.notFound.description")}</p>
         <Link to="/" className={buttonClasses({ fullWidth: true, className: "mt-5" })}>
           {t("ui.notFound.cta")}

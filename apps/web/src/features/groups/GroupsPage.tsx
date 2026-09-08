@@ -32,10 +32,10 @@ export default function GroupsPage() {
   const [createOpen, setCreateOpen] = useState(false);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-semibold text-fg">{t("groups.list.title")}</h1>
+          <h1 className="font-display text-display-2xl font-medium text-fg lg:text-display-3xl">{t("groups.list.title")}</h1>
           <p className="text-sm text-fg-muted">{t("groups.list.subtitle")}</p>
         </div>
         <Button onClick={() => setCreateOpen(true)} leftIcon={<Plus className="size-4" />}>
@@ -80,7 +80,7 @@ export default function GroupsPage() {
                         <AppLink
                           to="/groups/$groupId"
                           params={{ groupId: group.id }}
-                          className="truncate font-display text-lg font-semibold text-fg hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                          className="truncate font-display text-display-sm font-medium text-fg hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                         >
                           {group.name}
                         </AppLink>

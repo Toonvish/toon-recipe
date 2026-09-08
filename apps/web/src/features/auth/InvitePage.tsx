@@ -101,7 +101,7 @@ export function InvitePage() {
             <Users className="size-5" />
           </span>
           <div className="min-w-0 text-sm">
-            <p className="font-semibold text-fg">{invite.groupName}</p>
+            <p className="font-display text-display-xs font-medium text-fg">{invite.groupName}</p>
             <p className="text-fg-muted">
               {t("auth.invite.roleAndEmail", {
                 role: t(ROLE_LABEL_KEYS[invite.role]),

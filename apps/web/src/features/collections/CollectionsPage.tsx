@@ -31,7 +31,7 @@ export default function CollectionsPage() {
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-semibold text-fg">
+          <h1 className="font-display text-display-2xl leading-[1.05] font-medium text-fg lg:text-display-3xl lg:leading-[1.1]">
             {t("groups.collections.title")}
           </h1>
           <p className="text-sm text-fg-muted">{t("groups.collections.subtitle")}</p>
@@ -42,7 +42,7 @@ export default function CollectionsPage() {
       </header>
 
       {collections.isPending ? (
-        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {[0, 1, 2].map((index) => (
             <li key={index}>
               <Card padding="md" className="flex flex-col gap-2">
@@ -70,21 +70,21 @@ export default function CollectionsPage() {
           }
         />
       ) : (
-        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {(collections.data ?? []).map((collection) => (
             <li key={collection.id} className="flex">
               <AppLink
                 to="/collections/$collectionId"
                 params={{ collectionId: collection.id }}
-                className="flex w-full flex-col gap-1 rounded-card border border-line bg-surface p-4 text-fg shadow-card transition-[box-shadow,border-color] hover:border-line-strong hover:shadow-pop focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                className="flex w-full flex-col gap-1 rounded-card border border-line bg-surface p-4 text-fg transition-colors hover:border-line-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
-                <span className="font-display text-lg font-semibold">{collection.name}</span>
+                <span className="font-display text-display-md font-medium">{collection.name}</span>
                 {collection.description ? (
                   <span className="line-clamp-2 text-sm text-fg-muted">
                     {collection.description}
                   </span>
                 ) : null}
-                <span className="mt-auto pt-2 text-sm text-fg-subtle">
+                <span className="mt-auto pt-2 text-sm tabular-nums text-fg-subtle">
                   {t("groups.count.recipes", { count: collection.recipeCount ?? 0 })}
                 </span>
               </AppLink>

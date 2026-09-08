@@ -66,7 +66,7 @@ export function StepsEditor({ rows, onChange, errors = {}, disabled = false }: S
       </datalist>
 
       <div className="flex items-center justify-between gap-2">
-        <h2 className="font-display text-lg font-semibold">{t("recipes.steps.heading")}</h2>
+        <h2 className="font-display text-display-md font-medium">{t("recipes.steps.heading")}</h2>
         <Button
           type="button"
           variant="secondary"

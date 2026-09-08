@@ -107,7 +107,7 @@ export function IngredientsEditor({
       </datalist>
 
       <div className="flex items-center justify-between gap-2">
-        <h2 className="font-display text-lg font-semibold">{t("recipes.ingredients.heading")}</h2>
+        <h2 className="font-display text-display-md font-medium">{t("recipes.ingredients.heading")}</h2>
         <Button
           type="button"
           variant="secondary"
@@ -147,7 +147,11 @@ export function IngredientsEditor({
                 />
               ) : null}
 
-              <div className="grid grid-cols-[5.5rem_5.5rem_1fr] gap-2">
+              {/* Arbitrary-value grid columns bypass Tailwind's own `grid-cols-N` safety
+                  (which already expands to `repeat(N, minmax(0,1fr))`), so the trailing
+                  track needs `minmax(0,1fr)` spelled out — a bare `1fr` cannot shrink
+                  below the name Input's intrinsic content width on a narrow phone. */}
+              <div className="grid grid-cols-[5.5rem_5.5rem_minmax(0,1fr)] gap-2">
                 <Input
                   label={t("recipes.ingredientsEditor.quantity.label")}
                   inputMode="decimal"
@@ -176,7 +180,7 @@ export function IngredientsEditor({
                 />
               </div>
 
-              <div className="grid grid-cols-[5.5rem_1fr] gap-2">
+              <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
                 <Input
                   label={t("recipes.ingredientsEditor.quantityMax.label")}
                   optional

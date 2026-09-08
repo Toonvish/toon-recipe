@@ -46,7 +46,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       <div className="flex min-h-dvh items-center justify-center bg-bg p-4">
         <Card padding="lg" className="w-full max-w-md text-center">
           <Logo className="mx-auto size-12" />
-          <h1 className="mt-4 text-xl font-semibold text-fg">{translate("ui.crash.title")}</h1>
+          <h1 className="mt-4 font-display text-display-md font-medium text-fg">
+            {translate("ui.crash.title")}
+          </h1>
           <p className="mt-2 text-sm text-fg-muted">{translate("ui.crash.description")}</p>
           <div className="mt-5 flex flex-col gap-2">
             <Button onClick={this.reset} leftIcon={<RefreshCw className="size-4" />} fullWidth>

@@ -106,7 +106,7 @@ export function AuthDivider({ label }: { label?: string }) {
   return (
     <div className="my-5 flex items-center gap-3" aria-hidden="true">
       <span className="h-px flex-1 bg-line" />
-      <span className="text-xs font-medium tracking-wide text-fg-subtle uppercase">{text}</span>
+      <span className="eyebrow text-fg-faint">{text}</span>
       <span className="h-px flex-1 bg-line" />
     </div>
   );

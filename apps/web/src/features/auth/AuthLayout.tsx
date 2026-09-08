@@ -18,7 +18,7 @@ export function AuthLayout({ title, description, children, footer }: AuthLayoutP
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <Logo className="size-14" />
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-fg">{title}</h1>
+            <h1 className="font-display text-display-2xl font-medium text-fg">{title}</h1>
             {description ? <p className="mt-1 text-sm text-fg-muted">{description}</p> : null}
           </div>
         </div>

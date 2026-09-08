@@ -78,13 +78,13 @@ export default function GroupDetailPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
       <header className="flex flex-col gap-2">
         <AppLink to="/groups" className="text-sm text-fg-muted hover:text-fg">
           {t("groups.detail.backLink")}
         </AppLink>
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="font-display text-2xl font-semibold text-fg">{group.name}</h1>
+          <h1 className="font-display text-display-2xl font-medium text-fg lg:text-display-3xl">{group.name}</h1>
           <Badge variant={isOwner ? "brand" : "neutral"}>{t(ROLE_LABEL_KEYS[group.role])}</Badge>
           {group.id === activeGroupId ? (
             <Badge variant="success">{t("groups.badge.active")}</Badge>
@@ -203,7 +203,7 @@ function GroupSettingsForm({
   return (
     <Card padding="md">
       <form onSubmit={submit} noValidate className="flex flex-col gap-3">
-        <h2 className="font-display text-lg font-semibold">{t("groups.settings.heading")}</h2>
+        <h2 className="font-display text-display-md font-medium">{t("groups.settings.heading")}</h2>
         {!canEdit ? (
           <p className="text-sm text-fg-muted">{t("groups.settings.readonlyHint")}</p>
         ) : null}
@@ -276,7 +276,7 @@ function DangerZone({
 
   return (
     <Card padding="md" className="border-danger/40">
-      <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-danger">
+      <h2 className="flex items-center gap-2 font-display text-display-md font-medium text-danger">
         <TriangleAlert aria-hidden="true" className="size-5" />
         {t("groups.danger.heading")}
       </h2>

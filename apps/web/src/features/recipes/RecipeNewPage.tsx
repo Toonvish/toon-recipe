@@ -68,10 +68,11 @@ export default function RecipeNewPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <h1 className="font-display text-2xl font-semibold text-fg">{t("recipes.new.title")}</h1>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+      <h1 className="font-display text-display-2xl font-medium text-fg lg:text-display-3xl">{t("recipes.new.title")}</h1>
       <RecipeForm
         initialValues={initialValues}
+        initialCourse={null}
         availableTags={tags.data ?? []}
         availableCollections={collections.data ?? []}
         onSubmit={submit}

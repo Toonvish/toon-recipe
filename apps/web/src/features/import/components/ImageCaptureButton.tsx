@@ -10,6 +10,7 @@ import { useId, useRef, type ChangeEvent } from "react";
 import clsx from "clsx";
 import { Camera, Images } from "lucide-react";
 import { useT } from "@/lib/i18n";
+import { Button } from "../lib/shell";
 
 export interface ImageCaptureButtonProps {
   onFiles: (files: File[]) => void;
@@ -68,25 +69,27 @@ export function ImageCaptureButton({
         tabIndex={-1}
       />
 
-      <button
+      <Button
         type="button"
+        size="lg"
+        fullWidth
         disabled={disabled}
+        leftIcon={<Camera aria-hidden className="h-5 w-5" />}
         onClick={() => cameraRef.current?.click()}
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-4 text-base font-semibold text-brand-fg shadow-sm transition hover:bg-brand-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <Camera aria-hidden className="h-5 w-5" />
         {resolvedCaptureLabel}
-      </button>
+      </Button>
 
-      <button
+      <Button
         type="button"
+        variant="outline"
+        fullWidth
         disabled={disabled}
+        leftIcon={<Images aria-hidden className="h-4 w-4" />}
         onClick={() => galleryRef.current?.click()}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border border-line-strong bg-surface px-4 py-3 text-sm font-medium text-fg transition hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <Images aria-hidden className="h-4 w-4" />
         {resolvedGalleryLabel}
-      </button>
+      </Button>
     </div>
   );
 }

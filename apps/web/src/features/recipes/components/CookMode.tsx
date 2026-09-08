@@ -88,7 +88,10 @@ export function CookMode({ title, steps, ingredients, checked, onClose }: CookMo
       aria-modal="true"
       aria-label={t("recipes.cookMode.dialogLabel", { title })}
       tabIndex={-1}
-      className="fixed inset-0 z-50 flex flex-col bg-bg pt-safe pb-safe outline-none"
+      // `px-safe` alone, not `.px-gutter`: this overlay has no `<main>` gutter to
+      // inherit, and a landscape notch is the only thing it needs to clear — the
+      // header/step/footer rows keep their own fixed padding underneath it.
+      className="fixed inset-0 z-50 flex flex-col bg-bg px-safe pt-safe pb-safe outline-none"
       onTouchStart={(event) => {
         touchStartX.current = event.touches[0]?.clientX ?? null;
       }}
@@ -103,7 +106,7 @@ export function CookMode({ title, steps, ingredients, checked, onClose }: CookMo
       }}
     >
       <header className="flex items-center gap-2 border-b border-line px-3 py-2">
-        <h2 className="min-w-0 flex-1 truncate font-display text-lg font-semibold">{title}</h2>
+        <h2 className="min-w-0 flex-1 truncate font-display text-display-md font-medium">{title}</h2>
         {supported ? (
           <span
             className={cn(
@@ -143,7 +146,7 @@ export function CookMode({ title, steps, ingredients, checked, onClose }: CookMo
 
       {showIngredients ? (
         <div className="max-h-[40vh] overflow-y-auto border-b border-line bg-surface px-4 py-3">
-          <h3 className="mb-2 text-sm font-semibold tracking-wide text-fg-muted uppercase">
+          <h3 className="eyebrow mb-2 text-fg-faint">
             {t("recipes.ingredients.heading")}
           </h3>
           <ul className="flex flex-col gap-1 text-lg">
@@ -160,13 +163,10 @@ export function CookMode({ title, steps, ingredients, checked, onClose }: CookMo
       ) : null}
 
       <div className="flex flex-1 flex-col justify-center overflow-y-auto px-5 py-6">
-        <p className="mb-3 text-sm font-semibold tracking-widest text-brand uppercase">
+        <p className="eyebrow mb-3 text-brand">
           {t("recipes.cookMode.stepOf", { current: index + 1, total: steps.length })}
         </p>
-        <p
-          aria-live="polite"
-          className="text-2xl leading-snug font-medium whitespace-pre-line text-fg sm:text-3xl md:text-4xl"
-        >
+        <p aria-live="polite" className="text-base whitespace-pre-line text-fg-body">
           {step.text}
         </p>
         {step.section ? (

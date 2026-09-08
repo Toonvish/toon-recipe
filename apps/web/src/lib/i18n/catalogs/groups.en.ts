@@ -168,6 +168,16 @@ export const groupsEn: LocaleCatalog<GroupsCatalog> = {
   "groups.tags.customHexLabel": "Custom hex value",
   "groups.tags.previewLabel": "Preview:",
   "groups.tags.previewName": "Example",
+  "groups.tags.kindLegend": "Kind",
+  "groups.tags.kindCourse": "Course",
+  "groups.tags.kindFree": "Tag",
+  "groups.tags.kindToggleLabel": "Change the kind of “{name}”",
+  "groups.tags.kindHint":
+    "A course appears as the category above the recipe title. A recipe has at most one.",
+  "groups.tags.kindChangedToast": "Kind changed",
+  "groups.tags.kindChangeFailedToast": "Could not be changed",
+  "groups.tags.sectionCourses": "Courses",
+  "groups.tags.sectionFree": "Tags",
 
   /* --------------------------- components/TagCombobox.tsx ------------------- */
   "groups.tagCombobox.label": "Tags",

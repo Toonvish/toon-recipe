@@ -89,10 +89,13 @@ export function EditItemDialog({ item, siblings, onClose, onSave }: EditItemDial
           onChange={(event) => setName(event.target.value)}
           autoComplete="off"
         />
+        {/* `containerClassName`, not `className` — `className` targets the `<input>`
+            itself, which isn't the flex item here, so `flex-1` on it did nothing; the
+            two fields kept their intrinsic content width instead of sharing the row. */}
         <div className="flex gap-3">
           <Input
             label={t("shopping.editItem.quantity.label")}
-            className="flex-1"
+            containerClassName="min-w-0 flex-1"
             value={quantity}
             onChange={(event) => setQuantity(event.target.value)}
             inputMode="decimal"
@@ -101,7 +104,7 @@ export function EditItemDialog({ item, siblings, onClose, onSave }: EditItemDial
           />
           <Input
             label={t("shopping.editItem.unit.label")}
-            className="flex-1"
+            containerClassName="min-w-0 flex-1"
             value={unit}
             onChange={(event) => setUnit(event.target.value)}
             placeholder={t("shopping.editItem.unit.placeholder")}

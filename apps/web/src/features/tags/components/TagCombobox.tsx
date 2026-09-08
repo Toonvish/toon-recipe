@@ -10,11 +10,17 @@
  */
 import { useId, useMemo, useRef, useState } from "react";
 import { Check, Plus, X } from "lucide-react";
-import { foldText, type Tag } from "@toon/shared";
+import { foldText, type Tag, type TagKind } from "@toon/shared";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
 import { Label } from "@/components/ui";
 import { TagChip } from "./TagChip";
+
+/** The recipe library filter rail draws the exact same "Gänge" / "Tags" split (D5) off
+ * the exact same two keys — reusing them here rather than minting a combobox-scoped pair
+ * is what keeps the wording identical everywhere a group's tags are grouped by kind. */
+const COURSE_SECTION_KEY = "recipes.filters.courseLegend" as const;
+const FREE_SECTION_KEY = "recipes.filters.tagsLegend" as const;
 
 export interface TagComboboxProps {
   /** Selected tag names. */
@@ -62,10 +68,17 @@ export function TagCombobox({
     // Folded too, or typing "Kase" would match nothing while `sameName` below has
     // already decided it IS the existing "Käse" — no suggestion, and no way to create.
     const query = foldText(text.trim());
-    return available
+    const matches = available
       .filter((tag) => !value.some((name) => sameName(name, tag.name)))
-      .filter((tag) => query.length === 0 || foldText(tag.name).includes(query))
-      .slice(0, 8);
+      .filter((tag) => query.length === 0 || foldText(tag.name).includes(query));
+    // Grouped by `kind` (D5), course first — same order the filter rail draws its own
+    // "Gänge" above "Tags" — each half keeping its own relative order (server-sorted
+    // alphabetically by `tagsByRecipe`/the group's tag listing). The cap stays 8 total,
+    // now measured across both groups so a long free-tag match can't crowd every course
+    // out of the list.
+    const courses = matches.filter((tag) => tag.kind === "course");
+    const free = matches.filter((tag) => tag.kind !== "course");
+    return [...courses, ...free].slice(0, 8);
   }, [available, text, value]);
 
   const trimmed = text.trim();
@@ -78,6 +91,13 @@ export function TagCombobox({
     ...suggestions.map((tag) => ({ kind: "existing" as const, tag })),
     ...(canCreate ? [{ kind: "create" as const, name: trimmed }] : []),
   ];
+
+  /** The section an option falls under — a "create" option is always **Tags**, since a
+   * new tag is always `kind:'free'` (`getOrCreateTagIds` never creates one any other
+   * way), whatever it happens to follow. */
+  function sectionOf(option: (typeof options)[number]): TagKind {
+    return option.kind === "existing" ? option.tag.kind : "free";
+  }
 
   function add(name: string) {
     const clean = name.trim();
@@ -130,6 +150,11 @@ export function TagCombobox({
 
   const colorOf = (name: string): string | null =>
     available.find((tag) => sameName(tag.name, name))?.color ?? null;
+  // A NEW tag (not yet in `available`) is always `kind:'free'` — `getOrCreateTagIds`
+  // only ever creates one that way (see the tags.ts gotcha), so that's the right
+  // default for a selected chip the group's own listing hasn't caught up with yet.
+  const kindOf = (name: string): Tag["kind"] =>
+    available.find((tag) => sameName(tag.name, name))?.kind ?? "free";
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -142,7 +167,7 @@ export function TagCombobox({
           {value.map((name, index) => (
             <li key={`${name}-${index}`} className="inline-flex">
               <span className="inline-flex items-center gap-1">
-                <TagChip tag={{ name, color: colorOf(name) }} />
+                <TagChip tag={{ name, color: colorOf(name) }} kind={kindOf(name)} />
                 <button
                   type="button"
                   onClick={() => removeAt(index)}
@@ -201,8 +226,27 @@ export function TagCombobox({
             {options.map((option, index) => {
               const key = option.kind === "existing" ? option.tag.id : `create-${option.name}`;
               const name = option.kind === "existing" ? option.tag.name : option.name;
+              const group = sectionOf(option);
+              const previousGroup = index > 0 ? sectionOf(options[index - 1] ?? option) : undefined;
+              const heading =
+                group === previousGroup
+                  ? null
+                  : t(group === "course" ? COURSE_SECTION_KEY : FREE_SECTION_KEY);
               return (
                 <li key={key}>
+                  {heading !== null ? (
+                    // Presentational — the flat `options` array (and `highlight`) is what
+                    // keyboard nav walks; this heading is never itself an `option`.
+                    <p
+                      role="presentation"
+                      className={cn(
+                        "eyebrow px-2 pt-1.5 pb-0.5 text-fg-faint",
+                        index > 0 && "mt-1 border-t border-line",
+                      )}
+                    >
+                      {heading}
+                    </p>
+                  ) : null}
                   <button
                     type="button"
                     role="option"
@@ -226,7 +270,7 @@ export function TagCombobox({
                     ) : (
                       <>
                         <Check aria-hidden="true" className="size-4 opacity-0" />
-                        <TagChip tag={option.tag} showCount />
+                        <TagChip tag={option.tag} kind={option.tag.kind} showCount />
                       </>
                     )}
                   </button>

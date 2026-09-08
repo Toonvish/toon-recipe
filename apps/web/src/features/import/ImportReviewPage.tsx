@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import clsx from "clsx";
 import { ArrowLeft, Check, CircleAlert, FileText, LoaderCircle, PenLine, Save, Trash2, TriangleAlert, Users } from "lucide-react";
 import type { ParsedRecipe } from "@toon/shared";
+import { Tabs } from "@/components/ui";
 import { useT } from "@/lib/i18n";
 import {
   Button,
@@ -29,7 +30,7 @@ import { useCommitDraft, useDeleteDraft, useDraft, useGroupTags } from "./lib/qu
 import { useDraftAutosave } from "./lib/useAutosave";
 import { appendIngredientFromLine, appendStepFromLine, normalizeParsedRecipe, validateForCommit } from "./lib/draftEdit";
 import { CONFIDENCE_WARN, countRowsNeedingCheck, formatConfidence } from "./lib/confidence";
-import { resolveDescribedError, resolveImportErrorText } from "./lib/importErrorText";
+import { resolveDescribedError } from "./lib/importErrorText";
 import SourceViewer from "./components/SourceViewer";
 import ParsedRecipeEditor from "./components/ParsedRecipeEditor";
 import ImportErrorPanel from "./components/ImportErrorPanel";
@@ -230,7 +231,7 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
           </span>
         </div>
 
-        <h1 className="text-lg font-semibold text-fg">
+        <h1 className="font-display text-display-xl font-medium text-fg text-balance">
           {(parsed.title ?? "").trim().length > 0 ? parsed.title : t("import.review.title.fallback")}
         </h1>
       </div>
@@ -319,22 +320,28 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
         </div>
       ) : null}
 
-      {/* ------------------------- mobile tab switch ----------------------- */}
-      <div className="flex gap-1 rounded-lg bg-surface-2 p-1 lg:hidden" role="tablist" aria-label={t("import.review.tabs.ariaLabel")}>
-        <TabButton active={mobileTab === "source"} onClick={() => setMobileTab("source")}>
-          <FileText aria-hidden className="h-3.5 w-3.5" />
-          {t("import.review.tabs.source")}
-        </TabButton>
-        <TabButton active={mobileTab === "form"} onClick={() => setMobileTab("form")}>
-          <PenLine aria-hidden className="h-3.5 w-3.5" />
-          {t("import.review.tabs.form")}
-          {rowChecks.ingredients + rowChecks.steps > 0 ? (
-            <span className="ml-1 rounded-full bg-warning-soft px-1.5 text-[10px] font-semibold text-warning-soft-fg">
-              {rowChecks.ingredients + rowChecks.steps}
-            </span>
-          ) : null}
-        </TabButton>
-      </div>
+      {/* ------------------------- mobile tab switch -----------------------
+          `Tabs` (components/ui), not the hand-rolled `TabButton` this screen used
+          to carry — same segmented control as every other tab strip in the app. */}
+      <Tabs
+        className="lg:hidden"
+        aria-label={t("import.review.tabs.ariaLabel")}
+        value={mobileTab}
+        onChange={setMobileTab}
+        items={[
+          {
+            value: "source",
+            label: t("import.review.tabs.source"),
+            icon: <FileText aria-hidden className="h-3.5 w-3.5" />,
+          },
+          {
+            value: "form",
+            label: t("import.review.tabs.form"),
+            icon: <PenLine aria-hidden className="h-3.5 w-3.5" />,
+            badge: rowChecks.ingredients + rowChecks.steps > 0 ? rowChecks.ingredients + rowChecks.steps : undefined,
+          },
+        ]}
+      />
 
       {/* ------------------------------ panes ------------------------------ */}
       {/* `min-w-0` on both panes: a grid item's automatic minimum is its content's
@@ -367,7 +374,7 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
         clearance the content needs. Same pattern as the shopping list's AddItemBar.
       */}
       <div className="sticky bottom-tabbar z-20 -mx-4 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-surface/80 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0">
-        <div className="mx-auto flex max-w-5xl items-center gap-2 px-safe">
+        <div className="mx-auto flex max-w-content items-center gap-2 px-safe">
           <Button
             type="button"
             variant="ghost"
@@ -425,9 +432,18 @@ export default function ImportReviewPage({ draftId: draftIdProp }: ImportReviewP
 }
 
 /**
- * No `mx-auto max-w-5xl px-gutter pt-4 pb-tabbar` here: AppShell's `<main>` already applies
- * every one of those. Repeating them cost a phone 32px of the 390 it has — the reason
- * the Grunddaten card did not fit — and doubled the bottom padding.
+ * No `mx-auto max-w-content px-gutter pt-4 pb-tabbar` here: AppShell's `<main>` already
+ * applies every one of those, so this screen is full-bleed within it rather than
+ * re-narrowing to `max-w-3xl` the way `ImportPage`'s single-column forms do — the
+ * two-pane source/parsed layout wants the shell's full width from `lg`. Repeating
+ * the shell's classes cost a phone 32px of the 390 it has — the reason the
+ * Grunddaten card did not fit — and doubled the bottom padding. The sticky
+ * footer's own inner wrapper carries `max-w-content` again for the opposite
+ * reason: `-mx-4` bleeds it past `<main>`'s own `px-gutter`, so it has no
+ * ambient width constraint left to inherit and has to restate the shell's
+ * measure itself — it used to say `max-w-5xl`, which quietly drifted from the
+ * shell's `max-w-content` and went uncaught because both read as "wide enough"
+ * until you diff the two values on a desktop screen.
  */
 function PageShell({ children, onBack }: { children: ReactNode; onBack: () => void }) {
   const t = useT();
@@ -443,32 +459,5 @@ function PageShell({ children, onBack }: { children: ReactNode; onBack: () => vo
       </button>
       {children}
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={clsx(
-        "flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-2 text-xs font-medium transition",
-        active
-          ? "bg-surface text-fg shadow-sm"
-          : "text-fg-muted hover:text-fg",
-      )}
-    >
-      {children}
-    </button>
   );
 }

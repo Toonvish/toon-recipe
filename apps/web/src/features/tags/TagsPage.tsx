@@ -5,7 +5,7 @@
  */
 import { useState } from "react";
 import { Check, Pencil, Plus, Tags, Trash2, X } from "lucide-react";
-import { CreateTagRequestSchema, type Tag } from "@toon/shared";
+import { CreateTagRequestSchema, type Tag, type TagKind } from "@toon/shared";
 import {
   Button,
   Card,
@@ -15,9 +15,11 @@ import {
   ErrorState,
   IconButton,
   Input,
+  SectionHeader,
   Skeleton,
 } from "@/components/ui";
 import { useToast } from "@/components/ui";
+import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
 import { apiFieldErrors, validate, type FieldErrors } from "@/lib/validation";
 import { useActiveGroup } from "@/lib/session";
@@ -48,14 +50,66 @@ export default function TagsPage() {
   const [pendingDelete, setPendingDelete] = useState<Tag | null>(null);
 
   const deleteTag = useDeleteTag(groupId);
+  const updateKind = useUpdateTag(groupId);
   const toast = useToast();
   const canDelete = hasAtLeast(role, "admin");
 
+  async function changeKind(tag: Tag, kind: TagKind) {
+    if (tag.kind === kind) return;
+    try {
+      await updateKind.mutateAsync({ tagId: tag.id, kind });
+      toast.success(t("groups.tags.kindChangedToast"), tag.name);
+    } catch (error) {
+      toast.fromError(error, t("groups.tags.kindChangeFailedToast"));
+    }
+  }
+
+  function renderTagRow(tag: Tag) {
+    return (
+      <li key={tag.id} className="flex flex-wrap items-center gap-3 p-3">
+        <TagChip tag={tag} kind={tag.kind} />
+        <span className="min-w-0 flex-1 truncate text-sm text-fg-muted">
+          {t("groups.count.recipes", { count: tag.recipeCount ?? 0 })}
+        </span>
+        <span className="hidden shrink-0 text-xs text-fg-subtle sm:inline">
+          {t("groups.tags.kindLegend")}
+        </span>
+        <KindToggle tag={tag} onChange={(kind) => void changeKind(tag, kind)} />
+        <IconButton
+          label={t("groups.tags.editLabel", { name: tag.name })}
+          icon={<Pencil />}
+          size="sm"
+          onClick={() => setEditing(tag)}
+        />
+        {canDelete ? (
+          <IconButton
+            label={t("groups.tags.deleteLabel", { name: tag.name })}
+            icon={<Trash2 />}
+            size="sm"
+            variant="danger"
+            onClick={() => setPendingDelete(tag)}
+          />
+        ) : null}
+      </li>
+    );
+  }
+
+  const allTags = tags.data ?? [];
+  // R41: `kind` has no name-matching backfill, so an existing library starts with
+  // every tag `'free'`. Only render the course/free split once somebody has actually
+  // used the toggle below — an empty "Gänge" section over a full "Tags" section would
+  // look broken on every pre-redesign install, not just a new one.
+  const courseTags = allTags.filter((tag) => tag.kind === "course");
+  const freeTags = allTags.filter((tag) => tag.kind !== "course");
+  const showSplit = courseTags.length > 0;
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-semibold text-fg">{t("groups.tags.title")}</h1>
+          <h1 className="font-display text-display-2xl leading-[1.05] font-medium text-fg">
+            {t("groups.tags.title")}
+          </h1>
           <p className="text-sm text-fg-muted">{t("groups.tags.subtitle")}</p>
         </div>
         <Button onClick={() => setCreateOpen(true)} leftIcon={<Plus className="size-4" />}>
@@ -69,7 +123,7 @@ export default function TagsPage() {
         </Card>
       ) : tags.isError ? (
         <ErrorState error={tags.error} onRetry={() => void tags.refetch()} />
-      ) : (tags.data ?? []).length === 0 ? (
+      ) : allTags.length === 0 ? (
         <EmptyState
           icon={<Tags />}
           title={t("groups.tags.emptyTitle")}
@@ -82,33 +136,31 @@ export default function TagsPage() {
           secondaryAction={<AppLink to="/">{t("groups.tags.toRecipeList")}</AppLink>}
         />
       ) : (
-        <Card padding="none">
-          <ul className="flex flex-col divide-y divide-line">
-            {(tags.data ?? []).map((tag) => (
-              <li key={tag.id} className="flex items-center gap-3 p-3">
-                <TagChip tag={tag} />
-                <span className="min-w-0 flex-1 truncate text-sm text-fg-muted">
-                  {t("groups.count.recipes", { count: tag.recipeCount ?? 0 })}
-                </span>
-                <IconButton
-                  label={t("groups.tags.editLabel", { name: tag.name })}
-                  icon={<Pencil />}
-                  size="sm"
-                  onClick={() => setEditing(tag)}
-                />
-                {canDelete ? (
-                  <IconButton
-                    label={t("groups.tags.deleteLabel", { name: tag.name })}
-                    icon={<Trash2 />}
-                    size="sm"
-                    variant="danger"
-                    onClick={() => setPendingDelete(tag)}
-                  />
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </Card>
+        <>
+          <p className="text-sm text-fg-muted">{t("groups.tags.kindHint")}</p>
+          {showSplit ? (
+            <>
+              <SectionHeader title={t("groups.tags.sectionCourses")} />
+              <Card padding="none">
+                <ul className="flex flex-col divide-y divide-line">
+                  {courseTags.map(renderTagRow)}
+                </ul>
+              </Card>
+              <SectionHeader title={t("groups.tags.sectionFree")} />
+              <Card padding="none">
+                <ul className="flex flex-col divide-y divide-line">
+                  {freeTags.map(renderTagRow)}
+                </ul>
+              </Card>
+            </>
+          ) : (
+            <Card padding="none">
+              <ul className="flex flex-col divide-y divide-line">
+                {freeTags.map(renderTagRow)}
+              </ul>
+            </Card>
+          )}
+        </>
       )}
 
       <TagDialog open={createOpen} onClose={() => setCreateOpen(false)} tag={null} />
@@ -139,6 +191,46 @@ export default function TagsPage() {
           }
         }}
       />
+    </div>
+  );
+}
+
+/**
+ * The course↔free toggle (R41/D5): how an EXISTING library adopts the eyebrow, since
+ * the migration's `DEFAULT 'free'` is deliberately the whole backfill (no name-matching
+ * guess at somebody else's German content). Two `aria-pressed` pills, same pattern as
+ * the colour swatches in `TagDialog` below — never a native `<select>`, which cannot
+ * show both states at a glance in a dense settings row.
+ */
+function KindToggle({ tag, onChange }: { tag: Tag; onChange: (kind: TagKind) => void }) {
+  const t = useT();
+  const pillClass = (active: boolean) =>
+    cn(
+      "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+      active ? "bg-brand-soft text-brand-soft-fg" : "text-fg-muted hover:text-fg",
+    );
+  return (
+    <div
+      role="group"
+      aria-label={t("groups.tags.kindToggleLabel", { name: tag.name })}
+      className="flex shrink-0 items-center gap-0.5 rounded-full border border-line bg-surface-2 p-0.5"
+    >
+      <button
+        type="button"
+        aria-pressed={tag.kind === "course"}
+        onClick={() => onChange("course")}
+        className={pillClass(tag.kind === "course")}
+      >
+        {t("groups.tags.kindCourse")}
+      </button>
+      <button
+        type="button"
+        aria-pressed={tag.kind === "free"}
+        onClick={() => onChange("free")}
+        className={pillClass(tag.kind === "free")}
+      >
+        {t("groups.tags.kindFree")}
+      </button>
     </div>
   );
 }

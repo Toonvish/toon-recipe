@@ -73,7 +73,7 @@ export default function CardsPage() {
 
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="font-display text-2xl font-semibold text-fg">{t("cards.heading")}</h1>
+          <h1 className="font-display text-display-2xl font-medium text-fg lg:text-display-3xl">{t("cards.heading")}</h1>
           <p className="text-sm text-fg-muted">{t("cards.subtitle")}</p>
         </div>
         <Button
@@ -87,7 +87,7 @@ export default function CardsPage() {
       </header>
 
       {cards.isPending ? (
-        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {[0, 1].map((index) => (
             <li key={index}>
               <Card className="flex flex-col gap-3">
@@ -112,7 +112,7 @@ export default function CardsPage() {
         />
       ) : (
         <>
-          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {items.map((card) => (
               <li key={card.id}>
                 <CardTile
@@ -175,6 +175,11 @@ export default function CardsPage() {
  * (a card is easier to spot by its stripe pattern than by its name), and the
  * overflow menu holds edit/delete rather than a row of icon buttons that would
  * eat the label's width on a phone.
+ *
+ * **Flat `bg-surface-2`, no gradient, no per-card colour** (R42). The design's
+ * Payback-blue tile is one mock instance, not a brand requirement, and a
+ * six-pair id-derived gradient table would be decoration nobody asked for —
+ * `cards` has no colour column and stays that way.
  */
 function CardTile({
   card,
@@ -199,11 +204,11 @@ function CardTile({
         type="button"
         onClick={onShow}
         aria-label={t("cards.tile.show")}
-        className="flex w-full flex-col gap-3 rounded-card border border-line bg-surface p-4 pr-14 text-left text-fg shadow-card transition-[box-shadow,border-color] hover:border-line-strong hover:shadow-pop focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        className="flex w-full flex-col gap-3 rounded-card bg-surface-2 p-4 pr-14 text-left text-fg transition-transform duration-150 active:scale-[0.995] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       >
         <span className="flex min-w-0 flex-col">
-          <span className="font-display truncate text-lg font-semibold">{card.label}</span>
-          <span className="truncate text-sm text-fg-muted">
+          <span className="font-display truncate text-display-sm font-medium text-fg">{card.label}</span>
+          <span className="truncate text-sm text-fg-subtle">
             {t(CARD_FORMAT_LABEL_KEYS[card.format])} · {card.value}
           </span>
         </span>

@@ -101,6 +101,15 @@ export function ParsedRecipeEditor({ value, onChange, tagSuggestions = [], class
 /* small field helpers                                                         */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * `Card` (padding="md" -> `rounded-card border border-line bg-surface p-4`) shaped
+ * by hand rather than composed from `components/ui/CardHeader`: that primitive
+ * takes one title and one action, and every section here needs a title PLUS a
+ * confidence badge PLUS a row of ghost-button actions all sharing the header line.
+ * The heading itself still takes `CardHeader`'s own step — `font-display
+ * text-display-sm font-medium` — so the four panes read as one family with every
+ * other card heading in the app.
+ */
 function SectionCard({
   title,
   hint,
@@ -115,9 +124,9 @@ function SectionCard({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-line bg-surface p-4">
+    <section className="rounded-card border border-line bg-surface p-4">
       <header className="mb-3 flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-semibold text-fg">{title}</h3>
+        <h3 className="font-display text-display-sm font-medium text-fg">{title}</h3>
         {badge}
         {actions !== undefined ? <div className="ml-auto flex flex-wrap gap-1">{actions}</div> : null}
       </header>

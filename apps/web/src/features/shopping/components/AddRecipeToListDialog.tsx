@@ -29,7 +29,32 @@ import {
 } from "@toon/shared";
 import { Button, Dialog, Field, Input, Select, Spinner } from "@/components/ui";
 import { useT } from "@/lib/i18n";
+import { readStorage, storageKeys } from "@/lib/storage";
 import { ServingsScaler } from "@/features/recipes/components/ServingsScaler";
+
+/**
+ * R9's target-list resolution, reused here for the same reason
+ * `RecipeDetailPage.tsx`'s `resolveTargetShoppingList` and `WeekPlanPanel.tsx` carry their
+ * own copy (there is no shared constant to import): `storageKeys.lastShoppingListId` first
+ * — so a cook who picked "Wocheneinkauf" last time gets it again without re-choosing —
+ * then the alphabetically first list, never a server-side default. `groupId` comes off
+ * `lists[0]` rather than a prop of its own: every list this dialog is ever handed belongs
+ * to the one active group, so there is nothing to pass through that the lists don't
+ * already carry.
+ */
+function resolveInitialListId(lists: readonly ShoppingList[]): string {
+  if (lists.length === 0) return "";
+  const groupId = lists[0]?.groupId;
+  const saved = readStorage(storageKeys.lastShoppingListId);
+  if (saved) {
+    const [savedGroupId, savedListId] = saved.split(":");
+    if (savedGroupId === groupId) {
+      const match = lists.find((list) => list.id === savedListId);
+      if (match) return match.id;
+    }
+  }
+  return [...lists].sort((a, b) => a.name.localeCompare(b.name, "de"))[0]?.id ?? "";
+}
 
 export interface AddRecipeToListDialogProps {
   open: boolean;
@@ -106,10 +131,11 @@ export function AddRecipeToListDialog({
 
   // Selecting a list stays its own effect, because it must keep running: the lists query
   // is routinely still in flight when the dialog opens, so there is nothing to select yet.
-  // Only fills a blank — an explicit choice (and `createList`'s) is never overwritten.
+  // Only fills a blank — an explicit choice (and `createList`'s) is never overwritten, so a
+  // pick that survives a background refetch also survives `resolveInitialListId` re-running.
   useEffect(() => {
     if (!open) return;
-    setListId((current) => (current.length > 0 ? current : (lists[0]?.id ?? "")));
+    setListId((current) => (current.length > 0 ? current : resolveInitialListId(lists)));
   }, [open, lists]);
 
   const base =

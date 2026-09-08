@@ -8,9 +8,9 @@
  *  - every member may remove themselves (the "leave group" action)
  */
 import { useState } from "react";
-import { LogOut, UserMinus } from "lucide-react";
+import { LogOut, ShieldCheck, UserMinus } from "lucide-react";
 import type { GroupMember, GroupRole } from "@toon/shared";
-import { Avatar, Badge, Button, ConfirmDialog, Select } from "@/components/ui";
+import { ActionMenu, Avatar, Badge, ConfirmDialog } from "@/components/ui";
 import { useToast } from "@/components/ui";
 import { useT } from "@/lib/i18n";
 import { hasAtLeast } from "@/features/recipes/lib/permissions";
@@ -84,34 +84,38 @@ export function MemberList({ groupId, members, myRole, myUserId, onLeft }: Membe
                 <p className="truncate text-sm text-fg-muted">{member.user.email}</p>
               </div>
 
-              {canChangeRole ? (
-                <Select
-                  aria-label={t("groups.members.roleAriaLabel", { name: member.user.name })}
-                  options={roleOptions.filter(
-                    (option) => option.value !== "owner" || isOwner,
-                  )}
-                  value={member.role}
-                  disabled={changeRole.isPending}
-                  onChange={(event) => void setRole(member, event.target.value as GroupRole)}
-                  containerClassName="w-44"
-                />
-              ) : (
-                <Badge variant={member.role === "owner" ? "brand" : "neutral"}>
-                  {t(ROLE_LABEL_KEYS[member.role])}
-                </Badge>
-              )}
+              <Badge variant={member.role === "owner" ? "brand" : "neutral"}>
+                {t(ROLE_LABEL_KEYS[member.role])}
+              </Badge>
 
-              {canRemove ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => (isMe ? setLeaveOpen(true) : setPendingRemoval(member))}
-                  leftIcon={isMe ? <LogOut className="size-4" /> : <UserMinus className="size-4" />}
-                  className="text-danger"
-                >
-                  {isMe ? t("groups.members.leave") : t("groups.members.remove")}
-                </Button>
-              ) : null}
+              {/* One overflow trigger per row, not a row of icon buttons — the same
+                  reasoning `RecipeDetailPage`'s header applies to a dense row of members.
+                  Role changes and remove/leave both live here now; a plain `Badge` above
+                  is all that shows when neither is available to the current user. */}
+              <ActionMenu
+                label={t("groups.members.roleAriaLabel", { name: member.user.name })}
+                title={member.user.name}
+                triggerVariant="ghost"
+                items={[
+                  ...(canChangeRole
+                    ? roleOptions
+                        .filter((option) => option.value !== member.role)
+                        .filter((option) => option.value !== "owner" || isOwner)
+                        .map((option) => ({
+                          label: t(ROLE_LABEL_KEYS[option.value]),
+                          icon: <ShieldCheck className="size-4" />,
+                          onSelect: () => void setRole(member, option.value),
+                          disabled: changeRole.isPending,
+                        }))
+                    : []),
+                  canRemove && {
+                    label: isMe ? t("groups.members.leave") : t("groups.members.remove"),
+                    icon: isMe ? <LogOut className="size-4" /> : <UserMinus className="size-4" />,
+                    onSelect: () => (isMe ? setLeaveOpen(true) : setPendingRemoval(member)),
+                    variant: "danger" as const,
+                  },
+                ]}
+              />
             </li>
           );
         })}

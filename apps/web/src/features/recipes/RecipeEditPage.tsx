@@ -94,14 +94,19 @@ export default function RecipeEditPage() {
     navigate({ to: "/recipes/$recipeId", params: { recipeId: recipe.id }, replace: true });
   }
 
+  // The recipe's single course tag, if it has one — a course is `kind:'course'` (D5),
+  // never a free tag, so this is the only way to find it among `recipe.tags`.
+  const initialCourse = recipe.tags.find((tag) => tag.kind === "course")?.name ?? null;
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
       <div>
-        <h1 className="font-display text-2xl font-semibold text-fg">{t("recipes.edit.title")}</h1>
+        <h1 className="font-display text-display-2xl font-medium text-fg lg:text-display-3xl">{t("recipes.edit.title")}</h1>
         <p className="truncate text-sm text-fg-muted">{recipe.title}</p>
       </div>
       <RecipeForm
         initialValues={initialValues}
+        initialCourse={initialCourse}
         availableTags={tags.data ?? []}
         availableCollections={collections.data ?? []}
         onSubmit={submit}

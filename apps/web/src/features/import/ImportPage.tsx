@@ -28,6 +28,7 @@ import { isHttpUrl, MAX_UPLOAD_BYTES } from "@toon/shared";
 import { useT } from "@/lib/i18n";
 import {
   Button,
+  Card,
   Input,
   Label,
   Select,
@@ -358,9 +359,17 @@ export default function ImportPage() {
   const totalPhotoBytes = photos.reduce((sum, photo) => sum + photo.file.size, 0);
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-5 px-4 pb-28 pt-4 lg:pb-8">
+    // `mx-auto w-full max-w-3xl`, not the app-shell padding a second time: AppShell's
+    // `<main>` already applies `mx-auto max-w-content px-gutter pt-4 pb-tabbar`, so
+    // repeating `px-4 pt-4 pb-28 lg:pb-8` here (the pre-redesign class list) cost a
+    // 390px phone 32px of the width it has and doubled the bottom clearance above
+    // the tab bar. `max-w-3xl` narrows the shell's wider column for this screen's
+    // single-file forms, same rule as the recipe form.
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
       <header className="space-y-1">
-        <h1 className="text-xl font-semibold text-fg">{t("import.page.title")}</h1>
+        <h1 className="font-display text-display-2xl leading-[1.05] font-medium text-fg lg:text-display-3xl lg:leading-[1.1]">
+          {t("import.page.title")}
+        </h1>
         <p className="text-sm text-fg-muted">
           {ocrAvailable ? t("import.page.subtitle.ocr") : t("import.page.subtitle.noOcr")}
         </p>
@@ -399,13 +408,13 @@ export default function ImportPage() {
       ) : null}
 
       {/* ----------------------------- a) URL ------------------------------ */}
-      <section className="rounded-xl border border-line bg-surface p-4">
+      <Card>
         <div className="mb-3 flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-soft text-brand-soft-fg">
             <Globe aria-hidden className="h-4 w-4" />
           </span>
           <div>
-            <h2 className="text-sm font-semibold text-fg">{t("import.page.url.heading")}</h2>
+            <h2 className="font-display text-display-sm font-medium text-fg">{t("import.page.url.heading")}</h2>
             <p className="text-xs text-fg-muted">{t("import.page.url.subtitle")}</p>
           </div>
         </div>
@@ -496,18 +505,19 @@ export default function ImportPage() {
             />
           ) : null}
         </div>
-      </section>
+      </Card>
 
       {/* ----------------------------- b) FOTO -----------------------------
-          Only when the server can actually do OCR (see useOcrImportAvailable). */}
+          Only when the server can actually do OCR (see useOcrImportAvailable).
+          A plain `rounded-card` div, not the `Card` primitive: `photoSectionRef`
+          needs a real DOM node for `scrollIntoView`, and `Card` (`components/ui/
+          Card.tsx`) is a plain function component with no `forwardRef`. */}
       {ocrAvailable ? (
       <section
         ref={photoSectionRef}
         className={clsx(
-          "rounded-xl border bg-surface p-4 transition",
-          photoHighlight
-            ? "border-brand ring-2 ring-brand/30"
-            : "border-line",
+          "rounded-card border bg-surface p-4 transition",
+          photoHighlight ? "border-brand ring-2 ring-brand/30" : "border-line",
         )}
       >
         <div className="mb-3 flex items-center gap-2">
@@ -515,7 +525,7 @@ export default function ImportPage() {
             <Camera aria-hidden className="h-4 w-4" />
           </span>
           <div>
-            <h2 className="text-sm font-semibold text-fg">{t("import.page.photo.heading")}</h2>
+            <h2 className="font-display text-display-sm font-medium text-fg">{t("import.page.photo.heading")}</h2>
             <p className="text-xs text-fg-muted">{t("import.page.photo.subtitle")}</p>
           </div>
         </div>
@@ -582,13 +592,13 @@ export default function ImportPage() {
 
       {/* --------------------------- c) DOKUMENT --------------------------- */}
       {documentAvailable ? (
-      <section className="rounded-xl border border-line bg-surface p-4">
+      <Card>
         <div className="mb-3 flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-soft text-brand-soft-fg">
             <FileUp aria-hidden className="h-4 w-4" />
           </span>
           <div>
-            <h2 className="text-sm font-semibold text-fg">
+            <h2 className="font-display text-display-sm font-medium text-fg">
               {t(pdfAvailable ? "import.page.document.heading" : "import.page.document.headingImageOnly")}
             </h2>
             <p className="text-xs text-fg-muted">
@@ -691,11 +701,14 @@ export default function ImportPage() {
             }
           />
         ) : null}
-      </section>
+      </Card>
       ) : null}
 
-      {/* ------------------------------ +) TEXT ---------------------------- */}
-      <section ref={textSectionRef} className="rounded-xl border border-line bg-surface p-4">
+      {/* ------------------------------ +) TEXT -----------------------------
+          A plain `rounded-card` section, not `Card`: `textSectionRef` needs a real
+          DOM node for `scrollIntoView`, and `Card` cannot take a ref (see the photo
+          section above). */}
+      <section ref={textSectionRef} className="rounded-card border border-line bg-surface p-4">
         <button
           type="button"
           onClick={() => setTextOpen((open) => !open)}
@@ -706,7 +719,9 @@ export default function ImportPage() {
             <PenLine aria-hidden className="h-4 w-4" />
           </span>
           <span className="flex-1">
-            <span className="block text-sm font-semibold text-fg">{t("import.page.text.heading")}</span>
+            <span className="block font-display text-display-sm font-medium text-fg">
+              {t("import.page.text.heading")}
+            </span>
             <span className="block text-xs text-fg-muted">{t("import.page.text.subtitle")}</span>
           </span>
           <span className="text-xs text-fg-muted">
@@ -743,10 +758,18 @@ export default function ImportPage() {
       {/* --------------------------- pending drafts ------------------------ */}
       {(draftsQuery.data?.items.length ?? 0) > 0 || draftsQuery.isLoading || draftsQuery.error != null ? (
         <section className="space-y-2">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-fg">{t("import.page.drafts.heading")}</h2>
+          {/*
+            Same shape as `components/ui/SectionHeader` (the ".eyebrow" hairline-rule
+            heading used for "To buy"/"Organise" elsewhere) — reproduced inline rather
+            than imported, because this feature's only coupling to the shell is
+            `./lib/shell`, which does not re-export it (see the file's own docstring),
+            and this restyle does not own `lib/shell.tsx` to widen it.
+          */}
+          <div className="flex items-center gap-2.5">
+            <span className="eyebrow text-fg-faint">{t("import.page.drafts.heading")}</span>
+            <span className="h-px flex-1 bg-surface-2" />
             {(draftsQuery.data?.total ?? 0) > 0 ? (
-              <span className="text-xs text-fg-muted">{draftsQuery.data?.total}</span>
+              <span className="text-xs text-fg-faint">{draftsQuery.data?.total}</span>
             ) : null}
           </div>
           <p className="text-xs text-fg-muted">{t("import.page.drafts.hint")}</p>

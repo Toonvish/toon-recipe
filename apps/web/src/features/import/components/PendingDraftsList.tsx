@@ -57,7 +57,7 @@ export function PendingDraftsList({
     return (
       <ul className={clsx("space-y-2", className)} aria-busy="true">
         {[0, 1].map((key) => (
-          <li key={key} className="h-16 animate-pulse rounded-xl bg-surface-2" />
+          <li key={key} className="h-16 animate-pulse rounded-card bg-surface-2" />
         ))}
       </ul>
     );
@@ -92,7 +92,7 @@ export function PendingDraftsList({
         return (
           <li
             key={draft.id}
-            className="flex items-center gap-3 rounded-xl border border-line bg-surface p-3"
+            className="flex items-center gap-3 rounded-card border border-line bg-surface p-3"
           >
             <Icon aria-hidden className="h-5 w-5 shrink-0 text-fg-subtle" />
             <button
@@ -104,7 +104,7 @@ export function PendingDraftsList({
               })}
             >
               <span className="flex flex-wrap items-center gap-2">
-                <span className="truncate text-sm font-medium text-fg">
+                <span className="truncate font-display text-display-sm font-medium text-fg">
                   {title.length > 0 ? title : t("import.pendingDrafts.untitled")}
                 </span>
                 <ConfidenceBadge value={draft.confidence ?? draft.parsed.confidence.overall} />

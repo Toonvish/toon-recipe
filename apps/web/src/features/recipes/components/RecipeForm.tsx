@@ -41,6 +41,13 @@ export interface RecipeFormSubmit {
 
 export interface RecipeFormProps {
   initialValues: RecipeFormValues;
+  /**
+   * The recipe's current course tag NAME, or `null` for none — kept separate from
+   * `RecipeFormValues` (which only knows FREE tags) because a course is a single
+   * `kind:'course'` link, not a member of the `tags` array. `RecipeNewPage` always
+   * passes `null`; `RecipeEditPage` finds it in the loaded recipe's tags.
+   */
+  initialCourse: string | null;
   availableTags: readonly Tag[];
   availableCollections: readonly Collection[];
   onSubmit: (input: RecipeFormSubmit) => Promise<void>;
@@ -54,6 +61,7 @@ export interface RecipeFormProps {
 
 export function RecipeForm({
   initialValues,
+  initialCourse,
   availableTags,
   availableCollections,
   onSubmit,
@@ -66,7 +74,18 @@ export function RecipeForm({
   const t = useT();
   const [values, setValues] = useState<RecipeFormValues>(initialValues);
   const [file, setFile] = useState<File | null>(null);
+  const [course, setCourse] = useState<string | null>(initialCourse);
   const [errors, setErrors] = useState<FieldErrors>({});
+
+  // Single-select over the group's `kind:'course'` tags plus "none" — this is where
+  // the "one course per recipe" invariant actually lives, since no DB constraint
+  // enforces it. Option VALUES are tag names (CONTENT), never through t().
+  const courseOptions = [
+    { value: "", label: t("recipes.form.course.none") },
+    ...availableTags
+      .filter((tag) => tag.kind === "course")
+      .map((tag) => ({ value: tag.name, label: tag.name })),
+  ];
 
   const difficultyOptions = [
     { value: "", label: t("recipes.form.difficulty.none") },
@@ -89,9 +108,13 @@ export function RecipeForm({
     setValues(initialValues);
   }, [initialValues]);
 
+  useEffect(() => {
+    setCourse(initialCourse);
+  }, [initialCourse]);
+
   const dirty = useMemo(
-    () => !isSameForm(values, initialValues) || file !== null,
-    [values, initialValues, file],
+    () => !isSameForm(values, initialValues) || file !== null || course !== initialCourse,
+    [values, initialValues, file, course, initialCourse],
   );
   // Guards BOTH in-app navigation and the browser's unload prompt.
   const guard = useNavigationGuard(dirty && !pending);
@@ -120,7 +143,9 @@ export function RecipeForm({
     // submits a form too.
     if (!canMutate) return;
 
-    const payload = formToRequest(values);
+    // `course` lives outside `RecipeFormValues` (see the prop doc comment above) and
+    // is merged in here rather than in `formToRequest`, which only knows the form.
+    const payload = { ...formToRequest(values), course };
     const result = validate(CreateRecipeRequestSchema, payload);
     if (!result.ok) {
       setErrors(result.errors);
@@ -183,7 +208,7 @@ export function RecipeForm({
       </Card>
 
       <Card padding="md" className="flex flex-col gap-4">
-        <h2 className="font-display text-lg font-semibold">{t("recipes.form.detailsHeading")}</h2>
+        <h2 className="font-display text-display-md font-medium">{t("recipes.form.detailsHeading")}</h2>
 
         <div className="grid grid-cols-2 gap-3">
           <Input
@@ -254,6 +279,16 @@ export function RecipeForm({
             disabled={pending}
           />
         </div>
+
+        <Select
+          label={t("recipes.form.course.label")}
+          hint={t("recipes.form.course.hint")}
+          options={courseOptions}
+          value={course ?? ""}
+          onChange={(event) => setCourse(event.target.value === "" ? null : event.target.value)}
+          error={allErrors.course}
+          disabled={pending}
+        />
 
         <TagCombobox
           value={values.tags}
@@ -354,9 +389,13 @@ export function RecipeForm({
         Sticky action bar so "Speichern" is always reachable with the thumb.
         `bottom-tabbar`, not `bottom-0`: the phone tab bar is fixed at `bottom-0` with a
         HIGHER z-index, so `bottom-0` parked this bar underneath it for the whole scroll
-        and only let it emerge at the very end of the form.
+        and only let it emerge at the very end of the form. The `flex-1` spacer above it
+        is what stops it floating mid-screen on a short form (a `sticky` bar can only be
+        pushed UP, never down); `-mb-4` swallows the breathing room `pb-tabbar` already
+        adds on `<main>`, or a strip of page background would show beneath the bar.
       */}
-      <div className="sticky bottom-tabbar z-10 -mx-4 flex flex-col gap-2 border-t border-line bg-bg/95 px-4 py-3 backdrop-blur-sm lg:mx-0 lg:rounded-card lg:border">
+      <div className="flex-1" />
+      <div className="sticky bottom-tabbar -mb-4 z-10 -mx-4 flex flex-col gap-2 border-t border-line bg-bg/95 px-4 py-3 backdrop-blur-sm lg:mx-0 lg:rounded-card lg:border">
         {/* Offline support is read-only (no mutation outbox, no conflict story for
             two members editing one recipe), so say so instead of letting the save
             fail after the user typed a whole recipe. */}

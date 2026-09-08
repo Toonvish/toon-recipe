@@ -1,9 +1,18 @@
 /**
  * "bitte prüfen" marker for low-confidence fields and rows.
  * Purely informational — it never blocks saving.
+ *
+ * Composes the restyled `Badge` (T1.9) rather than carrying its own pill markup —
+ * `size="sm"` for the dense row context, `icon` for the confidence glyph. Imported
+ * straight from `@/components/ui`, not through `../lib/shell`: the shell's
+ * `BadgeProps` cast is a narrower typing seam (no `icon`/`title`) built for the
+ * handful of plain-label badges the rest of the feature used before this one
+ * existed, and widening it belongs to whoever next needs it there, not to a
+ * restyle task that does not own `lib/shell.tsx`.
  */
 import { CircleCheck, CircleQuestionMark, TriangleAlert } from "lucide-react";
 import clsx from "clsx";
+import { Badge, type BadgeVariant } from "@/components/ui";
 import { useT } from "@/lib/i18n";
 import { confidenceLevel, formatConfidence, type ConfidenceLevel } from "../lib/confidence";
 
@@ -21,11 +30,12 @@ export interface ConfidenceBadgeProps {
   className?: string;
 }
 
-const STYLES: Record<ConfidenceLevel, string> = {
-  low: "bg-warning-soft text-warning-soft-fg ring-warning/40",
-  medium: "bg-warning-soft text-warning-soft-fg ring-warning/30",
-  unknown: "bg-surface-2 text-fg-muted ring-line-strong",
-  high: "bg-brand-soft text-success-soft-fg ring-brand/30",
+/** `ConfidenceLevel` is a domain value; only its Badge tone is a styling choice. */
+const VARIANTS: Record<ConfidenceLevel, BadgeVariant> = {
+  low: "warning",
+  medium: "warning",
+  unknown: "neutral",
+  high: "success",
 };
 
 export function ConfidenceBadge({
@@ -49,17 +59,15 @@ export function ConfidenceBadge({
   const Icon = resolved === "high" ? CircleCheck : resolved === "unknown" ? CircleQuestionMark : TriangleAlert;
 
   return (
-    <span
-      className={clsx(
-        "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] leading-4 font-medium ring-1 ring-inset",
-        STYLES[resolved],
-        className,
-      )}
+    <Badge
+      variant={VARIANTS[resolved]}
+      size="sm"
+      icon={<Icon aria-hidden className="h-3 w-3" />}
+      className={clsx("shrink-0", className)}
       title={tooltipParts.length > 0 ? tooltipParts.join(" · ") : undefined}
     >
-      <Icon aria-hidden className="h-3 w-3" />
       {text}
-    </span>
+    </Badge>
   );
 }
 
