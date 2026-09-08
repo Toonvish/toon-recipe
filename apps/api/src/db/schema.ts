@@ -255,7 +255,7 @@ export const groupInvites = sqliteTable(
  * request behind it. With the fold stored, the same no-match search is ~9 ms.
  *
  * WHY NOT A GENERATED COLUMN. It would be the obvious fit and it does not work
- * here: libSQL 0.17.4 bundles SQLite 3.45.1, which rejects
+ * here: libSQL 0.17.4 and 0.18.0 bundle SQLite 3.45.1, which rejects
  * `ALTER TABLE … ADD COLUMN … GENERATED ALWAYS AS (…) STORED` outright ("cannot
  * add a STORED column"). Note that `bun:sqlite` is 3.53 and accepts it, so a
  * migration tested only through bun:sqlite would pass locally and fail on deploy.

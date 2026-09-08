@@ -5,8 +5,9 @@
  * indirection exists so integration tests can point the import routes at their
  * own database, which is REQUIRED here and not just convenient:
  *
- *   @libsql/client 0.17.4 loses an in-memory database as soon as a transaction
- *   is committed — `client.transaction()` + `commit()` leaves the client talking
+ *   @libsql/client 0.17.4 lost an in-memory database as soon as a transaction
+ *   was committed (0.18.0 no longer does, but the file DB is kept so a regression
+ *   cannot hide here) — `client.transaction()` + `commit()` leaves the client talking
  *   to a fresh, empty `file::memory:` DB ("no such table: users"). Since
  *   `commitDraft` is transactional by design, its tests must run against a
  *   file-backed (or `?cache=shared`) database. See the agent report.

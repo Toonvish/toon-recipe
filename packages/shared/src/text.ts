@@ -30,7 +30,7 @@
  *
  * THE TABLE IS DELIBERATELY NOT COMPLETE IN THAT RESPECT, and the reason is a hard
  * limit: SQLite's parser overflows at 31 nested `replace()` calls (measured against
- * libSQL 0.17.4 — 30 works, 32 is `parser stack overflow`). Listing the uppercase
+ * libSQL 0.17.4 and re-verified on 0.18.0 — 30 works, 31 is `parser stack overflow`). Listing the uppercase
  * twin of every accent below would need 40 and break `foldSql()` outright. So
  * `foldSql()` agrees with `foldText()` for ASCII and for the German umlauts, and
  * NOT for an uppercase "È"/"Ç"/"ẞ" — which is exactly why the pre-folded recipe

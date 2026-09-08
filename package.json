@@ -24,9 +24,9 @@
     "uploads:gc": "bun --filter @toon/api uploads:gc --"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.0",
+    "@types/bun": "^1.4.1",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
+    "@types/react-dom": "^19.2.7",
     "drizzle-kit": "^0.31.10",
     "typescript": "^7.0.2"
   }

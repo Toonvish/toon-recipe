@@ -31,7 +31,7 @@
 #     node_modules are installed for the target architecture.
 # =============================================================================
 
-ARG BUN_VERSION=1.4.0
+ARG BUN_VERSION=1.4.2
 
 # -----------------------------------------------------------------------------
 # base — the workspace manifests and the lockfile, shared by every stage below.

@@ -75,7 +75,7 @@ These are **fixed** — do not redesign them.
 
 | Part | Tech |
 | --- | --- |
-| Monorepo | Bun workspaces (`apps/*`, `packages/*`), Bun 1.4.0 |
+| Monorepo | Bun workspaces (`apps/*`, `packages/*`), Bun 1.4.2 |
 | `apps/api` | Bun.serve + Hono, drizzle-orm, `@hono/zod-validator`, zod, arctic, sharp, unpdf — plus the native `tesseract` and `pdftoppm` binaries |
 | `apps/web` | React 19 + Vite + TypeScript, TanStack Router, TanStack Query, Tailwind CSS v4, vite-plugin-pwa, lucide-react |
 | `packages/shared` | Zod schemas + inferred types + pure parsers — the single source of truth, imported as `@toon/shared` |
@@ -124,7 +124,7 @@ docs/API.md               authoritative endpoint contract
 
 ## Setup
 
-Verified end to end on Bun 1.4.0 / Linux:
+Verified end to end on Bun 1.4.2 / Linux:
 
 ```bash
 # OPTIONAL — only for photo/PDF import, which is off by default (IMPORT_OCR_ENABLED).
@@ -576,7 +576,8 @@ Honest list of what is **not** finished. Nothing here blocks the flows above.
   removing those defaults from the base schema.
 - There is no "set position" endpoint for `collection_recipes`; the web app re-orders by
   DELETE-then-PUT of the whole ordered list.
-- libSQL 0.17.4 discards a `file::memory:` database on transaction commit. `withTransaction()`
+- libSQL 0.17.4 discarded a `file::memory:` database on transaction commit (0.18.0 no longer
+  does, the workaround is kept). `withTransaction()`
   (`src/services/groups/support.ts`) uses real transactions on file/Turso DBs and sequential
   statements on memory DBs; tests that need a transaction use a temp file DB.
 - Search is `LIKE`-based over PRE-FOLDED columns (`recipes.title_fold`, `description_fold`,

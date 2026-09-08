@@ -303,9 +303,13 @@ add to that panel instead.
   the symptom is only that DB-touching requests queue behind each other. The lever is therefore making
   queries cheaper, never adding concurrency: the same fix that took search from 36 ms to 4.5 ms took 16
   concurrent searches from 582 ms to 88 ms. Do not add a read pool expecting throughput.
-- **libSQL 0.17.4 discards a `file::memory:` DB on transaction commit.** Use a temp file DB in any
-  test that touches a transaction. `withTransaction()` in `services/groups/support.ts` already
-  degrades to sequential statements on memory DBs.
+- **libSQL 0.17.4 discarded a `file::memory:` DB on transaction commit; 0.18.0 no longer does**
+  (re-probed 2026-09-07: the table and its row survive `commit()`). The workarounds are KEPT on
+  purpose — `withTransaction()` in `services/groups/support.ts` still degrades to sequential
+  statements on memory DBs and the transactional tests still use a temp file DB — because they cost
+  nothing and a libSQL downgrade or regression would otherwise surface as `no such table` mid-suite.
+  The other two 0.17.4 measurements (31 nested `replace()` overflow, no `ADD COLUMN … STORED`) were
+  re-verified unchanged on 0.18.0, which still bundles SQLite 3.45.1.
 - **`bun test` forces `DATABASE_URL=file::memory:`** (`NODE_ENV=test` in `env.ts`), so a developer
   `.env` can never point tests at the real DB. Override with `TEST_DATABASE_URL`.
 - **`apps/api/tsconfig.json` only includes `test/**`** — never create `apps/api/tests/`, it would be
@@ -630,7 +634,7 @@ add to that panel instead.
   pair changes stored keys — existing rows keep their old key until rewritten.
 - **`FOLD_PAIRS` CANNOT BE COMPLETED, and it is deliberately half-finished.** SQLite's `lower()` folds
   ASCII only, so `foldSql()` needs the UPPERCASE twin of every accent to match `foldText()` — but the
-  parser overflows at 31 nested `replace()` calls (measured against libSQL 0.17.4: 30 works, 32 is
+  parser overflows at 31 nested `replace()` calls (measured against libSQL 0.17.4 and 0.18.0: 30 works, 31 is
   `parser stack overflow`), and the full table needs 40. So only `Ä/Ö/Ü` are listed and `foldSql()`
   genuinely disagrees with `foldText()` for an uppercase `È`/`Ç`/`ẞ`. That is survivable because
   `foldSql()` now only runs on small tables (tag/collection/list names); everything on the recipe path
@@ -649,7 +653,7 @@ add to that panel instead.
     `import/commit.ts`, `scripts/seed.ts`) plus tests. The migration adds the columns with a SQL-level
     `DEFAULT ''` because SQLite cannot add a NOT NULL column to a populated table without one — a
     deliberate schema/DB divergence, and the reason `db:generate` offers to "fix" it. Decline.
-  - **A GENERATED column is not available.** libSQL 0.17.4 bundles **SQLite 3.45.1**, which rejects
+  - **A GENERATED column is not available.** libSQL 0.17.4 and 0.18.0 bundle **SQLite 3.45.1**, which rejects
     `ALTER TABLE … ADD COLUMN … GENERATED ALWAYS AS (…) STORED` ("cannot add a STORED column").
   - **The backfill is JS, not SQL** (`backfillFoldedColumns()` in `db/migrate.ts`, run by
     `runMigrations`). It must be: reproducing `foldText()` in SQL is impossible for an uppercase accent

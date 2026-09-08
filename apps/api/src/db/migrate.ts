@@ -40,8 +40,9 @@ export async function runMigrations(database: Database = sharedDb): Promise<void
  * description), so the source column has to be what decides. A row whose title is
  * genuinely empty is left alone — its fold is correctly ''.
  *
- * DELIBERATELY NOT IN A TRANSACTION. libSQL 0.17.4 discards a `file::memory:`
- * database when a transaction commits (see `withTransaction` in
+ * DELIBERATELY NOT IN A TRANSACTION. libSQL 0.17.4 discarded a `file::memory:`
+ * database when a transaction commits (0.18.0 no longer does; the guard stays,
+ * see `withTransaction` in
  * services/groups/support.ts), and this runs inside `runMigrations`, which every
  * integration test calls against exactly such a database. It does not need one
  * anyway: each row is independent and an interrupted run simply finds the rest of

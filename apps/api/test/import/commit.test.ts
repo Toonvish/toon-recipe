@@ -33,8 +33,9 @@ import { extractRecipeFromHtml } from "../../src/services/import/url/index.ts";
 import { expectApiError, fixture } from "./helpers.ts";
 
 /**
- * A FILE-backed database on purpose: @libsql/client 0.17.4 discards a
- * `file::memory:` database as soon as a transaction commits, and `commitDraft`
+ * A FILE-backed database on purpose: @libsql/client 0.17.4 discarded a
+ * `file::memory:` database as soon as a transaction committed (0.18.0 no longer
+ * does; kept as a regression guard), and `commitDraft`
  * is transactional. See src/services/import/db.ts for the full note.
  */
 const tempDir = mkdtempSync(join(tmpdir(), "toon-import-commit-"));
