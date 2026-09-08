@@ -43,6 +43,27 @@
       "when": 1787038660015,
       "tag": "0005_saved_cards",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1788859644858,
+      "tag": "0006_tag_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1788859718990,
+      "tag": "0007_meal_plan_and_cook_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788859780811,
+      "tag": "0008_shopping_bought",
+      "breakpoints": true
     }
   ]
 }

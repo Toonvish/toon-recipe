@@ -1,25 +1,48 @@
 /**
- * bun run seed — creates a demo user, a demo group "Familie", three tags and three
- * realistic German recipes (two of them with ingredient/step SECTIONS), so the app is
- * not empty on first run. Idempotent: running it twice reuses user/group/tags and
- * skips recipes whose title already exists in the group.
+ * bun run seed — creates a demo user, a demo group "Familie", three free tags, the
+ * course vocabulary (kind: 'course'), and three realistic German recipes (two of them
+ * with ingredient/step SECTIONS, each linked to one course tag), so the app is not
+ * empty on first run. Also seeds a handful of meal plan entries across the current
+ * week, a recipe_cook_log spread over the last two weeks (with recipes.last_cooked_at
+ * recomputed to match), and a demo shopping list with bought history, one hidden
+ * catalog entry and one linked recipe — so the week strip, "Kürzlich gekocht", the
+ * shopping history panel and the list's recipe rail are all populated too. Idempotent:
+ * running it twice reuses the user/group/tags/list and skips recipes whose title
+ * already exists in the group, and each of the later blocks skips itself once its
+ * table already has a row for this group/list.
  *
  * Login: demo@toon.local / demo1234
  */
-import { foldText, parseIngredientBlock, parseStepBlock, type RecipeStep } from "@toon/shared";
+import {
+  foldText,
+  nameKey,
+  parseIngredientBlock,
+  parseStepBlock,
+  planWeek,
+  todayPlanDate,
+  type RecipeStep,
+} from "@toon/shared";
 import { eq } from "drizzle-orm";
 import { client, db } from "../src/db/client.ts";
 import { runMigrations } from "../src/db/migrate.ts";
 import {
   groupMembers,
   groups,
+  mealPlanEntries,
+  recipeCookLog,
   recipeIngredients,
   recipeSteps,
   recipeTags,
   recipes,
+  shoppingBoughtItems,
+  shoppingListCatalog,
+  shoppingListRecipes,
+  shoppingLists,
   tags,
   users,
 } from "../src/db/schema.ts";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const DEMO_EMAIL = "demo@toon.local";
 const DEMO_PASSWORD = "demo1234";
@@ -121,8 +144,27 @@ for (const name of tagNames) {
     continue;
   }
   const id = crypto.randomUUID();
-  await db.insert(tags).values({ id, groupId, name, createdAt: now });
+  // Explicit even though 'free' is the column default (schema.ts) — these three are
+  // the pre-course-eyebrow tags and this is the line that says so on a read-through.
+  await db.insert(tags).values({ id, groupId, name, kind: "free", createdAt: now });
   tagIds.set(name, id);
+}
+
+// The single honey eyebrow above a recipe title (SPEC §4.4) — CONTENT, German recipe
+// vocabulary, never through t(). R41 ships no name-matching backfill for an existing
+// install, so this vocabulary only ever appears here and via the /tags kind toggle.
+const courseNames = ["Hauptspeise", "Beilage", "Dessert", "Suppe", "Auflauf"] as const;
+const courseTagIds = new Map<string, string>();
+for (const name of courseNames) {
+  const existing = await db.select().from(tags).where(eq(tags.name, name)).limit(1);
+  const row = existing.find((tag) => tag.groupId === groupId);
+  if (row) {
+    courseTagIds.set(name, row.id);
+    continue;
+  }
+  const id = crypto.randomUUID();
+  await db.insert(tags).values({ id, groupId, name, kind: "course", createdAt: now });
+  courseTagIds.set(name, id);
 }
 
 interface DemoRecipe {
@@ -136,6 +178,8 @@ interface DemoRecipe {
   ingredients: string;
   steps: string;
   tags: string[];
+  /** One name out of `courseNames` — the eyebrow (recipeEyebrow in @toon/shared). */
+  course: string;
 }
 
 const demoRecipes: DemoRecipe[] = [
@@ -161,6 +205,7 @@ const demoRecipes: DemoRecipe[] = [
       "3. Butter in einer Pfanne erhitzen und den Teig portionsweise goldbraun ausbacken.",
     ].join("\n"),
     tags: ["Hauptgericht", "Vegetarisch"],
+    course: "Hauptspeise",
   },
   {
     title: "Schneller Schokokuchen",
@@ -196,6 +241,7 @@ const demoRecipes: DemoRecipe[] = [
       "5. Den abgekühlten Kuchen mit dem Guss überziehen und 30 Minuten fest werden lassen.",
     ].join("\n"),
     tags: ["Backen", "Vegetarisch"],
+    course: "Dessert",
   },
   {
     title: "Zwiebelkuchen vom Blech",
@@ -234,17 +280,26 @@ const demoRecipes: DemoRecipe[] = [
       "7. Bei 200 °C Ober-/Unterhitze 40-45 Minuten backen, bis der Belag goldgelb gestockt ist. Lauwarm servieren.",
     ].join("\n"),
     tags: ["Hauptgericht", "Backen"],
+    course: "Hauptspeise",
   },
 ];
 
+// Recorded for every recipe, present-before-this-run or freshly inserted, so the
+// meal-plan/cook-log seeding below (which needs real recipe ids) works the same
+// whether this is a fresh DB or a rerun against an existing one.
+const recipeIdByTitle = new Map<string, string>();
+
 for (const demo of demoRecipes) {
   const existing = await db.select({ id: recipes.id, title: recipes.title }).from(recipes).where(eq(recipes.groupId, groupId));
-  if (existing.some((recipe) => recipe.title === demo.title)) {
+  const existingRow = existing.find((recipe) => recipe.title === demo.title);
+  if (existingRow) {
+    recipeIdByTitle.set(demo.title, existingRow.id);
     console.log(`[seed] recipe "${demo.title}" already present`);
     continue;
   }
 
   const recipeId = crypto.randomUUID();
+  recipeIdByTitle.set(demo.title, recipeId);
   const parsedIngredients = parseIngredientBlock(demo.ingredients);
   const parsedSteps = parseSectionedSteps(demo.steps);
 
@@ -297,13 +352,198 @@ for (const demo of demoRecipes) {
     );
   }
 
-  const links = demo.tags
-    .map((name) => tagIds.get(name))
+  const links = [...demo.tags.map((name) => tagIds.get(name)), courseTagIds.get(demo.course)]
     .filter((id): id is string => typeof id === "string")
     .map((tagId) => ({ recipeId, tagId }));
   if (links.length > 0) await db.insert(recipeTags).values(links);
 
   console.log(`[seed] recipe "${demo.title}" (${parsedIngredients.length} Zutaten, ${parsedSteps.length} Schritte)`);
+}
+
+const recipeIdList = demoRecipes.map((demo) => recipeIdByTitle.get(demo.title)!);
+
+/* -------------------------------------------------------------------------- */
+/* meal plan + cook log — the two headline features, so a fresh dev DB shows   */
+/* a populated week strip, "Kürzlich gekocht" and the "Aus dem Wochenplan"     */
+/* panel instead of three empty states (see PLAN.md T3.2).                    */
+/* -------------------------------------------------------------------------- */
+
+const existingPlanEntries = await db
+  .select({ id: mealPlanEntries.id })
+  .from(mealPlanEntries)
+  .where(eq(mealPlanEntries.groupId, groupId))
+  .limit(1);
+
+if (existingPlanEntries.length === 0) {
+  // The seed is a CLI on a developer's own machine, so for the purposes of the
+  // calendar-date boundary it IS a client (see calendar.ts's header) — the plan
+  // dates are read off the LOCAL calendar, never `new Date().toISOString().slice(0,10)`.
+  const today = todayPlanDate();
+  const week = planWeek(today);
+
+  const planEntries: Array<{ plannedOn: string; recipeId: string; cookedAt: number | null }> = [
+    // The cooked one is week[0] (Monday), which is never LATER than today, so the
+    // stamp is never in the future relative to the day it was planned for — a state
+    // recordCooked() cannot produce and a nonsense week strip to screenshot.
+    { plannedOn: week[0]!, recipeId: recipeIdList[0]!, cookedAt: now },
+    { plannedOn: week[2]!, recipeId: recipeIdList[1]!, cookedAt: null },
+    { plannedOn: today, recipeId: recipeIdList[2]!, cookedAt: null },
+    { plannedOn: week[5]!, recipeId: recipeIdList[0]!, cookedAt: null },
+  ];
+
+  await db.insert(mealPlanEntries).values(
+    planEntries.map((entry) => ({
+      id: crypto.randomUUID(),
+      groupId,
+      recipeId: entry.recipeId,
+      plannedOn: entry.plannedOn,
+      servings: null,
+      cookedAt: entry.cookedAt,
+      createdBy: userId,
+      createdAt: now,
+      updatedAt: now,
+    })),
+  );
+  console.log(`[seed] ${planEntries.length} meal plan entries across the current week`);
+}
+
+const existingCookLog = await db
+  .select({ id: recipeCookLog.id })
+  .from(recipeCookLog)
+  .where(eq(recipeCookLog.groupId, groupId))
+  .limit(1);
+
+if (existingCookLog.length === 0) {
+  const cookLogEntries = [
+    { recipeId: recipeIdList[0]!, cookedAt: now - 13 * DAY_MS },
+    { recipeId: recipeIdList[1]!, cookedAt: now - 9 * DAY_MS },
+    { recipeId: recipeIdList[2]!, cookedAt: now - 4 * DAY_MS },
+    { recipeId: recipeIdList[0]!, cookedAt: now - 1 * DAY_MS },
+  ];
+
+  await db.insert(recipeCookLog).values(
+    cookLogEntries.map((entry) => ({
+      id: crypto.randomUUID(),
+      recipeId: entry.recipeId,
+      groupId,
+      cookedBy: userId,
+      cookedAt: entry.cookedAt,
+      mealPlanEntryId: null,
+    })),
+  );
+
+  // `recipes.last_cooked_at` has exactly one writer at runtime
+  // (services/recipes/cookLog.ts's max(cooked_at) recompute, see the schema.ts
+  // comment) — the seed reproduces that BY HAND here, in the same script, so a
+  // freshly seeded DB satisfies T4.2's agreement test instead of looking like a
+  // real bug the first time anyone runs it.
+  const lastCookedByRecipe = new Map<string, number>();
+  for (const entry of cookLogEntries) {
+    const current = lastCookedByRecipe.get(entry.recipeId);
+    if (current === undefined || entry.cookedAt > current) lastCookedByRecipe.set(entry.recipeId, entry.cookedAt);
+  }
+  for (const [recipeId, lastCookedAt] of lastCookedByRecipe) {
+    await db.update(recipes).set({ lastCookedAt, updatedAt: now }).where(eq(recipes.id, recipeId));
+  }
+
+  console.log(`[seed] ${cookLogEntries.length} cook log rows`);
+}
+
+/* -------------------------------------------------------------------------- */
+/* shopping list — bought history + the catalog + the "on this list" rail     */
+/* -------------------------------------------------------------------------- */
+
+const LIST_NAME = "Rewe";
+const existingLists = await db.select().from(shoppingLists).where(eq(shoppingLists.groupId, groupId));
+let listId = existingLists.find((list) => list.name === LIST_NAME)?.id;
+
+if (!listId) {
+  listId = crypto.randomUUID();
+  await db.insert(shoppingLists).values({
+    id: listId,
+    groupId,
+    name: LIST_NAME,
+    createdBy: userId,
+    createdAt: now,
+    updatedAt: now,
+  });
+  console.log(`[seed] shopping list "${LIST_NAME}" (${listId})`);
+}
+
+const existingBought = await db
+  .select({ id: shoppingBoughtItems.id })
+  .from(shoppingBoughtItems)
+  .where(eq(shoppingBoughtItems.listId, listId))
+  .limit(1);
+
+if (existingBought.length === 0) {
+  // Spread across two days so the "Bought today" section and the history panel
+  // (both reading this table, see schema.ts) each have something to show.
+  const boughtItems = [
+    { name: "Milch", quantity: 1, unit: "l", boughtAt: now - 1 * DAY_MS },
+    { name: "Eier", quantity: 10, unit: "Stück", boughtAt: now - 1 * DAY_MS },
+    { name: "Mehl", quantity: 1, unit: "kg", boughtAt: now - 1 * DAY_MS },
+    { name: "Butter", quantity: 250, unit: "g", boughtAt: now },
+    { name: "Zucker", quantity: 500, unit: "g", boughtAt: now },
+  ];
+
+  await db.insert(shoppingBoughtItems).values(
+    boughtItems.map((item) => ({
+      id: crypto.randomUUID(),
+      listId,
+      name: item.name,
+      quantity: item.quantity,
+      unit: item.unit,
+      note: null,
+      boughtBy: userId,
+      boughtAt: item.boughtAt,
+      sourceRecipeIds: null,
+    })),
+  );
+  console.log(`[seed] ${boughtItems.length} shopping_bought_items rows`);
+}
+
+const existingCatalogEntry = await db
+  .select({ id: shoppingListCatalog.id })
+  .from(shoppingListCatalog)
+  .where(eq(shoppingListCatalog.listId, listId))
+  .limit(1);
+
+if (existingCatalogEntry.length === 0) {
+  // Hidden on purpose (SPEC §4.6): keeps its use_count, just isn't offered as a
+  // "Häufig gekauft" chip — this is the one row the fresh DB needs so a hidden
+  // entry exists to look at at all.
+  await db.insert(shoppingListCatalog).values({
+    id: crypto.randomUUID(),
+    listId,
+    name: "Katzenstreu",
+    nameKey: nameKey("Katzenstreu"),
+    unit: "Pck.",
+    useCount: 3,
+    lastUsedAt: now - 20 * DAY_MS,
+    hiddenAt: now - 5 * DAY_MS,
+  });
+  console.log("[seed] 1 hidden shopping_list_catalog entry");
+}
+
+const existingListRecipe = await db
+  .select({ id: shoppingListRecipes.id })
+  .from(shoppingListRecipes)
+  .where(eq(shoppingListRecipes.listId, listId))
+  .limit(1);
+
+if (existingListRecipe.length === 0) {
+  const linkedRecipe = demoRecipes[0]!;
+  await db.insert(shoppingListRecipes).values({
+    id: crypto.randomUUID(),
+    listId,
+    recipeId: recipeIdByTitle.get(linkedRecipe.title)!,
+    servings: linkedRecipe.servingsAmount,
+    addedBy: userId,
+    addedAt: now,
+    updatedAt: now,
+  });
+  console.log(`[seed] "${linkedRecipe.title}" linked to shopping list "${LIST_NAME}"`);
 }
 
 console.log("[seed] done");

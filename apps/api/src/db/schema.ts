@@ -11,7 +11,7 @@
  * "Konto löschen" flow MUST first transfer ownership/authorship inside shared groups,
  * otherwise the group would lose those rows — see docs/API.md.
  */
-import type { ImportSourceMeta, ParsedRecipe } from "@toon/shared";
+import type { ImportSourceMeta, ParsedRecipe, TagKind } from "@toon/shared";
 import { relations } from "drizzle-orm";
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
@@ -301,6 +301,24 @@ export const recipes = sqliteTable(
     rating: integer("rating"),
     notes: text("notes"),
     language: text("language").notNull().default("de"),
+    /**
+     * When this recipe was last cooked, denormalised from `recipe_cook_log` (the
+     * table is the source of truth; this is written by its ONE writer,
+     * `recordCooked`/`undoCooked` in services/recipes/cookLog.ts — the same rule as
+     * `updateUser()` never touching `email_verified_at`).
+     *
+     * Denormalised rather than a correlated `max()` or a grouped-max join, because
+     * `?sort=lastCooked` needs an INDEX to sort by, not a per-row subquery over the
+     * whole group — the exact failure `recipes_group_title_fold_idx` exists to avoid
+     * (see that column's comment). NULLABLE and NEVER `NOT NULL DEFAULT 0`: 0 is
+     * 1970 and would sort a never-cooked recipe as recently cooked. In SQLite,
+     * `ORDER BY x DESC` puts NULLs LAST for free, so `recipes_group_last_cooked_idx`
+     * supplies `[desc(lastCookedAt), desc(createdAt)]` with no `is null` leading term.
+     *
+     * No backfill on introduction: `recipe_cook_log` is a brand-new table, so NULL is
+     * correct for every pre-existing recipe.
+     */
+    lastCookedAt: integer("last_cooked_at"),
     createdBy: text("created_by")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -322,6 +340,12 @@ export const recipes = sqliteTable(
      */
     index("recipes_group_title_fold_idx").on(table.groupId, table.titleFold),
     index("recipes_created_by_idx").on(table.createdBy),
+    /**
+     * `?sort=lastCooked`. The third column is the tie-break `orderBy` actually uses
+     * (`[desc(lastCookedAt), desc(createdAt)]`), so it belongs in the index too —
+     * same shape as `recipes_group_created_at_idx`'s pairing with `?sort=newest`.
+     */
+    index("recipes_group_last_cooked_idx").on(table.groupId, table.lastCookedAt, table.createdAt),
   ],
 );
 
@@ -378,11 +402,30 @@ export const tags = sqliteTable(
       .references(() => groups.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     color: text("color"),
+    /**
+     * `'course' | 'free'` (TagKind in @toon/shared).
+     *
+     * A `course` tag is the recipe's category — the single honey eyebrow above every
+     * title (`Hauptspeise`, `Beilage`, `Dessert`, `Suppe`, `Auflauf`). `free` is
+     * everything else, which lives in the filter rail's lower half.
+     *
+     * THE NAMES ARE CONTENT. They are German recipe vocabulary like units.ts, they are
+     * rendered verbatim, and they must never go through t() or depend on the viewer's
+     * locale. Only the rail's HEADING is interface.
+     *
+     * KEEPS its drizzle default, unlike `recipes.title_fold`: 'free' is correct for
+     * every existing insert site, so the default is a feature here rather than the
+     * silent-NULL hazard it would be there.
+     */
+    kind: text("kind").notNull().default("free").$type<TagKind>(),
     createdAt: integer("created_at").notNull().$defaultFn(now),
   },
   (table) => [
     uniqueIndex("tags_group_name_unique").on(table.groupId, table.name),
     index("tags_group_id_idx").on(table.groupId),
+    // No (group_id, kind) index: tags_group_id_idx already narrows to the group, a
+    // group holds tens of tags, and this table is written on every recipe save — a
+    // second index here would be dead weight for a residual scan of a handful of rows.
   ],
 );
 
@@ -441,6 +484,121 @@ export const collectionRecipes = sqliteTable(
     primaryKey({ columns: [table.collectionId, table.recipeId] }),
     index("collection_recipes_recipe_id_idx").on(table.recipeId),
     index("collection_recipes_collection_id_idx").on(table.collectionId),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
+/* meal planner                                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One planned meal: a recipe on a CALENDAR DATE in a group's week.
+ *
+ * `planned_on` IS THE ONE COLUMN IN THIS SCHEMA THAT IS NOT AN INSTANT. It holds
+ * `YYYY-MM-DD` text, because a plan entry is a DATE — "Donnerstag" — and an integer
+ * unix-ms midnight is an instant that every reader has to re-interpret in some
+ * timezone. The server runs UTC in Docker and the users are in Europe/Berlin, so a
+ * date derived from an instant is a day out for two hours every night, and `+ 1 day`
+ * on a local Date lands on 23:00 the previous day across a spring-forward boundary.
+ * A text date carries no zone to be wrong about, sorts lexicographically =
+ * chronologically (so `meal_plan_entries_group_date_idx` supplies both the range and
+ * the order), and is legible in the DB. THE CALENDAR DATE IS THE CLIENT'S: it is
+ * computed from the device's local calendar by `toPlanDate()` in
+ * packages/shared/src/calendar.ts and sent; nothing here ever calls `new Date()` to
+ * decide what day it is. `cooked_at`/`created_at`/`updated_at` on this very table are
+ * instants and stay integer unix ms, as everywhere else.
+ *
+ * `cooked_at` is stamped by POST /recipes/:recipeId/cooked (services/recipes/
+ * cookLog.ts), never by the planner's own PATCH — one writer per fact.
+ *
+ * No `note` column: nothing draws or reads one (A02 §2.1 sketched one, dropped here —
+ * dead schema is how a second, differently-shaped `note` column gets added later). If
+ * `/plan` ever grows a note field, that is one migration line away.
+ *
+ * The UNIQUE index makes POST idempotent: planning the same recipe on the same day
+ * twice returns the existing entry instead of a duplicate. Planner writes are
+ * online-only (SPEC.md §5), so there is deliberately no `mutationId` ledger here —
+ * the index is the whole idempotency story.
+ */
+export const mealPlanEntries = sqliteTable(
+  "meal_plan_entries",
+  {
+    id: text("id").primaryKey(),
+    groupId: text("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    recipeId: text("recipe_id")
+      .notNull()
+      .references(() => recipes.id, { onDelete: "cascade" }),
+    /** `YYYY-MM-DD` in the planner's calendar — see the table comment. */
+    plannedOn: text("planned_on").notNull(),
+    position: integer("position").notNull().default(0),
+    /** NULL = use the recipe's own `servings_amount`. */
+    servings: real("servings"),
+    /** When this planned meal was actually cooked. NULL = not yet. */
+    cookedAt: integer("cooked_at"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at").notNull().$defaultFn(now),
+    updatedAt: integer("updated_at").notNull().$defaultFn(now),
+  },
+  (table) => [
+    uniqueIndex("meal_plan_entries_group_date_recipe_unique").on(
+      table.groupId,
+      table.plannedOn,
+      table.recipeId,
+    ),
+    // Three columns on purpose: (group_id, planned_on) is a prefix, so the week range
+    // scan is served AND `order by planned_on, position` comes out of the index.
+    index("meal_plan_entries_group_date_idx").on(table.groupId, table.plannedOn, table.position),
+    index("meal_plan_entries_recipe_id_idx").on(table.recipeId),
+  ],
+);
+
+/**
+ * "What did this recipe cook lately": one row per cook event, ordered so
+ * `recipes.last_cooked_at` (below) can be recomputed from `max(cooked_at)`.
+ *
+ * `group_id` is DENORMALISED (it is derivable through `recipe_id`). It buys "what did
+ * this group cook lately" as one index range scan instead of a join, and it is how the
+ * group cascade stays a single sweep. Same reasoning as `shopping_list_items` carrying
+ * `list_id` rather than joining up to the group.
+ *
+ * `meal_plan_entry_id` is `ON DELETE set null`, NOT cascade — the one FK on these new
+ * tables that is not a cascade. Deleting a plan entry must not delete the fact that the
+ * meal was cooked.
+ *
+ * This table is, today, WRITE-MOSTLY: its only reads are the cook-undo window and the
+ * `last_cooked_at` recompute after an undo (services/recipes/cookLog.ts). It still
+ * earns its place — it carries `cooked_by`, which a single column cannot, and D-per-
+ * SPEC.md §4.2 mandates a log, not a column. Do not delete it as unused.
+ *
+ * No `cook_count` column: nothing in the design renders a count, so nothing stores it.
+ */
+export const recipeCookLog = sqliteTable(
+  "recipe_cook_log",
+  {
+    id: text("id").primaryKey(),
+    recipeId: text("recipe_id")
+      .notNull()
+      .references(() => recipes.id, { onDelete: "cascade" }),
+    groupId: text("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    cookedBy: text("cooked_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    cookedAt: integer("cooked_at").notNull().$defaultFn(now),
+    /** NULL when the cook was logged outside the plan, or after the entry it stamped
+     * was deleted — see the `ON DELETE set null` note above. */
+    mealPlanEntryId: text("meal_plan_entry_id").references(() => mealPlanEntries.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    index("recipe_cook_log_recipe_cooked_idx").on(table.recipeId, table.cookedAt),
+    index("recipe_cook_log_group_cooked_idx").on(table.groupId, table.cookedAt),
   ],
 );
 
@@ -506,6 +664,12 @@ export const shoppingLists = sqliteTable(
     createdBy: text("created_by")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /**
+     * `Clear bought` watermark: the "Bought today" section shows only log rows
+     * NEWER than this. NULL = never cleared. The log itself is never deleted by
+     * clearing — the history panel and `/shopping/history` read past the watermark.
+     */
+    boughtClearedAt: integer("bought_cleared_at"),
     createdAt: integer("created_at").notNull().$defaultFn(now),
     updatedAt: integer("updated_at").notNull().$defaultFn(now),
   },
@@ -581,6 +745,12 @@ export const shoppingListCatalog = sqliteTable(
     unit: text("unit"),
     useCount: integer("use_count").notNull().default(0),
     lastUsedAt: integer("last_used_at").notNull().$defaultFn(now),
+    /**
+     * Hidden from the "Häufig gekauft" chips but KEEPS its `use_count`
+     * (SPEC § 4.6): the design replaced the per-chip `×` with a long-press hide,
+     * and deleting the entry would only make it come back on the next check-off.
+     */
+    hiddenAt: integer("hidden_at"),
   },
   (table) => [
     uniqueIndex("shopping_list_catalog_list_name_unique").on(table.listId, table.nameKey),
@@ -589,6 +759,82 @@ export const shoppingListCatalog = sqliteTable(
       table.useCount,
       table.lastUsedAt,
     ),
+  ],
+);
+
+/**
+ * "Bought today" and the history panel — the log D4 chose INSTEAD of a `bought_at`
+ * column on the item row.
+ *
+ * Checking an item off still DELETEs it and still bumps `shopping_list_catalog`
+ * (see the item table's comment); it additionally appends one row here. The four
+ * things that make offline editing safe are therefore untouched: the
+ * `(list_id, merge_key)` unique index stays TOTAL (no partial index whose libSQL
+ * 3.45.1 support is unverified), the queued offline mutation stays a DELETE, the
+ * `mutationId` ledger still covers the whole check-off, and "Häufig gekauft" still
+ * ranks by `use_count`.
+ *
+ * `bought_by` is NULLABLE on purpose: a group's purchase history must survive a
+ * member deleting their account, which `ON DELETE cascade` would not allow.
+ *
+ * Rows older than `BOUGHT_LOG_TTL_MS` are pruned on write
+ * (services/shopping/bought.service.ts), the same shape as the mutation ledger.
+ */
+export const shoppingBoughtItems = sqliteTable(
+  "shopping_bought_items",
+  {
+    id: text("id").primaryKey(),
+    listId: text("list_id")
+      .notNull()
+      .references(() => shoppingLists.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** NULL means "no amount given"; never store 0 for that. */
+    quantity: real("quantity"),
+    unit: text("unit"),
+    note: text("note"),
+    /** NULL after the buyer deleted their account — history outlives the account. */
+    boughtBy: text("bought_by").references(() => users.id, { onDelete: "set null" }),
+    boughtAt: integer("bought_at").notNull().$defaultFn(now),
+    /** JSON string array, copied from the item so an undo restores provenance. */
+    sourceRecipeIds: text("source_recipe_ids", { mode: "json" }).$type<string[]>(),
+  },
+  (table) => [
+    index("shopping_bought_items_list_bought_at_idx").on(table.listId, table.boughtAt),
+    // For the TTL sweep, which is group-blind — the same role
+    // `shopping_mutations_applied_at_idx` plays for the ledger.
+    index("shopping_bought_items_bought_at_idx").on(table.boughtAt),
+  ],
+);
+
+/**
+ * "Recipes on this list" (artboard 1d right rail): which recipes contributed to a
+ * list, and at how many portions.
+ *
+ * This does NOT replace `shopping_list_items.source_recipe_ids` and must not be
+ * turned into one — that column is per-ITEM provenance, is rewritten by every merge,
+ * and is deliberately not a join table (see its comment). This table is per-LIST
+ * membership plus the one fact the items cannot carry: the `servings` the group chose
+ * when they put the recipe on the list.
+ */
+export const shoppingListRecipes = sqliteTable(
+  "shopping_list_recipes",
+  {
+    id: text("id").primaryKey(),
+    listId: text("list_id")
+      .notNull()
+      .references(() => shoppingLists.id, { onDelete: "cascade" }),
+    recipeId: text("recipe_id")
+      .notNull()
+      .references(() => recipes.id, { onDelete: "cascade" }),
+    /** Target portions used for the scaling; NULL = the recipe's own count. */
+    servings: real("servings"),
+    addedBy: text("added_by").references(() => users.id, { onDelete: "set null" }),
+    addedAt: integer("added_at").notNull().$defaultFn(now),
+    updatedAt: integer("updated_at").notNull().$defaultFn(now),
+  },
+  (table) => [
+    uniqueIndex("shopping_list_recipes_list_recipe_unique").on(table.listId, table.recipeId),
+    index("shopping_list_recipes_list_id_idx").on(table.listId),
   ],
 );
 
@@ -703,6 +949,8 @@ export const groupsRelations = relations(groups, ({ many, one }) => ({
   collections: many(collections),
   drafts: many(importDrafts),
   shoppingLists: many(shoppingLists),
+  mealPlanEntries: many(mealPlanEntries),
+  cookLog: many(recipeCookLog),
   creator: one(users, { fields: [groups.createdBy], references: [users.id] }),
 }));
 
@@ -718,6 +966,8 @@ export const recipesRelations = relations(recipes, ({ many, one }) => ({
   steps: many(recipeSteps),
   recipeTags: many(recipeTags),
   collectionRecipes: many(collectionRecipes),
+  mealPlanEntries: many(mealPlanEntries),
+  cookLog: many(recipeCookLog),
 }));
 
 export const recipeIngredientsRelations = relations(recipeIngredients, ({ one }) => ({
@@ -749,6 +999,22 @@ export const importDraftsRelations = relations(importDrafts, ({ one }) => ({
   recipe: one(recipes, { fields: [importDrafts.recipeId], references: [recipes.id] }),
 }));
 
+export const mealPlanEntriesRelations = relations(mealPlanEntries, ({ one }) => ({
+  group: one(groups, { fields: [mealPlanEntries.groupId], references: [groups.id] }),
+  recipe: one(recipes, { fields: [mealPlanEntries.recipeId], references: [recipes.id] }),
+  createdByUser: one(users, { fields: [mealPlanEntries.createdBy], references: [users.id] }),
+}));
+
+export const recipeCookLogRelations = relations(recipeCookLog, ({ one }) => ({
+  recipe: one(recipes, { fields: [recipeCookLog.recipeId], references: [recipes.id] }),
+  group: one(groups, { fields: [recipeCookLog.groupId], references: [groups.id] }),
+  cookedByUser: one(users, { fields: [recipeCookLog.cookedBy], references: [users.id] }),
+  mealPlanEntry: one(mealPlanEntries, {
+    fields: [recipeCookLog.mealPlanEntryId],
+    references: [mealPlanEntries.id],
+  }),
+}));
+
 export const cardsRelations = relations(cards, ({ one }) => ({
   user: one(users, { fields: [cards.userId], references: [users.id] }),
 }));
@@ -758,6 +1024,8 @@ export const shoppingListsRelations = relations(shoppingLists, ({ many, one }) =
   creator: one(users, { fields: [shoppingLists.createdBy], references: [users.id] }),
   items: many(shoppingListItems),
   catalog: many(shoppingListCatalog),
+  boughtItems: many(shoppingBoughtItems),
+  listRecipes: many(shoppingListRecipes),
 }));
 
 export const shoppingListItemsRelations = relations(shoppingListItems, ({ one }) => ({
@@ -769,6 +1037,23 @@ export const shoppingListCatalogRelations = relations(shoppingListCatalog, ({ on
     fields: [shoppingListCatalog.listId],
     references: [shoppingLists.id],
   }),
+}));
+
+export const shoppingBoughtItemsRelations = relations(shoppingBoughtItems, ({ one }) => ({
+  list: one(shoppingLists, {
+    fields: [shoppingBoughtItems.listId],
+    references: [shoppingLists.id],
+  }),
+  boughtByUser: one(users, { fields: [shoppingBoughtItems.boughtBy], references: [users.id] }),
+}));
+
+export const shoppingListRecipesRelations = relations(shoppingListRecipes, ({ one }) => ({
+  list: one(shoppingLists, {
+    fields: [shoppingListRecipes.listId],
+    references: [shoppingLists.id],
+  }),
+  recipe: one(recipes, { fields: [shoppingListRecipes.recipeId], references: [recipes.id] }),
+  addedByUser: one(users, { fields: [shoppingListRecipes.addedBy], references: [users.id] }),
 }));
 
 /* -------------------------------------------------------------------------- */
@@ -805,12 +1090,20 @@ export type NewCollectionRow = typeof collections.$inferInsert;
 export type CollectionRecipeRow = typeof collectionRecipes.$inferSelect;
 export type ImportDraftRow = typeof importDrafts.$inferSelect;
 export type NewImportDraftRow = typeof importDrafts.$inferInsert;
+export type MealPlanEntryRow = typeof mealPlanEntries.$inferSelect;
+export type NewMealPlanEntryRow = typeof mealPlanEntries.$inferInsert;
+export type RecipeCookLogRow = typeof recipeCookLog.$inferSelect;
+export type NewRecipeCookLogRow = typeof recipeCookLog.$inferInsert;
 export type ShoppingListRow = typeof shoppingLists.$inferSelect;
 export type NewShoppingListRow = typeof shoppingLists.$inferInsert;
 export type ShoppingListItemRow = typeof shoppingListItems.$inferSelect;
 export type NewShoppingListItemRow = typeof shoppingListItems.$inferInsert;
 export type ShoppingListCatalogRow = typeof shoppingListCatalog.$inferSelect;
 export type NewShoppingListCatalogRow = typeof shoppingListCatalog.$inferInsert;
+export type ShoppingBoughtItemRow = typeof shoppingBoughtItems.$inferSelect;
+export type NewShoppingBoughtItemRow = typeof shoppingBoughtItems.$inferInsert;
+export type ShoppingListRecipeRow = typeof shoppingListRecipes.$inferSelect;
+export type NewShoppingListRecipeRow = typeof shoppingListRecipes.$inferInsert;
 export type ShoppingMutationRow = typeof shoppingMutations.$inferSelect;
 export type CardRow = typeof cards.$inferSelect;
 export type NewCardRow = typeof cards.$inferInsert;
