@@ -427,3 +427,17 @@ Read the `CLAUDE.md` gotchas in full. These are the ones a screen rewrite hits d
    the denominator is "to buy + bought today", not the list's lifetime total.
 6. **`+2 more`** on the overview list preview (`1c` shows 8 of 10). Confirm the preview
    size is 8 and that it comes from the list endpoint rather than a full item fetch.
+
+---
+
+## 7 — Decisions settled after the plan was derived (2026-09-08)
+
+The plan's four open items, all resolved in favour of the plan's own defaults. They are
+settled; do not reopen.
+
+| # | Decision |
+| --- | --- |
+| D8 | **`--fg-faint` is `#8d7c67` (dark) / `#7f6f5b` (light), NOT the drawn `#6b5c4b`.** The drawn hex measures 2.88:1 on `--bg` and 2.67:1 on `--surface`, across 24 pieces of 11px/700 copy — under WCAG AA and under the 3:1 large-text floor. One perceptual step up buys 4.61:1 and keeps the five-tier foreground hierarchy distinguishable. This is the one place the implementation knowingly does not match the artboards' colour, and it is one line in `theme.css`. |
+| D9 | **Ship `shopping_list_recipes`.** Six columns, additive, cascading from the list, written in `addRecipeToShoppingList` and cleared by `clearShoppingList`, so artboard 1d's "5 von 5 Zutaten · 4 Portionen" rail renders literally. The ingredient total is derivable; the servings chosen at add time is not, because `source_recipe_ids` is per-item and every merge rewrites it. |
+| D10 | **Implement the reconstructed desktop library now** rather than waiting for a `1b` artboard. Its five unsourced choices stay tagged `[RECON]` with their reasons, so the PR reviews the reasoning. Only T8.1–T8.3 would be revisited if the artboard is drawn later. |
+| D11 | **Ship `/shopping/history`** at the pinned scope: read-only, day-grouped, `offset`-paged, filterable by list, no per-row actions. Artboard 1c draws the `All` link; a bought log is only worth keeping if it can be read back past the panel's three rows. |
