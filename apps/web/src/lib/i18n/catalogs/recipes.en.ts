@@ -188,7 +188,7 @@ export const recipesEn: LocaleCatalog<RecipesCatalog> = {
   "recipes.form.unsavedConfirm.cancel": "Stay here",
 
   "recipes.filters.searchAriaLabel": "Search recipes",
-  "recipes.filters.advancedToggle": "Advanced search",
+  // recipes.filters.advancedToggle is GONE — see the `de` catalog for why (T8.2).
   "recipes.filters.sheetTitle": "Filters",
   "recipes.filters.courseLegend": "Course",
   "recipes.filters.courseAny": "All courses",

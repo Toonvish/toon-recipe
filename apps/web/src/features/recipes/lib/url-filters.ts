@@ -21,7 +21,7 @@ import { useDebouncedValue } from "./hooks";
 import type { RecipeListFilters } from "./queries";
 
 const DIFFICULTIES: readonly Difficulty[] = ["einfach", "mittel", "schwer"];
-const SORTS: readonly RecipeSort[] = ["newest", "oldest", "title", "rating", "time"];
+const SORTS: readonly RecipeSort[] = ["newest", "oldest", "title", "rating", "time", "lastCooked"];
 
 export const DEFAULT_SORT: RecipeSort = "newest";
 

@@ -1,11 +1,15 @@
 /**
- * ShoppingListsPage — the group's shopping lists ("Einkaufslisten").
+ * ShoppingListsPage — `/shopping`, the group's shopping overview (redesign screen E,
+ * artboards 1c/1g, `docs/redesign/briefs/T8.5.md`).
  *
- * Several named lists per group, because one household shops in more than one place:
- * "Rewe", "Drogerie", "Getränkemarkt".
- *
- * It also carries the "Karten" panel, which is the only route into the saved-card
- * wallet on a phone (see CardsCard for why it has to stay here).
+ * Several named lists per group, because one household shops in more than one place
+ * ("Rewe", "Drogerie", "Getränkemarkt") — locked decision 7. The artboard draws
+ * exactly ONE list-preview cell because its mock group has one list; R46 is what
+ * makes that survive a real group with several: column 1 becomes a vertical STACK of
+ * `ShoppingListPreviewCard`s, last-opened-first then alphabetically, while columns 2
+ * (`WeekPlanPanel`) and 3 (`CardsCard` + `BoughtHistoryPanel`) stay fixed. The phone
+ * layout stacks everything full-width, except the trailing Cards/History row, which
+ * is the ONE 2-up grid on this screen (unchanged from the artboard either way).
  *
  * Creating, renaming and deleting a list needs a connection (see the note in
  * lib/offline.ts), so this screen — unlike the list detail — really is read-only
@@ -13,143 +17,231 @@
  * actions for a different reason (the server answers 403), so both conditions
  * fold into one `canManage`, with the address taking precedence in the copy: a
  * signal will come back on its own, a confirmation click will not.
+ *
+ * This is the ONE screen where `useCanMutate()` must NOT gate the list/plan
+ * actions (CLAUDE.md) — `canManage` above is the reason why — while `CardsCard`,
+ * mounted right here, uses exactly that hook for its own writes. Same screen,
+ * opposite rule, because a card write has no offline outbox and a list/plan write
+ * does.
  */
 import { useState } from "react";
-import { ListPlus, Pencil, ShoppingBasket, Trash2 } from "lucide-react";
+import { ListPlus, ShoppingBasket } from "lucide-react";
+import { foldText } from "@toon/shared";
 import { CreateShoppingListRequestSchema, type ShoppingList } from "@toon/shared";
+import { useQuery } from "@tanstack/react-query";
 import {
   Button,
-  Card,
   ConfirmDialog,
   Dialog,
   EmptyState,
   ErrorState,
-  IconButton,
   Input,
-  Skeleton,
+  SkeletonList,
   useToast,
 } from "@/components/ui";
+import { PhoneHeaderRow } from "@/components/layout";
 import { errorMessage } from "@/lib/api";
+import { formatRelativeShort } from "@/lib/format";
 import { useT } from "@/lib/i18n";
-import { useActiveGroup, useEmailVerificationBlock, useSession } from "@/lib/session";
+import { boughtHistoryQuery } from "@/lib/queries";
+import { useActiveGroup, useEmailVerificationBlock, useRequiredGroupId, useSession } from "@/lib/session";
+import { readStorage, storageKeys } from "@/lib/storage";
 import { apiFieldErrors, validate, type FieldErrors } from "@/lib/validation";
 import { CardsCard } from "@/features/cards/components/CardsCard";
-import { AppLink } from "@/features/recipes/lib/nav";
 import {
   useCreateShoppingList,
   useDeleteShoppingList,
   useRenameShoppingList,
   useShoppingLists,
 } from "./lib/queries";
+import { ShoppingListPreviewCard } from "./components/ShoppingListPreviewCard";
+import { WeekPlanPanel } from "./components/WeekPlanPanel";
+import { BoughtHistoryPanel } from "./components/BoughtHistoryPanel";
+
+/** A shopper counts as "active" for this long after their last check-off (R33). */
+const SHOPPER_ACTIVE_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * R46's stacking order for column 1: the last-opened list first
+ * (`storageKeys.lastShoppingListId`, R9), then every other list alphabetically by
+ * its FOLDED name (`foldText`, never a raw `localeCompare` — see CLAUDE.md,
+ * "Äpfel" would otherwise sort after "Z").
+ */
+function orderForOverview(groupId: string, lists: readonly ShoppingList[]): ShoppingList[] {
+  const saved = readStorage(storageKeys.lastShoppingListId);
+  let lastId: string | null = null;
+  if (saved) {
+    const [savedGroupId, savedListId] = saved.split(":");
+    if (savedGroupId === groupId) lastId = savedListId ?? null;
+  }
+  const rest = [...lists]
+    .filter((list) => list.id !== lastId)
+    .sort((a, b) => foldText(a.name).localeCompare(foldText(b.name)) || a.name.localeCompare(b.name));
+  const last = lastId ? lists.find((list) => list.id === lastId) : undefined;
+  return last ? [last, ...rest] : rest;
+}
 
 export default function ShoppingListsPage() {
   const t = useT();
-  const { groupId } = useActiveGroup();
-  const { isOnline } = useSession();
+  const { group } = useActiveGroup();
+  const groupId = useRequiredGroupId();
+  const { isOnline, user } = useSession();
   const unverified = useEmailVerificationBlock();
   const canManage = isOnline && unverified === undefined;
   const manageHint = unverified ?? (isOnline ? undefined : t("shopping.lists.offlineHint"));
   const lists = useShoppingLists(groupId);
+
+  // Just enough of the bought feed to draw "{name} kauft gerade ein" (R33) — a
+  // separate, tiny query from `BoughtHistoryPanel`'s own (which needs several day
+  // buckets, not just the newest row), same rule as `WeekStrip` vs. `PlanDayCard`
+  // each fetching only what they draw.
+  const latestBought = useQuery(boughtHistoryQuery(groupId, { limit: 1 }));
 
   const [createOpen, setCreateOpen] = useState(false);
   const [renaming, setRenaming] = useState<ShoppingList | null>(null);
   const [deleting, setDeleting] = useState<ShoppingList | null>(null);
 
   const items = lists.data ?? [];
+  const ordered = orderForOverview(groupId, items);
+
+  const syncedAt = lists.dataUpdatedAt > 0 ? formatRelativeShort(new Date(lists.dataUpdatedAt).toISOString()) : null;
+  const activeShopperRow = latestBought.data?.items[0];
+  const activeShopperName =
+    activeShopperRow &&
+    activeShopperRow.boughtBy !== null &&
+    activeShopperRow.boughtBy !== user?.id &&
+    Date.now() - new Date(activeShopperRow.boughtAt).getTime() < SHOPPER_ACTIVE_WINDOW_MS
+      ? activeShopperRow.boughtByName
+      : null;
+
+  const createAction = (
+    <Button
+      size="sm"
+      variant="ghost"
+      leftIcon={<ListPlus className="size-4" />}
+      disabled={!canManage}
+      title={manageHint}
+      onClick={() => setCreateOpen(true)}
+    >
+      {t("shopping.lists.create")}
+    </Button>
+  );
 
   return (
-    <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-semibold text-fg">
+    <div className="flex flex-col gap-4 lg:gap-6">
+      <PhoneHeaderRow action={createAction} />
+
+      <header className="flex items-end gap-4">
+        <div className="min-w-0">
+          <h1 className="font-display text-display-2xl leading-[1.05] font-medium text-fg lg:text-display-3xl lg:leading-[1.1]">
             {t("shopping.lists.heading")}
           </h1>
-          <p className="text-sm text-fg-muted">{t("shopping.lists.subtitle")}</p>
+          {group && syncedAt ? (
+            <p className="mt-1.5 truncate text-sm text-fg-subtle">
+              <span className="hidden lg:inline">
+                {t("shopping.lists.sharedSummarySynced", {
+                  group: group.name,
+                  members: t("groups.count.members", { count: group.memberCount }),
+                  synced: syncedAt,
+                })}
+              </span>
+              <span className="lg:hidden">
+                {t("shopping.lists.syncedRelative", { relative: syncedAt })}
+                {activeShopperName ? (
+                  <> · {t("shopping.lists.shopperActive", { name: activeShopperName })}</>
+                ) : null}
+              </span>
+            </p>
+          ) : (
+            <p className="mt-1.5 text-sm text-fg-subtle">{t("shopping.lists.subtitle")}</p>
+          )}
         </div>
-        <Button
-          onClick={() => setCreateOpen(true)}
-          leftIcon={<ListPlus className="size-4" />}
-          disabled={!canManage}
-          title={manageHint}
-        >
-          {t("shopping.lists.create")}
-        </Button>
+        <div className="ml-auto hidden shrink-0 lg:block">
+          <Button
+            leftIcon={<ListPlus className="size-4" />}
+            disabled={!canManage}
+            title={manageHint}
+            onClick={() => setCreateOpen(true)}
+          >
+            {t("shopping.lists.create")}
+          </Button>
+        </div>
       </header>
 
       {lists.isPending ? (
-        <ul className="flex flex-col gap-3">
-          {[0, 1].map((index) => (
-            <li key={index}>
-              <Card className="flex flex-col gap-2">
-                <Skeleton className="h-5 w-40" />
-                <Skeleton className="h-4 w-24" />
-              </Card>
-            </li>
-          ))}
-        </ul>
+        <SkeletonList variant="tiles" count={2} />
       ) : lists.isError ? (
         <ErrorState error={lists.error} onRetry={() => void lists.refetch()} />
       ) : items.length === 0 ? (
-        <EmptyState
-          icon={<ShoppingBasket />}
-          title={t("shopping.lists.empty.title")}
-          description={t("shopping.lists.empty.description")}
-          action={
-            <Button onClick={() => setCreateOpen(true)} fullWidth disabled={!canManage}>
-              {t("shopping.lists.empty.action")}
-            </Button>
-          }
-        />
+        <>
+          <EmptyState
+            icon={<ShoppingBasket />}
+            title={t("shopping.lists.empty.title")}
+            description={t("shopping.lists.empty.description")}
+            action={
+              <Button onClick={() => setCreateOpen(true)} fullWidth disabled={!canManage}>
+                {t("shopping.lists.empty.action")}
+              </Button>
+            }
+          />
+          {/* Neither panel is about the list index itself (R44): the plan panel
+              still explains it has no target, and the history/cards panels render
+              themselves regardless of whether a list exists yet. */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <WeekPlanPanel groupId={groupId} lists={items} listsLoading={false} />
+            <div className="flex flex-col gap-4">
+              <CardsCard />
+              <BoughtHistoryPanel groupId={groupId} />
+            </div>
+          </div>
+        </>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {items.map((list) => (
-            <li key={list.id} className="relative">
-              <AppLink
-                to="/shopping/$listId"
-                params={{ listId: list.id }}
-                className="flex min-h-[4.5rem] items-center gap-3 rounded-card border border-line bg-surface py-3 pr-24 pl-4 text-fg shadow-card transition-[box-shadow,border-color] hover:border-line-strong hover:shadow-pop focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-              >
-                <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-soft-fg">
-                  <ShoppingBasket aria-hidden="true" className="size-5" />
-                </span>
-                <span className="flex min-w-0 flex-col">
-                  <span className="font-display truncate text-lg font-semibold">{list.name}</span>
-                  <span className="text-sm text-fg-muted">
-                    {list.itemCount === 0
-                      ? t("shopping.list.empty")
-                      : t("shopping.list.itemCount", { count: list.itemCount ?? 0 })}
-                  </span>
-                </span>
-              </AppLink>
-              <span className="absolute inset-y-0 right-2 flex items-center gap-1">
-                <IconButton
-                  label={t("shopping.lists.rename")}
-                  variant="ghost"
-                  icon={<Pencil />}
-                  disabled={!canManage}
-                  onClick={() => setRenaming(list)}
+        <>
+          {/* Desktop: the literal `1c` three-column grid (R46). */}
+          <div className="hidden items-start gap-4 lg:grid lg:grid-cols-[1.25fr_minmax(0,1fr)_minmax(0,1fr)]">
+            <div className="flex flex-col gap-4">
+              {ordered.map((list) => (
+                <ShoppingListPreviewCard
+                  key={list.id}
+                  list={list}
+                  groupId={groupId}
+                  canManage={canManage}
+                  manageHint={manageHint}
+                  onRename={setRenaming}
+                  onDelete={setDeleting}
                 />
-                <IconButton
-                  label={t("shopping.lists.delete")}
-                  variant="ghost"
-                  icon={<Trash2 />}
-                  disabled={!canManage}
-                  onClick={() => setDeleting(list)}
-                />
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
+              ))}
+            </div>
+            <WeekPlanPanel groupId={groupId} lists={items} listsLoading={lists.isPending} />
+            <div className="flex flex-col gap-4">
+              <CardsCard />
+              <BoughtHistoryPanel groupId={groupId} />
+            </div>
+          </div>
 
-      {/*
-        The saved cards. This panel is the ONLY way into /shopping/cards on a phone
-        (no sidebar below `lg`, and the tab bar is full), so deleting it orphans the
-        whole feature on the device it exists for — same rule as the GroupsCard on
-        /settings. It sits under the lists because the lists are why the screen is
-        open; the Payback code is what you need thirty seconds later.
-      */}
-      <CardsCard />
+          {/* Phone: everything stacks full-width, except the Cards/History row,
+              which is `1g`'s own 2-up grid and stays one regardless of list count
+              (R46 — it already handles N lists because it isn't about lists). */}
+          <div className="flex flex-col gap-4 lg:hidden">
+            {ordered.map((list) => (
+              <ShoppingListPreviewCard
+                key={list.id}
+                list={list}
+                groupId={groupId}
+                canManage={canManage}
+                manageHint={manageHint}
+                onRename={setRenaming}
+                onDelete={setDeleting}
+              />
+            ))}
+            <WeekPlanPanel groupId={groupId} lists={items} listsLoading={lists.isPending} />
+            <div className="grid grid-cols-2 gap-3">
+              <CardsCard compact />
+              <BoughtHistoryPanel groupId={groupId} compact />
+            </div>
+          </div>
+        </>
+      )}
 
       <CreateListDialog open={createOpen} onClose={() => setCreateOpen(false)} groupId={groupId} />
       <RenameListDialog list={renaming} onClose={() => setRenaming(null)} groupId={groupId} />

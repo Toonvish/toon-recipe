@@ -67,6 +67,7 @@ export const SORT_LABELS = {
   title: "recipes.sort.title",
   rating: "recipes.sort.rating",
   time: "recipes.sort.time",
+  lastCooked: "recipes.sort.lastCooked",
 } as const satisfies Record<string, MessageKey>;
 
 export interface Sectioned<T> {

@@ -5,11 +5,18 @@
  *
  * It stays put at the bottom of the screen on phones — above the tab bar — so adding
  * three things in a row does not mean scrolling back up each time. The field keeps
- * focus after a submit for the same reason.
+ * focus after a submit for the same reason (`autoFocus` only acts on MOUNT, so it
+ * cannot re-focus a field that is already on screen — this is why the ref is used
+ * directly rather than an `autoFocus` toggle).
  *
  * A live preview of what the parser understood sits under the field. Without it,
  * "2 Dosen Tomaten" silently becoming `2 Dose Tomaten` is a small mystery; with it, the
  * unit normalisation is visible before anything is saved.
+ *
+ * `placement` picks the shape (artboard `1d` §8.1 vs `1h` §8.2): `"docked"` is the
+ * phone's sticky bottom bar; `"inline"` is desktop's plain in-flow row at the TOP
+ * of the screen — no sticky, no bleed, no negative margins. `ShoppingListDetailPage`
+ * picks by `wide`, which it already computes.
  */
 import { useRef, useState } from "react";
 import { Plus } from "lucide-react";
@@ -21,9 +28,10 @@ import { parseShoppingInput, parseShoppingInputBlock } from "../lib/parse";
 export interface AddItemBarProps {
   onAdd: (items: ReturnType<typeof parseShoppingInputBlock>) => void;
   disabled?: boolean;
+  placement?: "docked" | "inline";
 }
 
-export function AddItemBar({ onAdd, disabled = false }: AddItemBarProps) {
+export function AddItemBar({ onAdd, disabled = false, placement = "docked" }: AddItemBarProps) {
   const t = useT();
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -39,18 +47,23 @@ export function AddItemBar({ onAdd, disabled = false }: AddItemBarProps) {
     inputRef.current?.focus();
   };
 
+  const docked = placement === "docked";
+
   return (
-    // Three things hold this box against the tab bar; it drifts off if any goes.
-    //  - `bottom-tabbar`, not `bottom-0`: the phone tab bar is FIXED and would
-    //    otherwise cover this box (see the utility in styles/index.css).
-    //  - the page root is `min-h-full` with a `flex-1` spacer above this bar, so on a
-    //    SHORT list (the empty one!) it is pushed down instead of floating under the
-    //    last card — sticky only ever pulls an element up, never down.
-    //  - `-mb-4` swallows the 1rem of breathing room inside `pb-tabbar` on <main>,
-    //    which would otherwise leave a strip of page background under a bar whose
-    //    whole point is to look attached to the tab bar. From `sm` it is a rounded
-    //    card again, where that 1rem is exactly right.
-    <div className="bottom-tabbar sticky -mx-4 -mb-4 border-t border-line bg-surface/95 px-4 pt-3 pb-3 backdrop-blur-md sm:mx-0 sm:mb-0 sm:rounded-card sm:border sm:px-4">
+    // `"docked"` is the 54px, rounded-2xl, `shadow-pop` bar artboard `1h` draws
+    // INSIDE the phone's sticky bottom container — the sticky/bleed/gradient
+    // wrapper (and the chip scroller stacked above this bar) is
+    // `ShoppingListDetailPage`'s own job (see the sticky-bar gotcha there), so
+    // this component owns only the bar itself, never a second nested sticky
+    // element. `"inline"` (desktop, at the TOP of the screen) is a plain card in
+    // flow with neither shadow nor rounding to match.
+    <div
+      className={
+        docked
+          ? "rounded-2xl border border-line-strong bg-surface px-3 py-2 shadow-pop"
+          : "rounded-xl border border-line-strong bg-surface px-4 py-2"
+      }
+    >
       <form
         className="flex items-start gap-2"
         onSubmit={(event) => {
@@ -61,9 +74,11 @@ export function AddItemBar({ onAdd, disabled = false }: AddItemBarProps) {
         <div className="min-w-0 flex-1">
           <Input
             ref={inputRef}
+            size="lg"
+            leftIcon={<Plus aria-hidden="true" />}
             value={text}
             onChange={(event) => setText(event.target.value)}
-            placeholder={t("shopping.addItem.placeholder")}
+            placeholder={t("shopping.addItem.placeholderExamples")}
             aria-label={t("shopping.addItem.ariaLabel")}
             enterKeyHint="done"
             autoComplete="off"
@@ -93,7 +108,9 @@ export function AddItemBar({ onAdd, disabled = false }: AddItemBarProps) {
           disabled={disabled || preview === null}
           className="shrink-0"
         >
-          <span className="sr-only sm:not-sr-only">{t("shopping.action.add")}</span>
+          {/* Icon-only on the docked phone bar (no room for the label next to the
+              full-width field); "inline" desktop always shows it. */}
+          <span className={docked ? "sr-only" : undefined}>{t("shopping.action.add")}</span>
         </Button>
       </form>
     </div>

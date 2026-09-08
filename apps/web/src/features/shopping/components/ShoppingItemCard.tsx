@@ -13,6 +13,13 @@
  * strike through. It used to be a filled checkbox square; that square was the only
  * checkbox left in the feature and it read as "tick me" next to a card whose whole
  * surface already does that, so the tint carries it alone now.
+ *
+ * The interior is a `grid-cols-[64px_minmax(0,1fr)_auto]` row (artboard `1d`, §8.1):
+ * the amount in its own right-aligned column so a stack of lines reads like a
+ * receipt, the name/note in the middle, and a right-aligned PROVENANCE label in
+ * the third column — never a raw id, and never a count read off
+ * `sourceRecipeIds` (which deliberately keeps ids whose recipe was deleted, so the
+ * two arrays disagree by design; only `sources`, the resolved array, may be shown).
  */
 import { useState } from "react";
 import { Pencil, Trash2 } from "lucide-react";
@@ -21,6 +28,19 @@ import { IconButton } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { useT } from "@/lib/i18n";
 import { isPendingItemId } from "../lib/offline";
+
+/**
+ * The right column's "from" label. Nothing for zero sources (even when
+ * `sourceRecipeIds` is not empty — a deleted recipe's id has no title to show),
+ * the first title alone for one, `sourcesMore` beyond that.
+ */
+function provenanceLabel(item: ShoppingItem, t: ReturnType<typeof useT>): string | null {
+  if (item.sources.length === 0) return null;
+  const [first, ...rest] = item.sources;
+  if (!first) return null;
+  if (rest.length === 0) return t("shopping.item.sources", { sources: first.title });
+  return t("shopping.item.sourcesMore", { name: first.title, count: rest.length });
+}
 
 export interface ShoppingItemCardProps {
   item: ShoppingItem;
@@ -50,6 +70,7 @@ export function ShoppingItemCard({
   const pending = isPendingItemId(item.id);
   const amount = formatShoppingAmount(item, formatQuantity);
   const vague = isVagueAmount(item);
+  const from = provenanceLabel(item, t);
 
   const check = () => {
     if (!canMutate || ticking) return;
@@ -65,7 +86,7 @@ export function ShoppingItemCard({
         disabled={!canMutate}
         aria-label={t("shopping.item.checkAriaLabel", { name: item.name })}
         className={cn(
-          "flex w-full items-center gap-3 rounded-card border border-line bg-surface px-3 py-3 text-left",
+          "grid w-full grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-3.5 rounded-card border border-line bg-surface px-3 py-3 text-left",
           "min-h-[4.5rem] transition-[background-color,border-color,opacity] duration-150",
           "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
           "active:bg-surface-2 disabled:opacity-60 sm:min-h-16 sm:px-4",
@@ -74,35 +95,25 @@ export function ShoppingItemCard({
           canMutate && !pending ? "pr-24" : "pr-4",
         )}
       >
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            {amount ? (
-              <span
-                className={cn(
-                  "text-base font-semibold tabular-nums sm:text-[1.05rem]",
-                  vague ? "text-fg-muted" : "text-fg",
-                )}
-              >
-                {amount}
-              </span>
-            ) : null}
-            <span className="text-base leading-snug font-medium break-words text-fg sm:text-[1.05rem]">
-              {item.name}
-            </span>
+        <span
+          className={cn(
+            "text-right text-[15px] font-semibold tabular-nums",
+            vague ? "text-fg-faint" : "text-accent-strong",
+          )}
+        >
+          {amount}
+        </span>
+
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-base leading-snug font-medium break-words text-fg sm:text-[1.05rem]">
+            {item.name}
           </span>
-
           {item.note ? (
-            <span className="text-sm text-fg-muted">{item.note}</span>
-          ) : null}
-
-          {item.sources.length > 0 ? (
-            <span className="truncate text-xs text-fg-muted">
-              {t("shopping.item.sources", {
-                sources: item.sources.map((source) => source.title).join(", "),
-              })}
-            </span>
+            <span className="truncate text-sm text-fg-muted">{item.note}</span>
           ) : null}
         </span>
+
+        {from ? <span className="truncate text-xs text-fg-faint">{from}</span> : <span />}
       </button>
 
       {canMutate && !pending ? (

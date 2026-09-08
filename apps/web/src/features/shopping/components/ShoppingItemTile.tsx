@@ -13,6 +13,13 @@
  *
  * The desktop equivalent is `ShoppingItemCard` (a row with visible edit/remove
  * buttons); `ShoppingListDetailPage` picks one, it never renders both.
+ *
+ * The name is `line-clamp-2` with a fixed `min-h`, NOT the artboard's single
+ * truncated line (R39) — a clamped German compound ("Rinderhackfl…") is
+ * unreadable at 175px on the one screen whose whole job is being read at a
+ * shelf. The `min-h` keeps the 2-up grid even whether a line wraps or not, and
+ * the clamp stays the ONLY `display` utility on the element (`block` beats
+ * `line-clamp-N`).
  */
 import { useState } from "react";
 import { Check } from "lucide-react";
@@ -70,7 +77,7 @@ export function ShoppingItemTile({
       >
         {/* No `hyphens-auto`: the names are German CONTENT but `<html lang>` follows the
             INTERFACE locale, so an English UI would hyphenate them by English rules. */}
-        <span className="line-clamp-3 text-lg leading-tight font-semibold break-words text-fg">
+        <span className="line-clamp-2 min-h-[2.6rem] text-lg leading-tight font-semibold break-words text-fg">
           {item.name}
         </span>
         {subtitle ? (

@@ -1,45 +1,76 @@
 /**
- * Everything the phone tile leaves out, one long press away.
+ * Everything a phone tile leaves out, one long press away — and, since the
+ * redesign, the same sheet for a "Heute gekauft" ROW too (`item` and `boughtItem`
+ * are mutually exclusive; exactly one is non-null while the sheet is open).
  *
- * `ShoppingItemTile` shows a name and a one-line subtitle and nothing else — no
- * source, no actions. This sheet is where the rest of the row lives: the amount, the
- * note, the recipes the line was merged from, and the three things you can do to it.
+ * `ShoppingItemTile`/`ShoppingItemCard` show a name and one muted line and nothing
+ * else — no source, no actions. This sheet is where the rest lives: the amount,
+ * the note, the recipes a to-buy line was merged from, and the three things you
+ * can do to it. A bought row instead shows who bought it and when
+ * (`shopping.bought.rowMeta`) and offers exactly one action, "Zurück auf die
+ * Liste" — the undo copy is deliberately not "Undo", because putting the line
+ * back MAY MERGE with whatever is on the list now, and `undoMergeHint` says so
+ * here, before the tap, rather than as a toast the decision has already been made
+ * by the time it appears.
  *
- * Like `ActionMenu`, it CLOSES BEFORE IT ACTS and defers the callback by a frame: two
- * of the three actions open another dialog (`EditItemDialog`) or remove the item this
- * sheet is rendering, and running them while the panel is still mounted means either
- * two stacked sheets or a render against a row that no longer exists.
+ * Like `ActionMenu`, it CLOSES BEFORE IT ACTS and defers the callback by a frame:
+ * every action either opens another dialog (`EditItemDialog`) or removes the row
+ * this sheet is rendering, and running it while the panel is still mounted means
+ * either two stacked sheets or a render against a row that no longer exists.
  */
-import { Check, Pencil, Trash2 } from "lucide-react";
-import { formatQuantity, formatShoppingAmount, type ShoppingItem } from "@toon/shared";
+import { Check, Pencil, Trash2, Undo2 } from "lucide-react";
+import {
+  formatQuantity,
+  formatShoppingAmount,
+  type ShoppingBoughtItem,
+  type ShoppingItem,
+} from "@toon/shared";
 import { Button, Dialog } from "@/components/ui";
+import { formatRelativeShort } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import { isPendingItemId } from "../lib/offline";
 
 export interface ItemDetailDialogProps {
+  /** The to-buy item this sheet describes, or `null` when `boughtItem` is used instead. */
   item: ShoppingItem | null;
+  /** A "Heute gekauft" row this sheet describes instead of a to-buy item. */
+  boughtItem?: ShoppingBoughtItem | null;
   onClose: () => void;
   onCheck: (itemId: string) => void;
   onEdit: (item: ShoppingItem) => void;
   onRemove: (itemId: string) => void;
+  /** Required when `boughtItem` is ever passed. */
+  onUndo?: (boughtId: string) => void;
   /** False while the group is read-only for this user (see useCanMutate). */
   canMutate: boolean;
 }
 
 export function ItemDetailDialog({
   item,
+  boughtItem = null,
   onClose,
   onCheck,
   onEdit,
   onRemove,
+  onUndo,
   canMutate,
 }: ItemDetailDialogProps) {
   const t = useT();
+  const isBought = item === null && boughtItem !== null;
+  const open = item !== null || boughtItem !== null;
+  const name = item?.name ?? boughtItem?.name ?? "";
 
-  // A line that exists only optimistically has no server id yet, so editing or
-  // deleting it by id would 404. Checking it off is fine — the queue is ordered.
-  const pending = item !== null && isPendingItemId(item.id);
-  const amount = item ? formatShoppingAmount(item, formatQuantity) : "";
+  // A line that exists only optimistically has no server id yet, so acting on it by
+  // id would 404 (to-buy) or has nothing to undo yet (bought, see offline.ts).
+  const pending =
+    (item !== null && isPendingItemId(item.id)) ||
+    (boughtItem !== null && isPendingItemId(boughtItem.id));
+  const amount = item
+    ? formatShoppingAmount(item, formatQuantity)
+    : boughtItem
+      ? formatShoppingAmount(boughtItem, formatQuantity)
+      : "";
+  const note = item?.note ?? boughtItem?.note ?? null;
   const sources = item?.sources ?? [];
 
   /** Close first, act afterwards — see the note at the top of the file. */
@@ -50,22 +81,40 @@ export function ItemDetailDialog({
 
   const rows: Array<{ label: string; value: string }> = [];
   if (amount) rows.push({ label: t("shopping.item.detail.amount"), value: amount });
-  if (item?.note) rows.push({ label: t("shopping.item.detail.note"), value: item.note });
+  if (note) rows.push({ label: t("shopping.item.detail.note"), value: note });
   if (sources.length > 0) {
     rows.push({
       label: t("shopping.item.detail.sources", { count: sources.length }),
       value: sources.map((source) => source.title).join(", "),
     });
   }
+  if (boughtItem) {
+    rows.push({
+      label: t("shopping.bought.heading"),
+      value: t("shopping.bought.rowMeta", {
+        who: pending
+          ? t("shopping.bought.you")
+          : (boughtItem.boughtByName ?? t("shopping.bought.unknownBuyer")),
+        when: formatRelativeShort(boughtItem.boughtAt),
+      }),
+    });
+  }
 
   return (
     <Dialog
-      open={item !== null}
+      open={open}
       onClose={onClose}
-      title={item?.name}
+      title={name || undefined}
+      description={isBought && !pending ? t("shopping.bought.undoMergeHint", { name }) : undefined}
       size="sm"
       footer={
-        item ? (
+        isBought ? (
+          boughtItem && canMutate && !pending ? (
+            <Button leftIcon={<Undo2 />} onClick={() => act(() => onUndo?.(boughtItem.id))}>
+              {t("shopping.bought.undo")}
+            </Button>
+          ) : null
+        ) : item ? (
           <>
             {canMutate && !pending ? (
               <Button

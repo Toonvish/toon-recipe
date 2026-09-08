@@ -229,7 +229,12 @@ export const recipesDe = {
   // and the search field moves into RecipeListPage with recipes.list.searchPlaceholder
   // above. searchAriaLabel is kept — a placeholder is not an accessible name.
   "recipes.filters.searchAriaLabel": "Rezepte durchsuchen",
-  "recipes.filters.advancedToggle": "Erweiterte Suche",
+  // recipes.filters.advancedToggle ("Erweiterte Suche") is GONE: its only call site was
+  // RecipeFilters.tsx, deleted in this same commit (T8.2). The rail is now permanent on
+  // desktop and the phone trigger is `recipes.list.filterAction` ("Filter") next to the
+  // search field, with `moreFilters` ("Mehr Filter") for the inner disclosure — grep
+  // found no other reference, so the key is deleted rather than left as dead copy
+  // (i18n-keys.md §15 G3).
   "recipes.filters.sheetTitle": "Filter",
   // The rail's HEADING for the course group is interface; the course NAMES listed
   // under it are CONTENT and never go through t() — i18n-keys.md §8.3.

@@ -1,0 +1,235 @@
+/**
+ * WeekPlanPanel — "From this week's plan" (artboards 1c/1g), column 2 of the
+ * `/shopping` overview grid (R46). The same diff `WeekStrip` implies on the
+ * library, read from the shopping side: which of this week's planned recipes
+ * still have ingredients missing from a list, and a one-tap bulk add.
+ *
+ * RENDERS NOTHING AT ALL WHEN OFFLINE. R24 keeps this diff off the persist
+ * allow-list on purpose — its only affordance is an online-only bulk add, so a
+ * restored, stale diff would draw an "Add" button that cannot run. An unpersisted
+ * query on a persisted screen (`/shopping` IS persisted) is a spinner that never
+ * resolves; the honest fix is silence, not a spinner, so this panel simply is not
+ * there when there is no connection — never a loading/error state either.
+ *
+ * The target list is the CLIENT's choice (R9), never a server default:
+ * `storageKeys.lastShoppingListId` first, then the alphabetically first list, and
+ * the panel NAMES that target in its button ("Add all to Einkaufsliste") so the
+ * choice is never invisible. `pickList` lets the viewer override it for THIS
+ * panel's adds without leaving the screen; picking writes the same storage key, so
+ * the choice also becomes every other screen's next default.
+ */
+import { useState } from "react";
+import { planWeekRange, type PlanShoppingPreviewRecipe, type ShoppingList } from "@toon/shared";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button, Card, Select, useToast } from "@/components/ui";
+import { thumbnailUrl } from "@/lib/api";
+import { formatWeekdayShort } from "@/lib/format";
+import { useT } from "@/lib/i18n";
+import { invalidate, planShoppingQuery } from "@/lib/queries";
+import { useEmailVerificationBlock, useSession } from "@/lib/session";
+import { readStorage, storageKeys, writeStorage } from "@/lib/storage";
+import { useAddRecipeToShoppingList } from "../lib/queries";
+
+export interface WeekPlanPanelProps {
+  groupId: string;
+  /** All of the group's lists — for target resolution (R9) and `pickList`. */
+  lists: readonly ShoppingList[];
+  /** True while `useShoppingLists` itself is still pending — see the module doc. */
+  listsLoading: boolean;
+}
+
+/** R9's target-list resolution — same rule as `RecipeDetailPage`'s own copy of it. */
+function resolveTargetList(
+  groupId: string,
+  lists: ReadonlyArray<{ id: string; name: string }>,
+): { id: string; name: string } | null {
+  const saved = readStorage(storageKeys.lastShoppingListId);
+  if (saved) {
+    const [savedGroupId, savedListId] = saved.split(":");
+    if (savedGroupId === groupId) {
+      const match = lists.find((list) => list.id === savedListId);
+      if (match) return match;
+    }
+  }
+  return [...lists].sort((a, b) => a.name.localeCompare(b.name, "de"))[0] ?? null;
+}
+
+export function WeekPlanPanel({ groupId, lists, listsLoading }: WeekPlanPanelProps) {
+  const t = useT();
+  const toast = useToast();
+  const client = useQueryClient();
+  const { isOnline } = useSession();
+  const unverified = useEmailVerificationBlock();
+  const { addRecipe, isPending: adding } = useAddRecipeToShoppingList();
+  const [overrideListId, setOverrideListId] = useState<string | null>(null);
+
+  const resolved = resolveTargetList(groupId, lists);
+  const target =
+    (overrideListId ? lists.find((list) => list.id === overrideListId) : undefined) ?? resolved;
+
+  const range = planWeekRange();
+  const preview = useQuery({
+    ...planShoppingQuery(groupId, target?.id ?? "", range),
+    // Also gated on `isOnline` so a reconnect after a spell offline doesn't fire
+    // this the instant the component would otherwise unmount — the caller stops
+    // rendering this panel first, but a stale enabled query would still race it.
+    enabled: isOnline && target !== null,
+  });
+
+  // Every hook above runs unconditionally regardless of `isOnline` — this early
+  // return is a RENDER decision (R24), never a hook-order one. See the module doc:
+  // an unpersisted query on a persisted screen is a spinner that never resolves,
+  // so offline this panel is simply not here, not loading and not erroring.
+  if (!isOnline) return null;
+
+  // A write this panel makes is an ordinary online mutation the server will 403
+  // for an unconfirmed address (same reason `ShoppingListsPage`'s own `canManage`
+  // exists) — disable rather than let every tap end in a doomed request.
+  const addDisabled = adding || unverified !== undefined;
+
+  async function addOne(recipe: PlanShoppingPreviewRecipe) {
+    if (!target) return;
+    try {
+      await addRecipe({
+        groupId,
+        listId: target.id,
+        recipeId: recipe.recipeId,
+        servings: recipe.servings ?? undefined,
+        ingredientIds:
+          recipe.missingCount === recipe.ingredientTotal ? undefined : recipe.missingIngredientIds,
+      });
+      await invalidate.planShopping(client, groupId, target.id);
+      toast.success(t("shopping.fromPlan.addedToast", { list: target.name }));
+    } catch (error) {
+      toast.fromError(error, t("shopping.fromPlan.addFailedToast"));
+    }
+  }
+
+  async function addAll(recipes: readonly PlanShoppingPreviewRecipe[]) {
+    if (!target) return;
+    try {
+      // One `mutationId` per recipe, minted at CALL time inside `addRecipe` itself
+      // (see lib/queries.ts) — sequential, not `Promise.all`, so a failure partway
+      // through leaves the toast honest about what actually landed.
+      for (const recipe of recipes) {
+        await addRecipe({
+          groupId,
+          listId: target.id,
+          recipeId: recipe.recipeId,
+          servings: recipe.servings ?? undefined,
+          ingredientIds:
+            recipe.missingCount === recipe.ingredientTotal ? undefined : recipe.missingIngredientIds,
+        });
+      }
+      await invalidate.planShopping(client, groupId, target.id);
+      toast.success(t("shopping.fromPlan.addedToast", { list: target.name }));
+    } catch (error) {
+      toast.fromError(error, t("shopping.fromPlan.addFailedToast"));
+    }
+  }
+
+  if (listsLoading) return null;
+
+  if (lists.length === 0 || target === null) {
+    return (
+      <Card className="flex flex-col gap-3">
+        <h2 className="font-display text-display-md font-medium text-fg">
+          {t("shopping.fromPlan.title")}
+        </h2>
+        <p className="text-sm text-fg-muted">{t("shopping.fromPlan.noList")}</p>
+      </Card>
+    );
+  }
+
+  // No spinner: a rail panel renders nothing while its own query is pending
+  // (R44) rather than competing with the list-card column's skeleton.
+  if (preview.isPending || preview.isError) return null;
+
+  const recipes = preview.data.recipes;
+
+  return (
+    <Card className="flex flex-col gap-3.5">
+      <div>
+        <h2 className="font-display text-display-md font-medium text-fg">
+          {t("shopping.fromPlan.title")}
+        </h2>
+        {recipes.length > 0 ? (
+          <p className="text-sm text-fg-muted">
+            {t("shopping.fromPlan.subtitle", {
+              recipes: t("shopping.fromPlan.recipeCount", { count: recipes.length }),
+              ingredients: t("shopping.fromPlan.missingCount", {
+                count: preview.data.totalMissingCount,
+              }),
+            })}
+          </p>
+        ) : null}
+      </div>
+
+      {recipes.length === 0 ? (
+        <p className="text-sm text-fg-muted">{t("shopping.fromPlan.empty")}</p>
+      ) : (
+        <>
+          <ul className="flex flex-col gap-2.5">
+            {recipes.map((recipe) => (
+              <li key={recipe.recipeId} className="flex items-center gap-2.5">
+                <img
+                  src={thumbnailUrl({ thumbnailUrl: recipe.thumbnailUrl })}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  className="size-9 shrink-0 rounded-lg bg-surface-2 object-cover"
+                />
+                <div className="min-w-0 flex-1">
+                  <span className="font-display block truncate text-item font-medium">
+                    {recipe.title}
+                  </span>
+                  <span className="text-xs text-fg-faint">
+                    {t("shopping.fromPlan.rowMeta", {
+                      weekday: formatWeekdayShort(recipe.plannedOn),
+                      ingredients: t("shopping.fromPlan.ingredientCount", {
+                        count: recipe.missingCount,
+                      }),
+                    })}
+                  </span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={addDisabled}
+                  title={unverified}
+                  onClick={() => void addOne(recipe)}
+                  className="shrink-0"
+                >
+                  {t("shopping.action.add")}
+                </Button>
+              </li>
+            ))}
+          </ul>
+
+          <Button
+            variant="outline"
+            disabled={addDisabled}
+            title={unverified}
+            onClick={() => void addAll(recipes)}
+            fullWidth
+          >
+            {t("shopping.fromPlan.addAll", { list: target.name })}
+          </Button>
+        </>
+      )}
+
+      {lists.length > 1 ? (
+        <Select
+          label={t("shopping.fromPlan.pickList")}
+          value={target.id}
+          onChange={(event) => {
+            const id = event.target.value;
+            setOverrideListId(id);
+            writeStorage(storageKeys.lastShoppingListId, `${groupId}:${id}`);
+          }}
+          options={lists.map((list) => ({ value: list.id, label: list.name }))}
+        />
+      ) : null}
+    </Card>
+  );
+}

@@ -30,7 +30,7 @@ export const cardsDe = {
   "cards.empty.action": "Erste Karte hinzufügen",
 
   // The link from /shopping into this screen
-  "cards.link.title": "Karten",
+  "cards.link.panelTitle": "Treuekarten",
   "cards.link.description": "Kundenkarten an der Kasse vom Handy zeigen",
   "cards.link.action": "Karten verwalten",
 

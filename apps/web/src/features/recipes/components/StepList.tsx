@@ -1,6 +1,13 @@
 /**
  * Step list with a tappable "erledigt" state. The state lives in sessionStorage
  * (see useCheckedSteps) so it survives navigating away and back.
+ *
+ * A04 §5.3: no card, no border, no background — a plain numbered list,
+ * `gap-[22px]` between steps, the numeral in `font-display` brand serif. The
+ * design draws no done state; keeping it is a deliberate extrapolation (dropping
+ * `useCheckedSteps` would be a functional regression), so it stays expressed the
+ * same way it always was — numeral `text-success`, text struck through — just
+ * without the card chrome the redesign drops.
  */
 import { Check } from "lucide-react";
 import type { RecipeStepRecord } from "@toon/shared";
@@ -27,13 +34,13 @@ export function StepList({ steps, checked, className }: StepListProps) {
   return (
     <div className={cn("flex flex-col gap-5", className)}>
       {groups.map((group, groupIndex) => (
-        <section key={group.section ?? `group-${groupIndex}`} className="flex flex-col gap-2">
+        <section key={group.section ?? `group-${groupIndex}`} className="flex flex-col gap-3">
           {group.section ? (
             <h3 className="text-sm font-semibold tracking-wide text-fg-muted uppercase">
               {group.section}
             </h3>
           ) : null}
-          <ol className="flex flex-col gap-2">
+          <ol className="flex flex-col gap-[22px]">
             {group.items.map((step) => {
               number += 1;
               const done = checked.isDone(step.id);
@@ -43,26 +50,21 @@ export function StepList({ steps, checked, className }: StepListProps) {
                     type="button"
                     aria-pressed={done}
                     onClick={() => checked.toggle(step.id)}
-                    className={cn(
-                      "flex w-full gap-3 rounded-card border p-3 text-left transition-colors",
-                      done
-                        ? "border-success/40 bg-success-soft/60"
-                        : "border-line bg-surface hover:bg-surface-2",
-                    )}
+                    className="grid w-full grid-cols-[44px_minmax(0,1fr)] gap-4 text-left"
                   >
                     <span
                       aria-hidden="true"
                       className={cn(
-                        "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold tabular-nums",
-                        done ? "bg-success text-white" : "bg-brand-soft text-brand-soft-fg",
+                        "pt-0.5 font-display text-[30px] leading-none font-medium",
+                        done ? "text-success" : "text-brand",
                       )}
                     >
-                      {done ? <Check className="size-4" /> : number}
+                      {done ? <Check className="size-6" /> : number}
                     </span>
                     <span
                       className={cn(
-                        "flex-1 leading-relaxed whitespace-pre-line",
-                        done ? "text-fg-muted line-through decoration-1" : "text-fg",
+                        "text-[16.5px] leading-[1.6] text-pretty",
+                        done ? "text-fg-subtle line-through decoration-1" : "text-fg-body",
                       )}
                     >
                       {step.text}

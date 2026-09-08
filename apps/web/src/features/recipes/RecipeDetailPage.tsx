@@ -1,66 +1,78 @@
 /**
  * RecipeDetailPage.
  *
- * Hero image, meta row (servings / prep time / cook time / total), tags, ingredients
- * and steps grouped by section, notes, source attribution.
+ * Two markup branches on `useIsWideViewport()` (A04 §5 desktop / §6 mobile) —
+ * never both at once, per the viewport-switch gotcha. Everything the two branches
+ * share — data, mutations, derived values — is computed once above the branch;
+ * only the JSX forks.
  *
  * Key interactions:
  *  - SERVINGS SCALER: rescales every quantity live with `scaleIngredients` from
  *    @toon/shared (the exact function the API's /scale endpoint uses) and renders nice
  *    fractions via `formatQuantity`.
  *  - COOK MODE: full-screen, large-type step-by-step view with a screen wake lock.
- *  - Actions live in ONE overflow `ActionMenu` next to the title — edit, share
- *    (navigator.share + clipboard fallback), copy, print (print.css), duplicate,
- *    delete (ConfirmDialog). Cook mode and "add to shopping list" stay visible where
- *    they belong instead: at the steps heading and under the ingredients.
+ *  - Actions live in ONE overflow `ActionMenu` — edit, share (navigator.share +
+ *    clipboard fallback), copy, print (print.css), duplicate, delete (ConfirmDialog).
+ *  - "Gekocht" (R18): POSTs the cook log, then becomes "Rückgängig" for
+ *    `COOK_UNDO_WINDOW_MS` — both the button AND the success toast's action slot
+ *    call the same undo, so the affordance survives the toast timing out.
+ *  - Both detail panels (Ingredients/Method) stay mounted on the phone branch and
+ *    are toggled with the `hidden` attribute under the segmented `Tabs` control,
+ *    never a conditional render — printing from a phone must still print both.
  */
 import { useMemo, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  CalendarDays,
   ChefHat,
-  Clock,
+  Check,
   Copy,
   ExternalLink,
-  Flame,
-  ListChecks,
   Pencil,
+  Play,
   Printer,
   RotateCcw,
   Share2,
   ShoppingBasket,
   Star,
-  Timer,
   Trash2,
-  Users,
   UtensilsCrossed,
 } from "lucide-react";
-import { scaleIngredients, type RecipeDetail } from "@toon/shared";
+import { scaleIngredients, todayPlanDate, type RecipeDetail } from "@toon/shared";
 import {
   ActionMenu,
+  type ActionMenuItem,
   Badge,
   Button,
   Card,
   ConfirmDialog,
+  Dialog,
   ErrorState,
+  Input,
   LoadingBlock,
+  Tabs,
   buttonClasses,
+  useToast,
 } from "@/components/ui";
-import { useToast } from "@/components/ui";
-import { mediaUrl } from "@/lib/api";
+import { markRecipeCooked, mediaUrl } from "@/lib/api";
+import { invalidate } from "@/lib/queries";
 import { formatRelative, hostFromUrl, safeHttpUrl } from "@/lib/format";
+import { readStorage, storageKeys, writeStorage } from "@/lib/storage";
 import { DIFFICULTY_LABEL_KEYS } from "./lib/difficultyLabels";
 import { useT } from "@/lib/i18n";
 import {
   useActiveGroup,
+  useCanMutate,
   useCurrentUser,
   useEmailVerificationBlock,
   useSession,
 } from "@/lib/session";
-import { TagChip } from "@/features/tags/components/TagChip";
+import { useIsWideViewport } from "@/lib/viewport";
 import "./print.css";
 import { AppLink, useAppNavigate, useRouteParam } from "./lib/nav";
 import { canModifyOwn } from "./lib/permissions";
 import { copyToClipboard, shareOrCopy, useCheckedSteps } from "./lib/hooks";
-import { optionalMinutes, optionalServings, recipeToPlainText } from "./lib/format";
+import { recipeToPlainText } from "./lib/format";
 import {
   duplicatePayload,
   useCreateRecipe,
@@ -71,33 +83,82 @@ import { IngredientList } from "./components/IngredientList";
 import { StepList } from "./components/StepList";
 import { ServingsScaler } from "./components/ServingsScaler";
 import { CookMode } from "./components/CookMode";
+import { CourseEyebrow } from "./components/CourseEyebrow";
+import { RecipeStatRow } from "./components/RecipeStatRow";
+import { RecipeHeroMobile } from "./components/RecipeHeroMobile";
+import { RecipeDetailBottomBar } from "./components/RecipeDetailBottomBar";
 import { AddRecipeToListDialog } from "@/features/shopping/components/AddRecipeToListDialog";
 import {
   useAddRecipeToShoppingList,
   useCreateShoppingList,
   useShoppingLists,
 } from "@/features/shopping/lib/queries";
+import { usePlanEntryCreate, usePlanEntryCookedUndo } from "@/features/plan/lib/queries";
+
+/**
+ * Mirrors the server's `COOK_UNDO_WINDOW_MS` (`apps/api/src/services/recipes/cookLog.ts`,
+ * same duplication as `PlanDayCard.tsx` — there is no shared constant to import). Only
+ * the CALLER's own most recent tap, tracked locally: the server enforces "own row"
+ * independently, this just decides when the button/toast offer the undo at all.
+ */
+const COOK_UNDO_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * R9's target-list resolution, reused here for the primary "add all" action's ONE-TAP
+ * target (the overview panel is R9's original scope; this screen has the same
+ * ambiguity). `storageKeys.lastShoppingListId` first, then the alphabetically first
+ * cached list, else null — never a server-side default.
+ */
+function resolveTargetShoppingList(
+  groupId: string | null | undefined,
+  lists: ReadonlyArray<{ id: string; name: string }>,
+): { id: string; name: string } | null {
+  if (lists.length === 0) return null;
+  const saved = groupId ? readStorage(storageKeys.lastShoppingListId) : null;
+  if (saved) {
+    const [savedGroupId, savedListId] = saved.split(":");
+    if (savedGroupId === groupId) {
+      const match = lists.find((list) => list.id === savedListId);
+      if (match) return match;
+    }
+  }
+  return [...lists].sort((a, b) => a.name.localeCompare(b.name, "de"))[0] ?? null;
+}
 
 export default function RecipeDetailPage() {
   const t = useT();
   const recipeId = useRouteParam("recipeId");
+  // The two mutation hooks below have to be called unconditionally (rules of
+  // hooks), i.e. above the loading/error early-returns, before `recipe.id` (the
+  // narrowed, guaranteed-present value) exists — this is the same route param,
+  // just with the fallback the API calls already need at that point.
+  const safeRecipeId = recipeId ?? "";
   const { groupId, role } = useActiveGroup();
   const { isOnline } = useSession();
   const unverified = useEmailVerificationBlock();
+  const { canMutate, reason: mutateReason } = useCanMutate();
   const user = useCurrentUser();
   const navigate = useAppNavigate();
   const toast = useToast();
+  const qc = useQueryClient();
+  const wide = useIsWideViewport();
 
   const query = useRecipe(groupId, recipeId);
   const loaded = query.data;
 
   const deleteRecipe = useDeleteRecipe(groupId);
   const createRecipe = useCreateRecipe(groupId);
+  const undoCooked = usePlanEntryCookedUndo(groupId ?? "");
 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [cookMode, setCookMode] = useState(false);
   const [servingsOverride, setServingsOverride] = useState<number | null>(null);
   const [shoppingOpen, setShoppingOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"ingredients" | "steps">("ingredients");
+  // Own-tap undo window (R18): only this session's own successful "Gekocht" tap
+  // offers the undo affordance — the server enforces "own row" separately.
+  const [cookedJustNowAt, setCookedJustNowAt] = useState<number | null>(null);
 
   // Loaded up front so the button can say whether there is a list to add to at all.
   const shoppingLists = useShoppingLists(groupId);
@@ -128,6 +189,36 @@ export default function RecipeDetailPage() {
       return loaded.ingredients;
     }
   }, [loaded, baseServings, factor]);
+
+  function runUndoCooked() {
+    undoCooked.mutate(
+      { recipeId: safeRecipeId },
+      {
+        onSuccess: async () => {
+          setCookedJustNowAt(null);
+          await invalidate.recipe(qc, groupId ?? "", safeRecipeId);
+          toast.success(t("recipes.detail.cookedUndoneToast"));
+        },
+      },
+    );
+  }
+
+  const markCooked = useMutation({
+    mutationFn: () => markRecipeCooked(groupId ?? "", safeRecipeId, {}),
+    onSuccess: async () => {
+      setCookedJustNowAt(Date.now());
+      await invalidate.recipe(qc, groupId ?? "", safeRecipeId);
+      toast.toast({
+        title: t("recipes.detail.cookedToast"),
+        variant: "success",
+        action: { label: t("recipes.detail.cookedUndo"), onClick: runUndoCooked },
+      });
+    },
+    onError: (error) => toast.fromError(error, t("recipes.detail.cookedFailedToast")),
+  });
+
+  const cookedRecently =
+    cookedJustNowAt != null && Date.now() - cookedJustNowAt < COOK_UNDO_WINDOW_MS;
 
   if (query.isPending) return <LoadingBlock label={t("recipes.detail.loading")} />;
 
@@ -160,6 +251,9 @@ export default function RecipeDetailPage() {
   // Never render a server-supplied link straight into an href — see safeHttpUrl.
   const sourceHref = safeHttpUrl(recipe.sourceUrl);
   const scaled = Math.abs(factor - 1) > 0.0001;
+  // The quiet tag line under the desktop h1 (A04 §5 item 1) shows the ordinary
+  // tags, not the course one CourseEyebrow already draws above the title.
+  const freeTags = recipe.tags.filter((tag) => tag.kind === "free");
 
   const plainText = () =>
     recipeToPlainText({
@@ -205,204 +299,415 @@ export default function RecipeDetailPage() {
     }
   }
 
-  const metaItems: Array<{ icon: typeof Clock; label: string; value: string }> = [];
-  const servingsLabel = optionalServings(recipe.servingsAmount, recipe.servingsUnit);
-  if (servingsLabel) {
-    metaItems.push({ icon: Users, label: t("recipes.detail.meta.servings"), value: servingsLabel });
+  // R9: the client's own choice of target list, never a server default — see
+  // resolveTargetShoppingList above. `null` while lists are still loading counts
+  // the same as "no target yet" (falls back to the dialog), not as "no lists".
+  const targetList = resolveTargetShoppingList(groupId, shoppingLists.data ?? []);
+  const noListsYet = !shoppingLists.isPending && (shoppingLists.data?.length ?? 0) === 0;
+
+  async function addAllToTargetList() {
+    if (!targetList) {
+      setShoppingOpen(true);
+      return;
+    }
+    try {
+      const result = await addToShoppingList.addRecipe({
+        groupId: groupId ?? "",
+        listId: targetList.id,
+        recipeId: recipe.id,
+        servings,
+      });
+      writeStorage(storageKeys.lastShoppingListId, `${groupId}:${targetList.id}`);
+      toast.success(
+        t("recipes.detail.addedToListToast"),
+        t("recipes.detail.addedToListDetail", {
+          listName: result.list.name,
+          count: result.items.length,
+        }),
+      );
+    } catch (error) {
+      toast.fromError(error, t("recipes.detail.addToListFailedToast"));
+    }
   }
-  const prep = optionalMinutes(recipe.prepMinutes);
-  if (prep) metaItems.push({ icon: Timer, label: t("recipes.detail.meta.prep"), value: prep });
-  const cook = optionalMinutes(recipe.cookMinutes);
-  if (cook) metaItems.push({ icon: Flame, label: t("recipes.detail.meta.cook"), value: cook });
-  const total = optionalMinutes(recipe.totalMinutes);
-  if (total) metaItems.push({ icon: Clock, label: t("recipes.detail.meta.total"), value: total });
+
+  const addAllLabel = noListsYet
+    ? t("shopping.lists.create")
+    : t("recipes.detail.addAllToShoppingList", { count: recipe.ingredients.length });
+
+  const actionMenuItems: Array<ActionMenuItem | null | false | undefined> = [
+    canEdit && {
+      label: t("recipes.detail.actions.edit"),
+      icon: <Pencil />,
+      onSelect: () => {
+        void navigate({ to: "/recipes/$recipeId/edit", params: { recipeId: recipe.id } });
+      },
+    },
+    {
+      label: t("recipes.detail.actions.share"),
+      icon: <Share2 />,
+      onSelect: () => void share(),
+    },
+    {
+      label: t("recipes.detail.actions.copyText"),
+      icon: <Copy />,
+      onSelect: () => void copyIngredients(),
+    },
+    {
+      label: t("recipes.detail.actions.print"),
+      icon: <Printer />,
+      onSelect: () => window.print(),
+    },
+    {
+      label: t("recipes.detail.actions.duplicate"),
+      // The menu closes on select, so `isPending` is no longer visible —
+      // disabling is what keeps a second tap from creating a second copy.
+      description: createRecipe.isPending ? t("recipes.detail.actions.duplicating") : undefined,
+      icon: <ChefHat />,
+      disabled: createRecipe.isPending,
+      onSelect: () => void duplicate(),
+    },
+    canEdit && {
+      label: t("recipes.detail.actions.delete"),
+      icon: <Trash2 />,
+      variant: "danger" as const,
+      onSelect: () => setConfirmDelete(true),
+    },
+  ];
+
+  const ratingDifficultyBadges =
+    recipe.difficulty || (typeof recipe.rating === "number" && recipe.rating > 0) ? (
+      <ul className="flex flex-wrap items-center gap-1.5">
+        {recipe.difficulty ? (
+          <li>
+            <Badge variant="accent">{t(DIFFICULTY_LABEL_KEYS[recipe.difficulty])}</Badge>
+          </li>
+        ) : null}
+        {typeof recipe.rating === "number" && recipe.rating > 0 ? (
+          <li>
+            <Badge variant="warning" icon={<Star className="fill-current" />}>
+              {recipe.rating} / 5
+            </Badge>
+          </li>
+        ) : null}
+      </ul>
+    ) : null;
+
+  const notesCard = recipe.notes ? (
+    <Card padding="md" className="rounded-2xl">
+      <h2 className="mb-2 font-display text-lg font-semibold">{t("recipes.detail.notesHeading")}</h2>
+      <p className="leading-relaxed whitespace-pre-line text-fg-muted">{recipe.notes}</p>
+    </Card>
+  ) : null;
+
+  // A licence-adjacent obligation on an imported recipe — must survive on every
+  // breakpoint, and still only ever an href that passed safeHttpUrl().
+  const sourceCard =
+    sourceHref || recipe.sourceName ? (
+      <Card padding="md" className="rounded-2xl">
+        <h2 className="mb-1 text-sm font-semibold tracking-wide text-fg-muted uppercase">
+          {t("recipes.detail.sourceHeading")}
+        </h2>
+        {sourceHref ? (
+          <a
+            href={sourceHref}
+            target="_blank"
+            rel="noreferrer noopener"
+            data-print-url=""
+            className="inline-flex items-center gap-1.5 font-medium text-brand hover:text-brand-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          >
+            {recipe.sourceName ?? host ?? sourceHref}
+            <ExternalLink aria-hidden="true" className="size-4" />
+          </a>
+        ) : (
+          <p className="text-fg">{recipe.sourceName}</p>
+        )}
+      </Card>
+    ) : null;
+
+  const cookedButtonProps = {
+    disabled: !canMutate || markCooked.isPending || undoCooked.isPending,
+    title: mutateReason,
+    onClick: cookedRecently ? runUndoCooked : () => markCooked.mutate(),
+  };
 
   return (
-    <article className="recipe-print flex flex-col gap-5">
-      <div className="flex flex-col gap-3">
-        {image ? (
-          <img
-            src={image}
-            alt={t("recipes.detail.imageAlt", { title: recipe.title })}
-            className="aspect-4/3 w-full rounded-card object-cover shadow-card sm:aspect-21/9"
+    <article className="recipe-print flex flex-1 flex-col gap-4">
+      {wide ? (
+        <>
+          {/* HEADER RAIL — bleeds to <main>'s edges, sits flush under the shell. The
+              negative top margin has to MATCH <main>'s own top padding, which is
+              `pt-4 lg:pt-8`: this branch flips at `sm` (640px), so a flat `-mt-8`
+              would overshoot by 1rem for every viewport between 640 and 1024. */}
+          <div className="bleed-gutter-inset -mt-4 flex items-center gap-2.5 border-b border-surface-2 py-3.5 lg:-mt-8">
+            <nav aria-label={t("recipes.list.title")} className="flex min-w-0 items-baseline gap-2 text-[13px] text-fg-subtle">
+              <AppLink to="/" className="hover:text-fg">
+                {t("recipes.list.title")}
+              </AppLink>
+              <span aria-hidden="true">/</span>
+              <span className="min-w-0 truncate text-fg-muted">{recipe.title}</span>
+            </nav>
+            <div data-print="hide" className="ml-auto flex shrink-0 gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="min-h-[38px]"
+                leftIcon={<CalendarDays className="size-4" />}
+                disabled={!canMutate}
+                title={mutateReason}
+                onClick={() => setPlanOpen(true)}
+              >
+                {t("recipes.detail.planDayAction")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="min-h-[38px]"
+                leftIcon={<ShoppingBasket className="size-4" />}
+                disabled={unverified !== undefined}
+                title={unverified}
+                onClick={() => void addAllToTargetList()}
+              >
+                {t("recipes.detail.addToShoppingList")}
+              </Button>
+              <Button
+                variant="success"
+                size="sm"
+                leftIcon={
+                  cookedRecently ? (
+                    <RotateCcw className="size-4" />
+                  ) : (
+                    <Check className="size-4" />
+                  )
+                }
+                {...cookedButtonProps}
+              >
+                {cookedRecently ? t("recipes.detail.cookedUndo") : t("recipes.detail.cookedAction")}
+              </Button>
+              <ActionMenu
+                label={t("recipes.detail.actionsMenuLabel")}
+                title={recipe.title}
+                items={actionMenuItems}
+              />
+            </div>
+          </div>
+
+          {/* HERO ROW */}
+          <div className="grid grid-cols-[minmax(0,1fr)_420px] items-start gap-9">
+            <div className="flex min-w-0 flex-col gap-3.5">
+              <CourseEyebrow tags={recipe.tags} className="text-accent" />
+              <h1 className="font-display text-display-4xl font-medium text-balance">
+                {recipe.title}
+              </h1>
+              {recipe.description ? (
+                <p className="max-w-[640px] text-base leading-[1.55] text-fg-muted text-pretty">
+                  {recipe.description}
+                </p>
+              ) : null}
+              <RecipeStatRow recipe={recipe} layout="desktop" />
+              {ratingDifficultyBadges}
+              {/*
+                A04 §5 item 1: the quiet tag line, then the byline in the fainter
+                `text-fg-faint` tier (R11). The tag NAMES are CONTENT, joined with
+                "·"; only the "by {name}, {relative}" frame is a key.
+              */}
+              <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-xs text-fg-subtle">
+                {freeTags.map((tag) => (
+                  <span key={tag.id}>{tag.name} ·</span>
+                ))}
+                <span className="text-fg-faint">
+                  {t("recipes.detail.byline", {
+                    author: recipe.author.name,
+                    date: formatRelative(recipe.createdAt),
+                  })}
+                </span>
+              </p>
+            </div>
+            {image ? (
+              <img
+                src={image}
+                alt={t("recipes.detail.imageAlt", { title: recipe.title })}
+                className="aspect-4/3 w-full rounded-2xl bg-surface-2 object-cover"
+              />
+            ) : (
+              <div
+                data-print="hide"
+                className="flex aspect-4/3 w-full items-center justify-center rounded-2xl bg-surface-2 text-fg-subtle"
+              >
+                <UtensilsCrossed aria-hidden="true" className="size-12" />
+              </div>
+            )}
+          </div>
+
+          {/* BODY */}
+          <div className="grid grid-cols-[400px_minmax(0,1fr)] items-start gap-10">
+            <Card padding="none" className="flex flex-col gap-3.5 rounded-2xl p-5 lg:sticky lg:top-8">
+              <div className="flex items-center gap-3">
+                <h2 className="font-display text-2xl font-medium">
+                  {t("recipes.ingredients.heading")}
+                </h2>
+                {recipe.ingredients.length > 0 ? (
+                  <span className="text-[13px] text-fg-subtle">
+                    {t("recipes.ingredients.count", { count: recipe.ingredients.length })}
+                  </span>
+                ) : null}
+                {baseServings ? (
+                  <div data-print="hide" className="ml-auto">
+                    <ServingsScaler
+                      value={servings}
+                      baseValue={baseServings}
+                      unit={recipe.servingsUnit}
+                      onChange={(value) => setServingsOverride(value)}
+                      size="sm"
+                    />
+                  </div>
+                ) : null}
+              </div>
+
+              {scaled ? (
+                <p role="status" className="text-sm text-brand">
+                  {t("recipes.detail.scaledNote", { factor: Math.round(factor * 100) / 100 })}
+                </p>
+              ) : null}
+
+              <IngredientList ingredients={scaledIngredients} scaled={scaled} />
+
+              {recipe.ingredients.length > 0 ? (
+                <Button
+                  data-print="hide"
+                  variant="outline"
+                  fullWidth
+                  className="min-h-[42px] bg-surface-inset"
+                  leftIcon={<ShoppingBasket className="size-4" />}
+                  disabled={unverified !== undefined}
+                  title={unverified}
+                  onClick={() => void addAllToTargetList()}
+                >
+                  {addAllLabel}
+                </Button>
+              ) : null}
+            </Card>
+
+            <div className="flex min-w-0 flex-col gap-4.5">
+              <div className="flex items-center gap-3">
+                <h2 className="font-display text-2xl font-medium">{t("recipes.steps.heading")}</h2>
+                {recipe.steps.length > 0 ? (
+                  <span className="text-[13px] text-fg-subtle">
+                    {t("recipes.detail.stepCount", { count: recipe.steps.length })}
+                  </span>
+                ) : null}
+                {checked.doneCount > 0 ? (
+                  <Button
+                    data-print="hide"
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={checked.reset}
+                    leftIcon={<RotateCcw className="size-4" />}
+                  >
+                    {t("recipes.detail.resetChecked", { count: checked.doneCount })}
+                  </Button>
+                ) : null}
+                {recipe.steps.length > 0 ? (
+                  <Button
+                    data-print="hide"
+                    type="button"
+                    onClick={() => setCookMode(true)}
+                    leftIcon={<Play className="size-4" />}
+                    className="ml-auto font-bold"
+                  >
+                    {t("recipes.detail.cookModeAction")}
+                  </Button>
+                ) : null}
+              </div>
+
+              <StepList steps={recipe.steps} checked={checked} />
+
+              {notesCard}
+              {sourceCard}
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <RecipeHeroMobile
+            title={recipe.title}
+            image={image}
+            imageAlt={t("recipes.detail.imageAlt", { title: recipe.title })}
+            tags={recipe.tags}
+            onBack={() => void navigate({ to: "/" })}
+            actionMenuItems={actionMenuItems}
+            actionMenuTitle={recipe.title}
           />
-        ) : (
-          <div
-            data-print="hide"
-            className="flex aspect-4/3 w-full items-center justify-center rounded-card bg-surface-2 text-fg-subtle sm:aspect-21/9"
-          >
-            <UtensilsCrossed aria-hidden="true" className="size-12" />
-          </div>
-        )}
 
-        {/*
-          One trigger, not a toolbar: five icon buttons here took ~240px away from the
-          heading on a phone, and the row grew or shrank with `canEdit`, so the title
-          reflowed as the permission resolved. Everything lives in the ActionMenu now.
-        */}
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <h1 className="font-display text-2xl leading-tight font-semibold text-fg sm:text-3xl">
-              {recipe.title}
-            </h1>
-            <p className="mt-1 text-sm text-fg-muted">
-              {t("recipes.detail.byline", {
-                author: recipe.author.name,
-                date: formatRelative(recipe.updatedAt),
-              })}
-            </p>
-          </div>
+          <RecipeStatRow recipe={recipe} layout="mobile" />
 
-          <div data-print="hide" className="shrink-0">
-            <ActionMenu
-              label={t("recipes.detail.actionsMenuLabel")}
-              title={recipe.title}
+          {recipe.description ? (
+            <p className="text-sm leading-relaxed text-fg-muted text-pretty">{recipe.description}</p>
+          ) : null}
+
+          <div data-print="hide">
+            <Tabs
+              variant="segmented"
+              aria-label={recipe.title}
+              value={activeTab}
+              onChange={setActiveTab}
               items={[
-                canEdit && {
-                  label: t("recipes.detail.actions.edit"),
-                  icon: <Pencil />,
-                  onSelect: () => {
-                    void navigate({
-                      to: "/recipes/$recipeId/edit",
-                      params: { recipeId: recipe.id },
-                    });
-                  },
+                {
+                  value: "ingredients",
+                  label: t("recipes.detail.tabs.ingredients", { count: recipe.ingredients.length }),
                 },
                 {
-                  label: t("recipes.detail.actions.share"),
-                  icon: <Share2 />,
-                  onSelect: () => void share(),
-                },
-                {
-                  label: t("recipes.detail.actions.copyText"),
-                  icon: <Copy />,
-                  onSelect: () => void copyIngredients(),
-                },
-                {
-                  label: t("recipes.detail.actions.print"),
-                  icon: <Printer />,
-                  onSelect: () => window.print(),
-                },
-                {
-                  label: t("recipes.detail.actions.duplicate"),
-                  // The menu closes on select, so `isPending` is no longer visible —
-                  // disabling is what keeps a second tap from creating a second copy.
-                  description: createRecipe.isPending
-                    ? t("recipes.detail.actions.duplicating")
-                    : undefined,
-                  icon: <ChefHat />,
-                  disabled: createRecipe.isPending,
-                  onSelect: () => void duplicate(),
-                },
-                canEdit && {
-                  label: t("recipes.detail.actions.delete"),
-                  icon: <Trash2 />,
-                  variant: "danger" as const,
-                  onSelect: () => setConfirmDelete(true),
+                  value: "steps",
+                  label: t("recipes.detail.tabs.steps", { count: recipe.steps.length }),
                 },
               ]}
             />
           </div>
-        </div>
 
-        {recipe.description ? (
-          <p className="max-w-prose leading-relaxed text-fg-muted">{recipe.description}</p>
-        ) : null}
+          <div hidden={activeTab !== "ingredients"} className="flex flex-col gap-3.5">
+            <div className="flex items-center gap-2.5">
+              {baseServings ? (
+                <ServingsScaler
+                  value={servings}
+                  baseValue={baseServings}
+                  unit={recipe.servingsUnit}
+                  onChange={(value) => setServingsOverride(value)}
+                  size="md"
+                />
+              ) : null}
+              {recipe.ingredients.length > 0 ? (
+                <button
+                  type="button"
+                  disabled={unverified !== undefined}
+                  title={unverified}
+                  onClick={() => void addAllToTargetList()}
+                  className="ml-auto text-[13px] font-semibold text-brand-hover disabled:pointer-events-none disabled:opacity-55"
+                >
+                  {t("recipes.detail.addAllToShoppingListShort")}
+                </button>
+              ) : null}
+            </div>
 
-        {(recipe.tags.length > 0 || recipe.difficulty || typeof recipe.rating === "number") ? (
-          <ul className="flex flex-wrap items-center gap-1.5">
-            {recipe.difficulty ? (
-              <li>
-                <Badge variant="accent">{t(DIFFICULTY_LABEL_KEYS[recipe.difficulty])}</Badge>
-              </li>
+            <IngredientList ingredients={scaledIngredients} scaled={scaled} />
+
+            {scaled ? (
+              <p role="status" className="text-sm text-brand">
+                {t("recipes.detail.scaledNote", { factor: Math.round(factor * 100) / 100 })}
+              </p>
             ) : null}
-            {typeof recipe.rating === "number" && recipe.rating > 0 ? (
-              <li>
-                <Badge variant="warning" icon={<Star className="fill-current" />}>
-                  {recipe.rating} / 5
-                </Badge>
-              </li>
-            ) : null}
-            {recipe.tags.map((tag) => (
-              <li key={tag.id}>
-                <TagChip tag={tag} />
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
 
-      {metaItems.length > 0 ? (
-        <Card padding="none">
-          <dl className="grid grid-cols-2 divide-line sm:grid-cols-4 sm:divide-x">
-            {metaItems.map((item) => (
-              <div key={item.label} className="flex flex-col gap-0.5 p-3">
-                <dt className="flex items-center gap-1.5 text-xs tracking-wide text-fg-muted uppercase">
-                  <item.icon aria-hidden="true" className="size-3.5" />
-                  {item.label}
-                </dt>
-                <dd className="font-medium text-fg">{item.value}</dd>
-              </div>
-            ))}
-          </dl>
-        </Card>
-      ) : null}
-
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[22rem_1fr] lg:items-start">
-        <Card padding="md" className="flex flex-col gap-3 lg:sticky lg:top-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-display text-lg font-semibold">{t("recipes.ingredients.heading")}</h2>
-            {recipe.ingredients.length > 0 ? (
-              <span className="text-sm text-fg-subtle">
-                {t("recipes.ingredients.count", { count: recipe.ingredients.length })}
-              </span>
-            ) : null}
+            {/*
+              Everything `1f` does not draw is placed, not dropped (A04 §5 item 3):
+              rating, difficulty, notes and the source attribution live at the foot
+              of this panel rather than vanishing on a phone.
+            */}
+            {ratingDifficultyBadges}
+            {notesCard}
+            {sourceCard}
           </div>
 
-          {baseServings ? (
-            <div data-print="hide">
-              <ServingsScaler
-                value={servings}
-                baseValue={baseServings}
-                unit={recipe.servingsUnit}
-                onChange={(value) => setServingsOverride(value)}
-              />
-            </div>
-          ) : null}
-
-          {scaled ? (
-            <p role="status" className="text-sm text-brand">
-              {t("recipes.detail.scaledNote", { factor: Math.round(factor * 100) / 100 })}
-            </p>
-          ) : null}
-
-          <IngredientList ingredients={scaledIngredients} scaled={scaled} />
-
-          {/*
-            Sits under the ingredients on purpose: this is where the portion count was
-            just chosen, and the dialog carries that exact number over to the list.
-          */}
-          {recipe.ingredients.length > 0 ? (
-            <Button
-              data-print="hide"
-              variant="secondary"
-              fullWidth
-              leftIcon={<ShoppingBasket className="size-4" />}
-              // Disabled rather than hidden while the address is unconfirmed: the
-              // dialog's whole job is a write, and `title` says why.
-              disabled={unverified !== undefined}
-              title={unverified}
-              onClick={() => setShoppingOpen(true)}
-            >
-              {t("recipes.detail.addToShoppingList")}
-            </Button>
-          ) : null}
-        </Card>
-
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-display text-lg font-semibold">{t("recipes.steps.heading")}</h2>
-            <div data-print="hide" className="flex items-center gap-2">
+          <div hidden={activeTab !== "steps"} className="flex flex-col gap-4">
+            <div className="flex items-center gap-2.5">
               {checked.doneCount > 0 ? (
                 <Button
                   type="button"
@@ -414,52 +719,24 @@ export default function RecipeDetailPage() {
                   {t("recipes.detail.resetChecked", { count: checked.doneCount })}
                 </Button>
               ) : null}
-              {recipe.steps.length > 0 ? (
-                <Button
-                  type="button"
-                  onClick={() => setCookMode(true)}
-                  leftIcon={<ListChecks className="size-4" />}
-                >
-                  {t("recipes.detail.cookModeAction")}
-                </Button>
-              ) : null}
             </div>
+            <StepList steps={recipe.steps} checked={checked} />
           </div>
 
-          <StepList steps={recipe.steps} checked={checked} />
+          <div className="flex-1" />
 
-          {recipe.notes ? (
-            <Card padding="md">
-              <h2 className="mb-2 font-display text-lg font-semibold">
-                {t("recipes.detail.notesHeading")}
-              </h2>
-              <p className="leading-relaxed whitespace-pre-line text-fg-muted">{recipe.notes}</p>
-            </Card>
-          ) : null}
-
-          {sourceHref || recipe.sourceName ? (
-            <Card padding="md">
-              <h2 className="mb-1 text-sm font-semibold tracking-wide text-fg-muted uppercase">
-                {t("recipes.detail.sourceHeading")}
-              </h2>
-              {sourceHref ? (
-                <a
-                  href={sourceHref}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  data-print-url=""
-                  className="inline-flex items-center gap-1.5 font-medium text-brand hover:text-brand-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                >
-                  {recipe.sourceName ?? host ?? sourceHref}
-                  <ExternalLink aria-hidden="true" className="size-4" />
-                </a>
-              ) : (
-                <p className="text-fg">{recipe.sourceName}</p>
-              )}
-            </Card>
-          ) : null}
-        </div>
-      </div>
+          <RecipeDetailBottomBar
+            onCookMode={() => setCookMode(true)}
+            cookModeDisabled={recipe.steps.length === 0}
+            cookedRecently={cookedRecently}
+            onMarkCooked={() => markCooked.mutate()}
+            onUndoCooked={runUndoCooked}
+            canMutateCooked={canMutate}
+            cookedReason={mutateReason}
+            cookedPending={markCooked.isPending || undoCooked.isPending}
+          />
+        </>
+      )}
 
       {cookMode ? (
         <CookMode
@@ -493,6 +770,7 @@ export default function RecipeDetailPage() {
               servings: targetServings,
               ingredientIds,
             });
+            writeStorage(storageKeys.lastShoppingListId, `${groupId}:${listId}`);
             setShoppingOpen(false);
             toast.success(
               t("recipes.detail.addedToListToast"),
@@ -505,6 +783,14 @@ export default function RecipeDetailPage() {
             toast.fromError(error, t("recipes.detail.addToListFailedToast"));
           }
         }}
+      />
+
+      <PlanForDayDialog
+        open={planOpen}
+        onClose={() => setPlanOpen(false)}
+        groupId={groupId ?? ""}
+        recipeId={recipe.id}
+        title={recipe.title}
       />
 
       <ConfirmDialog
@@ -526,6 +812,72 @@ export default function RecipeDetailPage() {
         }}
       />
     </article>
+  );
+}
+
+/**
+ * "Für einen Tag planen" (A04 §5 header rail). No artboard covers this dialog and
+ * no task in the plan owns a standalone file for it — `recipes.detail.planDialogTitle`
+ * is the only key reserved for it, so the rest of its copy reuses existing `plan.*`
+ * keys the same way this screen already reuses `shopping.*` ones for the list
+ * target picker. A day picker is all it needs: `usePlanEntryCreate` (T7.3) is
+ * idempotent server-side (201 new / 200 already planned).
+ */
+function PlanForDayDialog({
+  open,
+  onClose,
+  groupId,
+  recipeId,
+  title,
+}: {
+  open: boolean;
+  onClose: () => void;
+  groupId: string;
+  recipeId: string;
+  title: string;
+}) {
+  const t = useT();
+  const toast = useToast();
+  const create = usePlanEntryCreate(groupId);
+  const [date, setDate] = useState(() => todayPlanDate());
+
+  function submit() {
+    create.mutate(
+      { recipeId, plannedOn: date },
+      {
+        onSuccess: () => {
+          toast.success(t("plan.toast.planned"));
+          onClose();
+        },
+        onError: (error) => toast.fromError(error, t("plan.toast.failed")),
+      },
+    );
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={t("recipes.detail.planDialogTitle", { title })}
+      size="sm"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={create.isPending} fullWidth>
+            {t("plan.action.cancel")}
+          </Button>
+          <Button onClick={submit} loading={create.isPending} fullWidth>
+            {t("ui.confirmDialog.confirm")}
+          </Button>
+        </>
+      }
+    >
+      <Input
+        type="date"
+        label={t("plan.move.dateLabel")}
+        value={date}
+        onChange={(event) => setDate(event.target.value)}
+      />
+    </Dialog>
   );
 }
 

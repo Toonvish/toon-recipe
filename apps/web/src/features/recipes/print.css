@@ -58,6 +58,18 @@
     break-inside: avoid;
   }
 
+  /*
+   * The phone branch keeps Ingredients AND Method in the DOM at all times and
+   * toggles between them with the `hidden` attribute under a `Tabs` control (a
+   * conditional render would print only whichever tab was open). The shell's own
+   * reset already sets `[hidden]{display:none!important}` for the screen; this
+   * clears it back for print so both panels render on paper regardless of which
+   * one was showing on screen.
+   */
+  .recipe-print [hidden] {
+    display: block !important;
+  }
+
   /* Steps lose their button chrome in print. */
   .recipe-print button {
     border: 0 !important;

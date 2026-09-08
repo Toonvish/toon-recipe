@@ -19,7 +19,7 @@ export const cardsEn: LocaleCatalog<CardsCatalog> = {
   "cards.empty.action": "Add your first card",
 
   // The link from /shopping into this screen
-  "cards.link.title": "Cards",
+  "cards.link.panelTitle": "Loyalty cards",
   "cards.link.description": "Show loyalty cards at the till, from your phone",
   "cards.link.action": "Manage cards",
 

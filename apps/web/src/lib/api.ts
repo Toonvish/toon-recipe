@@ -711,6 +711,11 @@ export function fetchRecipes(
       collectionId: query.collectionId,
       maxMinutes: query.maxMinutes,
       difficulty: query.difficulty,
+      // The wire form is the string `"1"`/`"0"`, never a boolean: the schema is
+      // `z.enum(["0","1"])` on purpose (`z.coerce.boolean()` reads `"0"` as true),
+      // so `String(false)` would be rejected outright and `String(true)` with it.
+      hasCooked:
+        query.hasCooked === undefined ? undefined : query.hasCooked ? "1" : "0",
       sort: query.sort,
       limit: query.limit,
       offset: query.offset,

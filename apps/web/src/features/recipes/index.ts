@@ -8,12 +8,20 @@
  * i.e. the code splitting would silently stop working. Import a screen by its own
  * path if you ever need it directly.
  */
-export { RecipeCard, type RecipeCardProps } from "./components/RecipeCard";
-export { RecipeRow, type RecipeRowProps } from "./components/RecipeRow";
-export { RecipeFilters, countActiveFilters } from "./components/RecipeFilters";
+export { RecipeEditorialRow, type RecipeEditorialRowProps } from "./components/RecipeEditorialRow";
+export { CourseEyebrow, type CourseEyebrowProps } from "./components/CourseEyebrow";
+export {
+  RecipeFilterRail,
+  RecipeFilterFields,
+  countActiveFilters,
+  type RecipeFilterRailProps,
+  type RecipeFilterFieldsProps,
+} from "./components/RecipeFilterRail";
+export { RecipeFilterSheet, type RecipeFilterSheetProps } from "./components/RecipeFilterSheet";
 export { RecipeForm, type RecipeFormProps, type RecipeFormSubmit } from "./components/RecipeForm";
 export { IngredientList } from "./components/IngredientList";
 export { StepList } from "./components/StepList";
+export { RecipeStatRow, type RecipeStatRowProps } from "./components/RecipeStatRow";
 export { ServingsScaler } from "./components/ServingsScaler";
 export { CookMode } from "./components/CookMode";
 export { IngredientsEditor } from "./components/IngredientsEditor";
