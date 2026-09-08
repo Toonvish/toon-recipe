@@ -13,3 +13,6 @@ data/
 .vite/
 dev-dist/
 coverage/
+
+# Generated per-task build briefs (scripts/redesign-briefs.ts) — derived from docs/redesign/.
+docs/redesign/briefs/
