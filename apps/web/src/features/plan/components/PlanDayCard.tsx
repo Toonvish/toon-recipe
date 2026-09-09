@@ -19,6 +19,8 @@
  * renders nothing for an empty item list) the moment writes are blocked: that is
  * what makes the "every entry's only action disappears" read-only state (R44)
  * fall out of the existing gating rather than needing a separate branch.
+ * `compact` is the second reason the trigger can be absent, and the only one that
+ * is about WIDTH rather than permission — see the prop.
  */
 import { useState } from "react";
 import { Check, Plus } from "lucide-react";
@@ -76,6 +78,18 @@ export interface PlanDayCardProps {
    */
   maxEntries?: number;
   isToday: boolean;
+  /**
+   * Compact PREVIEW shape — the library's week strip (T8.3), nothing else.
+   * Measured, its cards are 117px wide at 1440 and 80px on a 390px phone while
+   * this card's content needs 153px, so the 44px `ActionMenu` trigger bled 37px
+   * over the NEXT day's card on the desktop strip and 74px on a phone. Compact
+   * therefore drops BOTH oversized pieces — the per-entry menu and the phone
+   * thumbnail — and keeps the title, the meta line and the recipe link. Nothing
+   * is lost: R36 already makes `/plan` the place an entry is opened, moved,
+   * marked cooked or unplanned, and the strip's heading links straight to it.
+   * Omitted (the default) is `/plan`'s own full-width card.
+   */
+  compact?: boolean;
   canMutate: boolean;
   /** Why not, when `canMutate` is false — the `title` on the disabled affordance. */
   reason?: string;
@@ -117,11 +131,12 @@ interface PlanDayEntryProps {
   entry: MealPlanEntry;
   isToday: boolean;
   isWide: boolean;
+  compact: boolean;
   canMutate: boolean;
 }
 
 /** One entry's body + its own `ActionMenu` and dialogs — a day can hold several. */
-function PlanDayEntry({ groupId, entry, isToday, isWide, canMutate }: PlanDayEntryProps) {
+function PlanDayEntry({ groupId, entry, isToday, isWide, compact, canMutate }: PlanDayEntryProps) {
   const t = useT();
   const toast = useToast();
   const { isOnline } = useSession();
@@ -189,63 +204,80 @@ function PlanDayEntry({ groupId, entry, isToday, isWide, canMutate }: PlanDayEnt
 
   return (
     <div className="flex min-w-0 flex-1 items-start gap-3">
-      {isWide ? null : <Thumbnail entry={entry} />}
+      {isWide || compact ? null : <Thumbnail entry={entry} />}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <div className="flex items-start justify-between gap-2">
-          <AppLink
-            to="/recipes/$recipeId"
-            params={{ recipeId: entry.recipeId }}
-            className="font-display text-display-xs font-medium text-fg text-pretty focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-          >
-            {entry.recipe.title}
-          </AppLink>
-          <ActionMenu
-            label={t("plan.entry.menuLabel", { title: entry.recipe.title })}
-            items={[
-              canMutate && {
-                label: t("plan.entry.servings"),
-                onSelect: () => setServingsOpen(true),
-              },
-              canMutate &&
-                entry.cookedAt == null && {
-                  label: t("plan.entry.markCooked"),
-                  onSelect: runMarkCooked,
+        {/*
+          THE TITLE OWNS THE WHOLE CARD WIDTH AND THE MENU SITS ON THE META LINE,
+          and both halves of that are measured rather than stylistic. A recipe
+          title carries no clamp and no truncation anywhere in this app, so the
+          only way it can be honest inside a 154px `/plan` column is to have all
+          of it: beside a 44px trigger it had 80px and broke mid-word
+          ("Schokokuch en"). `min-w-0` on the title is what gives it a
+          min-content width to shrink to at all, and `break-words` is what makes
+          that width a broken word rather than an overflow — its absence on the
+          old title/menu ROW is what pushed the trigger 37px out over the next
+          day's card in the library strip. The meta line is ~40px ("55 min"), so
+          the trigger fits beside it with room to spare, and the negative margins
+          keep a 44px tap target from inflating a 86px card.
+        */}
+        <AppLink
+          to="/recipes/$recipeId"
+          params={{ recipeId: entry.recipeId }}
+          className="min-w-0 font-display text-display-xs font-medium text-fg text-pretty break-words hyphens-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
+          {entry.recipe.title}
+        </AppLink>
+        <div className="flex min-w-0 items-center justify-between gap-1.5">
+          <p className="min-w-0 text-xs text-fg-subtle tabular-nums">
+            {formatMinutes(entry.recipe.totalMinutes)}
+            {isToday ? ` · ${t("plan.day.today")}` : ""}
+            {entry.cookedAt != null ? (
+              <>
+                {" · "}
+                <Check aria-hidden="true" className="inline size-3 align-text-bottom" />{" "}
+                {t("plan.day.cooked")}
+              </>
+            ) : null}
+          </p>
+          {compact ? null : (
+            <ActionMenu
+              label={t("plan.entry.menuLabel", { title: entry.recipe.title })}
+              className="-my-1.5 -mr-1.5 shrink-0"
+              items={[
+                canMutate && {
+                  label: t("plan.entry.servings"),
+                  onSelect: () => setServingsOpen(true),
                 },
-              canMutate &&
-                withinUndoWindow && {
-                  label: t("recipes.detail.cookedUndo"),
-                  onSelect: runUndoCooked,
+                canMutate &&
+                  entry.cookedAt == null && {
+                    label: t("plan.entry.markCooked"),
+                    onSelect: runMarkCooked,
+                  },
+                canMutate &&
+                  withinUndoWindow && {
+                    label: t("recipes.detail.cookedUndo"),
+                    onSelect: runUndoCooked,
+                  },
+                canMutate && {
+                  label: t("plan.entry.move"),
+                  onSelect: () => {
+                    setMoveDate(entry.plannedOn);
+                    setMoveOpen(true);
+                  },
                 },
-              canMutate && {
-                label: t("plan.entry.move"),
-                onSelect: () => {
-                  setMoveDate(entry.plannedOn);
-                  setMoveOpen(true);
+                canMutate && {
+                  label: t("plan.entry.addToList"),
+                  onSelect: () => setShoppingOpen(true),
                 },
-              },
-              canMutate && {
-                label: t("plan.entry.addToList"),
-                onSelect: () => setShoppingOpen(true),
-              },
-              canMutate && {
-                label: t("plan.entry.remove"),
-                variant: "danger" as const,
-                onSelect: () => setRemoveOpen(true),
-              },
-            ]}
-          />
+                canMutate && {
+                  label: t("plan.entry.remove"),
+                  variant: "danger" as const,
+                  onSelect: () => setRemoveOpen(true),
+                },
+              ]}
+            />
+          )}
         </div>
-        <p className="text-xs text-fg-subtle tabular-nums">
-          {formatMinutes(entry.recipe.totalMinutes)}
-          {isToday ? ` · ${t("plan.day.today")}` : ""}
-          {entry.cookedAt != null ? (
-            <>
-              {" · "}
-              <Check aria-hidden="true" className="inline size-3 align-text-bottom" />{" "}
-              {t("plan.day.cooked")}
-            </>
-          ) : null}
-        </p>
       </div>
 
       <PlanServingsDialog
@@ -332,6 +364,7 @@ export function PlanDayCard({
   entries,
   maxEntries,
   isToday,
+  compact = false,
   canMutate,
   reason,
 }: PlanDayCardProps) {
@@ -371,7 +404,12 @@ export function PlanDayCard({
           title={reason}
           aria-label={t("plan.day.addAriaLabel", { day: dayLabel })}
           className={cn(
-            "flex min-h-[86px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-xl border p-2.5 text-center",
+            // `w-full`: a <button> is shrink-to-fit even as a flex container, and
+            // the strip renders these inside an <li> rather than as a grid item —
+            // so without it an empty day measured 72px against its 117px column
+            // while a planned day filled it, and the strip's cards were visibly
+            // unequal. On /plan the grid stretches them anyway; this is a no-op there.
+            "flex min-h-[86px] w-full min-w-0 flex-col items-center justify-center gap-1.5 rounded-xl border p-2.5 text-center",
             "transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-70",
             "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
             CARD_CLASSES[state],
@@ -420,6 +458,7 @@ export function PlanDayCard({
             entry={entry}
             isToday={isToday}
             isWide={isWide}
+            compact={compact}
             canMutate={canMutate}
           />
         ))}

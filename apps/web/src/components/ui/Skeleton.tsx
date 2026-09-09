@@ -86,16 +86,21 @@ export function SkeletonList({
     );
   }
 
-  // Matches `WeekStrip`'s own branch — 7 equal-width cards from `lg`, 4 below —
-  // so the strip does not pop in narrower or wider than the data it replaces.
+  // Matches `WeekStrip`'s own shape — an equal 7-up grid from `lg`, a horizontal
+  // scroller of 140px cards below it — so the strip does not pop in narrower or
+  // wider than the data it replaces. The card width is that component's
+  // `PHONE_CARD_PX`; the two have to keep agreeing.
   return (
-    <div className="grid grid-cols-4 gap-2 lg:grid-cols-7" {...common}>
+    <div
+      className="flex gap-2 overflow-x-hidden lg:grid lg:grid-cols-7 lg:overflow-x-visible"
+      {...common}
+    >
       {Array.from({ length: 7 }, (_, index) => (
         <div
           key={index}
           className={cn(
-            "flex flex-col gap-2 rounded-card border border-line bg-surface p-3",
-            index >= 4 && "hidden lg:flex",
+            "flex w-[140px] shrink-0 flex-col gap-2 rounded-card border border-line bg-surface p-3",
+            "lg:w-auto lg:min-w-0",
           )}
         >
           <Skeleton className="h-3 w-1/2" />

@@ -10,14 +10,24 @@
  * dialogs are unchanged here; this component only decides WHICH days to show and
  * hands each one its slice of the week's entries, exactly like `PlanPage` does.
  *
- * Desktop renders all 7 days (`grid-cols-7`); a phone renders `week.slice(3,7)` —
- * the mock's own four-day crop (A04 §4 recommends scrolling all 7 instead, but the
- * task ruling is explicit that the slice is a decision, not an accident: those four
- * cards are still four real tap targets into the next few days, and `plan.strip.link`
- * next to the heading names where the rest of the week lives). `maxEntries={1}`
- * caps a busy day to its first entry plus a `+N` link to `/plan` (R36) — this strip
- * has no room for a second entry the way `/plan`'s own column does.
+ * Desktop renders all 7 days as an equal `grid-cols-7`. **A phone SCROLLS all 7
+ * horizontally, starting on today**, which is A04 §4's own "try next" note rather
+ * than the artboard's four-up crop — and it is a correction of two measured faults
+ * in that crop, not a preference. (1) The crop was a literal `week.slice(3, 7)`,
+ * i.e. Thu..Sun whatever day it was, so from Monday to Wednesday the phone strip
+ * left TODAY out altogether — the one day a week preview exists to show. (2) Four
+ * cards across 390px is 80px each, 58px of it text, and a German recipe title
+ * broke mid-word inside it ("Schnelle r Schokok uchen"); a recipe title carries no
+ * clamp and no truncation anywhere in this app, so the only honest fix is to give
+ * it a card it fits in. `PHONE_CARD_PX` is that card, `scrollLeft` starts the
+ * scroller on today, and the week is still one fetch and one component.
+ *
+ * `maxEntries={1}` caps a busy day to its first entry plus a `+N` link to `/plan`
+ * (R36) — this strip has no room for a second entry the way `/plan`'s own column
+ * does — and `compact` drops the per-entry `ActionMenu` and thumbnail for the same
+ * reason of width (see `PlanDayCard`).
  */
+import { useEffect, useRef } from "react";
 import { ArrowRight } from "lucide-react";
 import { planWeek, startOfPlanWeek, todayPlanDate, type MealPlanEntry, type PlanDate } from "@toon/shared";
 import { SkeletonList } from "@/components/ui";
@@ -30,6 +40,16 @@ import { PlanDayCard } from "./PlanDayCard";
 
 /** Matches `PlanDayCard`'s own local constant — Tailwind's `lg`, 1024px. */
 const LG_QUERY = "(min-width: 64rem)";
+
+/**
+ * Phone card width and the gap between two of them, in px — read by the initial
+ * `scrollLeft` below, so the `w-[140px] gap-2` on the elements themselves must
+ * keep matching these two numbers. 140px leaves 120px of text inside the card's
+ * `p-2.5`, which holds "Schokokuchen" on one line; ~2.5 cards are visible at once
+ * on a 390px phone, so the scroller reads as scrollable without a hint.
+ */
+const PHONE_CARD_PX = 140;
+const PHONE_GAP_PX = 8;
 
 /** A day holds several entries at most `(group_id, planned_on, recipe_id)`-unique. */
 function groupByDay(items: readonly MealPlanEntry[]): Map<PlanDate, MealPlanEntry[]> {
@@ -55,11 +75,28 @@ export function WeekStrip({ groupId }: WeekStripProps) {
 
   const today = todayPlanDate();
   const week = planWeek(startOfPlanWeek(today));
-  const visibleDays = isWide ? week : week.slice(3, 7);
+  const todayIndex = Math.max(week.indexOf(today), 0);
 
   // `offlineFirst` (see `planQuery`), so a cold offline start still has the
   // persisted "plan" segment to render from — the strip's own gotcha.
   const query = usePlanWeek(groupId, week[0]!);
+
+  /*
+    Today is the day this strip is about, and a horizontal scroller opens at
+    `scrollLeft: 0` — Monday. So the position is set once, imperatively, rather
+    than by reordering the days: Mon..Sun in the DOM is what a week IS, and it is
+    also the reading and tab order. `scrollLeft` (not `scrollIntoView`, which
+    would also scroll the PAGE to the strip on every load) and no `behavior:
+    "smooth"`, so it is the initial position rather than a visible animation.
+    Runs when the data lands too — the pending branch renders a skeleton instead
+    of this element, so the ref is null on the first pass.
+  */
+  const scroller = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    const element = scroller.current;
+    if (element === null || isWide) return;
+    element.scrollLeft = todayIndex * (PHONE_CARD_PX + PHONE_GAP_PX);
+  }, [isWide, todayIndex, query.isPending]);
 
   // Same offline-hint composition as `/plan` itself (`plan.offlineHint` on top of
   // the shared unverified-address reason) — this is a read-only surface: the
@@ -83,14 +120,26 @@ export function WeekStrip({ groupId }: WeekStripProps) {
   return (
     <section className="flex flex-col gap-2.5">
       <Header t={t} />
-      <ol className="grid grid-cols-4 gap-2 lg:grid-cols-7">
-        {visibleDays.map((day) => (
-          <li key={day} className="min-w-0">
+      {/*
+        Deliberately NOT bled out to the screen edges with `.bleed-gutter-inset`:
+        that utility is hand-written in `styles/index.css`, so it is emitted after
+        everything Tailwind generates and a `lg:mx-0` on the same element could not
+        override it — the same cascade trap as `px-4 px-safe`. The scroller stays
+        inside the gutter, which keeps this one element purely Tailwind and lets the
+        `lg:` grid switch happen in CSS instead of in JS.
+      */}
+      <ol
+        ref={scroller}
+        className="flex snap-x snap-mandatory gap-2 overflow-x-auto [scrollbar-width:none] lg:grid lg:snap-none lg:grid-cols-7 lg:overflow-x-visible"
+      >
+        {week.map((day) => (
+          <li key={day} className="w-[140px] shrink-0 snap-start lg:w-auto lg:min-w-0">
             <PlanDayCard
               groupId={groupId}
               date={day}
               entries={byDay.get(day) ?? []}
               maxEntries={1}
+              compact
               isToday={day === today}
               canMutate={canMutate}
               reason={reason}
