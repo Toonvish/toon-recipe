@@ -151,11 +151,6 @@ export const recipesDe = {
   "recipes.detail.meta.cooked": "Gekocht",
   "recipes.detail.meta.never": "noch nie",
   "recipes.detail.stepCount": { one: "{count} Schritt", other: "{count} Schritte" },
-  "recipes.detail.addAllToShoppingList": {
-    one: "{count} Zutat zur Einkaufsliste",
-    other: "Alle {count} Zutaten zur Einkaufsliste",
-  },
-  "recipes.detail.addAllToShoppingListShort": "Alles zur Liste",
   "recipes.detail.tabs.ingredients": "Zutaten · {count}",
   "recipes.detail.tabs.steps": "Zubereitung · {count}",
   "recipes.detail.backAriaLabel": "Zurück",

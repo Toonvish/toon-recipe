@@ -122,11 +122,6 @@ export const recipesEn: LocaleCatalog<RecipesCatalog> = {
   "recipes.detail.meta.cooked": "Cooked",
   "recipes.detail.meta.never": "never",
   "recipes.detail.stepCount": { one: "{count} step", other: "{count} steps" },
-  "recipes.detail.addAllToShoppingList": {
-    one: "Add {count} ingredient to shopping",
-    other: "Add all {count} ingredients to shopping",
-  },
-  "recipes.detail.addAllToShoppingListShort": "All to list",
   "recipes.detail.tabs.ingredients": "Ingredients · {count}",
   "recipes.detail.tabs.steps": "Method · {count}",
   "recipes.detail.backAriaLabel": "Back",

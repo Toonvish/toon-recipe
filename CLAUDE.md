@@ -732,11 +732,13 @@ panel are gone (T8.2); the rule they carried is not.
   **`/plan` uses `useCanMutate()`** — the cards-screen rule, not the shopping rule: planner writes
   are online-only, so false-when-offline is exactly right. It sits two files from the opposite rule
   and must not be unified.
-  **And the recipe detail header carries TWO DIFFERENT GATES ON ONE SCREEN, per button.** `Zur
-  Einkaufsliste` keeps `useEmailVerificationBlock()` because it queues offline; `Gekocht` and `Für
-  einen Tag planen` take `useCanMutate()` because they are online-only. Do not unify them — the
-  existing comment on that screen argues the opposite direction for the other button, so a reader
-  who unifies will find a comment agreeing with them. The rule underneath all four cases is one
+  **And the recipe detail screen carries TWO DIFFERENT GATES ON ONE SCREEN, per button.** `Zur
+  Einkaufsliste` — which lives ONLY under the ingredient panel now, not in the header, and ALWAYS
+  opens `AddRecipeToListDialog` so the cook can untick ingredients; there is deliberately no
+  one-tap add to a remembered list any more — keeps `useEmailVerificationBlock()` because it
+  queues offline; `Gekocht` and `Für einen Tag planen` take `useCanMutate()` because they are
+  online-only. Do not unify them — the existing comment on that screen argues the opposite
+  direction for the other button, so a reader who unifies will find a comment agreeing with them. The rule underneath all four cases is one
   sentence: **a queued offline mutation the server will 403 must never enter the outbox**, because it
   can never succeed and queuing it converts "read-only right now" into "your edit was silently
   discarded three days later".

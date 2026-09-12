@@ -33,9 +33,9 @@ import { readStorage, storageKeys } from "@/lib/storage";
 import { ServingsScaler } from "@/features/recipes/components/ServingsScaler";
 
 /**
- * R9's target-list resolution, reused here for the same reason
- * `RecipeDetailPage.tsx`'s `resolveTargetShoppingList` and `WeekPlanPanel.tsx` carry their
- * own copy (there is no shared constant to import): `storageKeys.lastShoppingListId` first
+ * R9's target-list resolution, reused here for the same reason `WeekPlanPanel.tsx` and
+ * `ShoppingListsPage.tsx` carry their own copy (there is no shared constant to
+ * import): `storageKeys.lastShoppingListId` first
  * — so a cook who picked "Wocheneinkauf" last time gets it again without re-choosing —
  * then the alphabetically first list, never a server-side default. `groupId` comes off
  * `lists[0]` rather than a prop of its own: every list this dialog is ever handed belongs

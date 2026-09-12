@@ -57,7 +57,7 @@ import {
 import { markRecipeCooked, mediaUrl } from "@/lib/api";
 import { invalidate } from "@/lib/queries";
 import { formatRelative, hostFromUrl, safeHttpUrl } from "@/lib/format";
-import { readStorage, storageKeys, writeStorage } from "@/lib/storage";
+import { storageKeys, writeStorage } from "@/lib/storage";
 import { DIFFICULTY_LABEL_KEYS } from "./lib/difficultyLabels";
 import { useT } from "@/lib/i18n";
 import {
@@ -103,28 +103,6 @@ import { usePlanEntryCreate, usePlanEntryCookedUndo } from "@/features/plan/lib/
  */
 const COOK_UNDO_WINDOW_MS = 10 * 60 * 1000;
 
-/**
- * R9's target-list resolution, reused here for the primary "add all" action's ONE-TAP
- * target (the overview panel is R9's original scope; this screen has the same
- * ambiguity). `storageKeys.lastShoppingListId` first, then the alphabetically first
- * cached list, else null — never a server-side default.
- */
-function resolveTargetShoppingList(
-  groupId: string | null | undefined,
-  lists: ReadonlyArray<{ id: string; name: string }>,
-): { id: string; name: string } | null {
-  if (lists.length === 0) return null;
-  const saved = groupId ? readStorage(storageKeys.lastShoppingListId) : null;
-  if (saved) {
-    const [savedGroupId, savedListId] = saved.split(":");
-    if (savedGroupId === groupId) {
-      const match = lists.find((list) => list.id === savedListId);
-      if (match) return match;
-    }
-  }
-  return [...lists].sort((a, b) => a.name.localeCompare(b.name, "de"))[0] ?? null;
-}
-
 export default function RecipeDetailPage() {
   const t = useT();
   const recipeId = useRouteParam("recipeId");
@@ -160,7 +138,10 @@ export default function RecipeDetailPage() {
   // offers the undo affordance — the server enforces "own row" separately.
   const [cookedJustNowAt, setCookedJustNowAt] = useState<number | null>(null);
 
-  // Loaded up front so the button can say whether there is a list to add to at all.
+  // "Zur Einkaufsliste" always goes through `AddRecipeToListDialog` — never a one-tap
+  // add to a remembered list — so the cook can untick the salt and the olive oil
+  // before anything lands on the list. Loaded up front so the dialog opens with
+  // its list picker already filled.
   const shoppingLists = useShoppingLists(groupId);
   const addToShoppingList = useAddRecipeToShoppingList();
   // A group with no list at all would make "Zur Einkaufsliste" a dead end, so the
@@ -299,41 +280,6 @@ export default function RecipeDetailPage() {
     }
   }
 
-  // R9: the client's own choice of target list, never a server default — see
-  // resolveTargetShoppingList above. `null` while lists are still loading counts
-  // the same as "no target yet" (falls back to the dialog), not as "no lists".
-  const targetList = resolveTargetShoppingList(groupId, shoppingLists.data ?? []);
-  const noListsYet = !shoppingLists.isPending && (shoppingLists.data?.length ?? 0) === 0;
-
-  async function addAllToTargetList() {
-    if (!targetList) {
-      setShoppingOpen(true);
-      return;
-    }
-    try {
-      const result = await addToShoppingList.addRecipe({
-        groupId: groupId ?? "",
-        listId: targetList.id,
-        recipeId: recipe.id,
-        servings,
-      });
-      writeStorage(storageKeys.lastShoppingListId, `${groupId}:${targetList.id}`);
-      toast.success(
-        t("recipes.detail.addedToListToast"),
-        t("recipes.detail.addedToListDetail", {
-          listName: result.list.name,
-          count: result.items.length,
-        }),
-      );
-    } catch (error) {
-      toast.fromError(error, t("recipes.detail.addToListFailedToast"));
-    }
-  }
-
-  const addAllLabel = noListsYet
-    ? t("shopping.lists.create")
-    : t("recipes.detail.addAllToShoppingList", { count: recipe.ingredients.length });
-
   const actionMenuItems: Array<ActionMenuItem | null | false | undefined> = [
     canEdit && {
       label: t("recipes.detail.actions.edit"),
@@ -459,17 +405,6 @@ export default function RecipeDetailPage() {
                 {t("recipes.detail.planDayAction")}
               </Button>
               <Button
-                variant="outline"
-                size="sm"
-                className="min-h-[38px]"
-                leftIcon={<ShoppingBasket className="size-4" />}
-                disabled={unverified !== undefined}
-                title={unverified}
-                onClick={() => void addAllToTargetList()}
-              >
-                {t("recipes.detail.addToShoppingList")}
-              </Button>
-              <Button
                 variant="success"
                 size="sm"
                 leftIcon={
@@ -580,9 +515,9 @@ export default function RecipeDetailPage() {
                   leftIcon={<ShoppingBasket className="size-4" />}
                   disabled={unverified !== undefined}
                   title={unverified}
-                  onClick={() => void addAllToTargetList()}
+                  onClick={() => setShoppingOpen(true)}
                 >
-                  {addAllLabel}
+                  {t("recipes.detail.addToShoppingList")}
                 </Button>
               ) : null}
             </Card>
@@ -680,10 +615,10 @@ export default function RecipeDetailPage() {
                   type="button"
                   disabled={unverified !== undefined}
                   title={unverified}
-                  onClick={() => void addAllToTargetList()}
+                  onClick={() => setShoppingOpen(true)}
                   className="ml-auto text-[13px] font-semibold text-brand-hover disabled:pointer-events-none disabled:opacity-55"
                 >
-                  {t("recipes.detail.addAllToShoppingListShort")}
+                  {t("recipes.detail.addToShoppingList")}
                 </button>
               ) : null}
             </div>
