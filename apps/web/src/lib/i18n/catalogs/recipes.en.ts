@@ -126,6 +126,7 @@ export const recipesEn: LocaleCatalog<RecipesCatalog> = {
   "recipes.detail.tabs.steps": "Method · {count}",
   "recipes.detail.backAriaLabel": "Back",
   "recipes.detail.planDialogTitle": "Plan “{title}”",
+  "recipes.detail.planDialog.dateLabel": "Other date",
 
   "recipes.rating.outOfFive": "out of 5 stars",
 

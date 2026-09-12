@@ -155,6 +155,8 @@ export const recipesDe = {
   "recipes.detail.tabs.steps": "Zubereitung · {count}",
   "recipes.detail.backAriaLabel": "Zurück",
   "recipes.detail.planDialogTitle": "„{title}“ einplanen",
+  // The date input under the week chips — any day outside the week shown above.
+  "recipes.detail.planDialog.dateLabel": "Anderes Datum",
 
   "recipes.rating.outOfFive": "von 5 Sternen",
 

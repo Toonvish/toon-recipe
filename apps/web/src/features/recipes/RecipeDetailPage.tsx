@@ -38,13 +38,20 @@ import {
   Trash2,
   UtensilsCrossed,
 } from "lucide-react";
-import { scaleIngredients, todayPlanDate, type RecipeDetail } from "@toon/shared";
+import {
+  planWeek,
+  scaleIngredients,
+  startOfPlanWeek,
+  todayPlanDate,
+  type RecipeDetail,
+} from "@toon/shared";
 import {
   ActionMenu,
   type ActionMenuItem,
   Badge,
   Button,
   Card,
+  Chip,
   ConfirmDialog,
   Dialog,
   ErrorState,
@@ -56,7 +63,13 @@ import {
 } from "@/components/ui";
 import { markRecipeCooked, mediaUrl } from "@/lib/api";
 import { invalidate } from "@/lib/queries";
-import { formatRelative, hostFromUrl, safeHttpUrl } from "@/lib/format";
+import {
+  formatDayOfMonth,
+  formatRelative,
+  formatWeekdayShort,
+  hostFromUrl,
+  safeHttpUrl,
+} from "@/lib/format";
 import { storageKeys, writeStorage } from "@/lib/storage";
 import { DIFFICULTY_LABEL_KEYS } from "./lib/difficultyLabels";
 import { useT } from "@/lib/i18n";
@@ -287,6 +300,16 @@ export default function RecipeDetailPage() {
       onSelect: () => {
         void navigate({ to: "/recipes/$recipeId/edit", params: { recipeId: recipe.id } });
       },
+    },
+    // The phone has no header rail, so the plan action lives in its menu — the
+    // desktop shows the header button instead. Same `useCanMutate()` gate as that
+    // button (online-only write, see the two-gates note in CLAUDE.md).
+    !wide && {
+      label: t("recipes.detail.planDayAction"),
+      description: canMutate ? undefined : mutateReason,
+      icon: <CalendarDays />,
+      disabled: !canMutate,
+      onSelect: () => setPlanOpen(true),
     },
     {
       label: t("recipes.detail.actions.share"),
@@ -755,8 +778,11 @@ export default function RecipeDetailPage() {
  * no task in the plan owns a standalone file for it — `recipes.detail.planDialogTitle`
  * is the only key reserved for it, so the rest of its copy reuses existing `plan.*`
  * keys the same way this screen already reuses `shopping.*` ones for the list
- * target picker. A day picker is all it needs: `usePlanEntryCreate` (T7.3) is
- * idempotent server-side (201 new / 200 already planned).
+ * target picker. The week containing today is offered as chips (the common case is
+ * "some evening this week"), and the date input underneath keeps any other date one
+ * tap away; both write the same `date`, so a chip lights up whenever the input lands
+ * inside the week. `usePlanEntryCreate` (T7.3) is idempotent server-side (201 new /
+ * 200 already planned).
  */
 function PlanForDayDialog({
   open,
@@ -775,6 +801,18 @@ function PlanForDayDialog({
   const toast = useToast();
   const create = usePlanEntryCreate(groupId);
   const [date, setDate] = useState(() => todayPlanDate());
+  const today = todayPlanDate();
+  const week = planWeek(startOfPlanWeek(today));
+
+  // The dialog stays mounted between openings, so last time's pick would otherwise
+  // be pre-selected the next time — today is the honest default every time. Reset
+  // during render (React's adjust-state-on-prop-change pattern), not in an effect,
+  // so the stale date is never committed to the DOM for a frame.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setDate(today);
+  }
 
   function submit() {
     create.mutate(
@@ -806,12 +844,30 @@ function PlanForDayDialog({
         </>
       }
     >
-      <Input
-        type="date"
-        label={t("plan.move.dateLabel")}
-        value={date}
-        onChange={(event) => setDate(event.target.value)}
-      />
+      <div className="flex flex-col gap-4">
+        <fieldset className="min-w-0">
+          <legend className="mb-1.5 text-sm font-medium text-fg">{t("plan.strip.heading")}</legend>
+          <div className="flex flex-wrap gap-1.5">
+            {week.map((day) => (
+              <Chip
+                key={day}
+                label={t("plan.day.eyebrow", {
+                  weekday: formatWeekdayShort(day),
+                  day: formatDayOfMonth(day),
+                })}
+                selected={day === date}
+                onSelect={() => setDate(day)}
+              />
+            ))}
+          </div>
+        </fieldset>
+        <Input
+          type="date"
+          label={t("recipes.detail.planDialog.dateLabel")}
+          value={date}
+          onChange={(event) => setDate(event.target.value)}
+        />
+      </div>
     </Dialog>
   );
 }

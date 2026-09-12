@@ -41,12 +41,16 @@ export function Chip({
   onContextMenu,
   className,
 }: ChipProps) {
+  // The two colour sets are EXCLUSIVE, never stacked: `cn` is plain clsx and Tailwind
+  // emits same-property utilities alphabetically, so a stacked `bg-surface` would
+  // silently win over `bg-brand-soft` and a selected chip would look unselected.
   const classes = cn(
-    "inline-flex items-center gap-1.5 rounded-full border border-line bg-surface pr-3.5 pl-2.5 text-control font-medium text-fg-body",
+    "inline-flex items-center gap-1.5 rounded-full border pr-3.5 pl-2.5 text-control font-medium",
     "transition-colors duration-150",
     sizes[size],
-    selected && "border-brand bg-brand-soft text-brand-soft-fg",
-    !selected && "hover:border-brand hover:text-brand-soft-fg",
+    selected
+      ? "border-brand bg-brand-soft text-brand-soft-fg"
+      : "border-line bg-surface text-fg-body hover:border-brand hover:text-brand-soft-fg",
     "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
     disabled && "pointer-events-none opacity-55",
     className,
