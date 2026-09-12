@@ -1,6 +1,7 @@
 /**
- * "Alles auf „{list}“" from `WeekPlanPanel` — every missing line of this week's
- * plan, grouped by recipe, each one tickable, then ONE add.
+ * The picker behind BOTH of `WeekPlanPanel`'s adds — a row's "Hinzufügen" (one
+ * recipe) and "Alles auf „{list}“" (every recipe): the missing lines, grouped by
+ * recipe, each one tickable, then ONE add.
  *
  * The same deal as `AddRecipeToListDialog` (the recipe screen's picker), on the
  * from-plan diff instead of one recipe: everything is TICKED when it opens, because
