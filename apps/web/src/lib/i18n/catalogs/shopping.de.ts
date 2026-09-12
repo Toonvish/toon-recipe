@@ -216,6 +216,12 @@ export const shoppingDe = {
   // Names the target list — the target is the CLIENT's choice (storageKeys.lastShoppingListId,
   // falling back to the alphabetically first list), never a server-side default (R9).
   "shopping.fromPlan.addAll": "Alles auf „{list}“",
+  "shopping.fromPlan.dialog.title": "Aus dem Wochenplan hinzufügen",
+  "shopping.fromPlan.dialog.hint": "Wähle ab, was du schon zu Hause hast.",
+  "shopping.fromPlan.dialog.submit": {
+    one: "{count} Zutat auf „{list}“",
+    other: "{count} Zutaten auf „{list}“",
+  },
   "shopping.fromPlan.pickList": "Andere Liste wählen",
   "shopping.fromPlan.addedToast": "Auf „{list}“ hinzugefügt",
   "shopping.fromPlan.addFailedToast": "Konnte nicht hinzugefügt werden",

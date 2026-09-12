@@ -120,6 +120,12 @@ interface PreviewPayload {
     ingredientTotal: number;
     missingCount: number;
     missingIngredientIds: string[];
+    missingIngredients: Array<{
+      id: string;
+      name: string;
+      quantity: number | null;
+      unit: string | null;
+    }>;
   }>;
 }
 
@@ -164,6 +170,12 @@ describe("GET /:listId/from-plan", () => {
     expect(row.missingCount).toBe(2); // Milch + Eier
     expect(row.missingIngredientIds).toHaveLength(2);
     expect(preview.totalMissingCount).toBe(2);
+    // The picker's lines: same rows as the ids, in recipe order, with their amounts.
+    expect(row.missingIngredients.map((line) => line.id)).toEqual(row.missingIngredientIds);
+    expect(row.missingIngredients.map(({ name, quantity, unit }) => ({ name, quantity, unit }))).toEqual([
+      { name: "Milch", quantity: 500, unit: "ml" },
+      { name: "Eier", quantity: 2, unit: null },
+    ]);
 
     const added = await body<DetailPayload>(
       await call(`/api/groups/${groupId}/shopping-lists/${listId}/recipes`, {

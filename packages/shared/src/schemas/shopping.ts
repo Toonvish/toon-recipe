@@ -277,6 +277,19 @@ export type ShoppingCatalogListResponse = z.infer<typeof ShoppingCatalogListResp
  * (`GET …/shopping-lists/:listId/from-plan`). `missingIngredientIds` are
  * `recipe_ingredients` ids passed straight back as `ingredientIds`.
  */
+/**
+ * One missing ingredient LINE, already scaled to the plan entry's portions — what
+ * the "add everything" picker shows next to its checkbox. `id` is the
+ * `recipe_ingredients` id, i.e. exactly what goes back as `ingredientIds`.
+ */
+export const PlanShoppingMissingIngredientSchema = z.object({
+  id: IdSchema,
+  name: z.string(),
+  quantity: z.number().nullable(),
+  unit: z.string().nullable(),
+});
+export type PlanShoppingMissingIngredient = z.infer<typeof PlanShoppingMissingIngredientSchema>;
+
 export const PlanShoppingPreviewRecipeSchema = z.object({
   recipeId: IdSchema,
   title: z.string(),
@@ -289,6 +302,11 @@ export const PlanShoppingPreviewRecipeSchema = z.object({
   /** Distinct merge keys not yet on the target list — the row's "9 ingredients". */
   missingCount: z.number().int().nonnegative(),
   missingIngredientIds: z.array(IdSchema),
+  /**
+   * The same rows as `missingIngredientIds`, with name and scaled amount, in recipe
+   * order — so the picker can offer each line for unticking without a second fetch.
+   */
+  missingIngredients: z.array(PlanShoppingMissingIngredientSchema),
 });
 export type PlanShoppingPreviewRecipe = z.infer<typeof PlanShoppingPreviewRecipeSchema>;
 

@@ -13,16 +13,18 @@ import type { MealPlanEntry, PlanRecipe } from "@toon/shared";
 import type { MealPlanEntryRow, RecipeRow } from "../../db/schema.ts";
 import { toIso, toIsoOrNull } from "../../lib/http.ts";
 import { signUploadUrl } from "../../lib/uploadUrls.ts";
-import { thumbnailUrlFor } from "../media/thumbnails.ts";
+import { listImageUrlFor } from "../media/thumbnails.ts";
 
 /** The slim recipe a planner card renders: thumb, title, `meta`. */
 export function toPlanRecipe(row: RecipeRow): PlanRecipe {
   return {
     id: row.id,
     title: row.title,
-    // Signed, and the DERIVED thumbnail — a planner card is a list image, never
-    // the full-size `imageUrl` (CLAUDE.md thumbnail gotcha).
-    thumbnailUrl: signUploadUrl(thumbnailUrlFor(row.imageUrl)),
+    // Signed, and the DERIVED thumbnail for a hosted upload — a planner card is a
+    // list image, never the full-size `imageUrl` (CLAUDE.md thumbnail gotcha). An
+    // EXTERNAL hero image has no derivative and this DTO has no `imageUrl` to fall
+    // back to, so `listImageUrlFor` hands the original through in that one case.
+    thumbnailUrl: signUploadUrl(listImageUrlFor(row.imageUrl)),
     totalMinutes: row.totalMinutes,
     servingsAmount: row.servingsAmount,
     servingsUnit: row.servingsUnit,

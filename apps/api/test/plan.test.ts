@@ -149,6 +149,27 @@ describe("POST /plan", () => {
     expect(response2.status).toBe(401); // sanity: the router really is gated.
   });
 
+  test("an EXTERNAL hero image reaches the slim recipe card as its thumbnail", async () => {
+    // A URL import keeps the site's picture; there is no local derivative, and this
+    // DTO has no `imageUrl` to fall back to — a null here is a blank square on /plan
+    // and in "Aus dem Wochenplan".
+    const user = await createUser();
+    const groupId = await createGroup(user, "WG Bild");
+    const imageUrl = "https://img.chefkoch-cdn.de/rezepte/1234/bilder/linsen.jpg";
+    const created = await call(`/api/groups/${groupId}/recipes`, {
+      method: "POST",
+      cookie: user.cookie,
+      body: { title: "Linsensuppe", imageUrl, ingredients: [], steps: [], tags: [], collectionIds: [] },
+    });
+    expect(created.status).toBe(201);
+    const { recipe } = await body<{ recipe: { id: string } }>(created);
+
+    const response = await planEntry(user, groupId, { recipeId: recipe.id, plannedOn: "2026-09-10" });
+    expect(response.status).toBe(201);
+    const { entry } = await body<{ entry: PlanEntryPayload }>(response);
+    expect(entry.recipe.thumbnailUrl).toBe(imageUrl);
+  });
+
   test("is idempotent: a second POST for the same day+recipe returns 200, one row, new servings applied", async () => {
     const user = await createUser();
     const groupId = await createGroup(user, "WG Idempotent");

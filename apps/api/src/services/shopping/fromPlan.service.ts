@@ -113,6 +113,8 @@ export async function planShoppingPreview(
       factor === 1 ? records : scaleIngredients(records, factor, { keepNonScalingUnits: true });
 
     const missingIdsByKey = new Map<string, string[]>();
+    const missingIngredients: PlanShoppingPreviewResponse["recipes"][number]["missingIngredients"] =
+      [];
     for (const ingredient of scaled) {
       if (ingredient.name.trim().length === 0) continue;
       const item = ingredientToShoppingItem(ingredient, entry.recipeId);
@@ -121,6 +123,13 @@ export async function planShoppingPreview(
       const ids = missingIdsByKey.get(key);
       if (ids) ids.push(ingredient.id);
       else missingIdsByKey.set(key, [ingredient.id]);
+      // The SCALED line, as the picker should show it: what will land on the list.
+      missingIngredients.push({
+        id: ingredient.id,
+        name: ingredient.name,
+        quantity: ingredient.quantity ?? null,
+        unit: ingredient.unit ?? null,
+      });
     }
 
     if (missingIdsByKey.size === 0) continue;
@@ -138,6 +147,7 @@ export async function planShoppingPreview(
       ingredientTotal,
       missingCount: missingIdsByKey.size,
       missingIngredientIds,
+      missingIngredients,
     });
   }
 

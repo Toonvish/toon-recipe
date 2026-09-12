@@ -21,7 +21,7 @@ import type {
 } from "../../db/schema.ts";
 import { toIso, toIsoOrNull } from "../../lib/http.ts";
 import { signUploadUrl } from "../../lib/uploadUrls.ts";
-import { thumbnailUrlFor } from "../media/thumbnails.ts";
+import { listImageUrlFor } from "../media/thumbnails.ts";
 
 /**
  * `extras` carries the fields that are only ever computed at the INDEX or DETAIL
@@ -137,7 +137,9 @@ export function toShoppingListRecipe(
   return {
     recipeId: recipe.id,
     title: recipe.title,
-    thumbnailUrl: signUploadUrl(thumbnailUrlFor(recipe.imageUrl)),
+    // Derivative for a hosted upload, the original for an external hero image —
+    // this slim DTO has no `imageUrl` fallback (see `listImageUrlFor`).
+    thumbnailUrl: signUploadUrl(listImageUrlFor(recipe.imageUrl)),
     servings: row.servings,
     servingsUnit: recipe.servingsUnit,
     ingredientTotal: counts.ingredientTotal,

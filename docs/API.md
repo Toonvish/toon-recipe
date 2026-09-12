@@ -440,7 +440,7 @@ Notes
   edited. `shopping_lists.boughtClearedAt` is a single per-list watermark: `POST
   …/bought/clear` only moves it to "now" (200, idempotent, no `mutationId` — "set the watermark to
   now" cannot disagree with itself). The list DETAIL payload's `bought` array shows only rows
-  **newer than the watermark** (`bought_at >= boughtClearedAt ?? 0`); `GET …/bought`, the
+  **newer than the watermark** (`bought_at > boughtClearedAt ?? 0`); `GET …/bought`, the
   cross-list archive, **ignores the watermark entirely** and returns every row in the group's
   90-day (`BOUGHT_LOG_TTL_MS`) window, because clearing a list's "Bought today" section must never
   make something the group actually bought disappear from the history it can still be found in.

@@ -29,6 +29,7 @@ import { invalidate, planShoppingQuery } from "@/lib/queries";
 import { useEmailVerificationBlock, useSession } from "@/lib/session";
 import { readStorage, storageKeys, writeStorage } from "@/lib/storage";
 import { useAddRecipeToShoppingList } from "../lib/queries";
+import { AddPlanToListDialog, type PlanAddSelection } from "./AddPlanToListDialog";
 
 export interface WeekPlanPanelProps {
   groupId: string;
@@ -62,6 +63,7 @@ export function WeekPlanPanel({ groupId, lists, listsLoading }: WeekPlanPanelPro
   const unverified = useEmailVerificationBlock();
   const { addRecipe, isPending: adding } = useAddRecipeToShoppingList();
   const [overrideListId, setOverrideListId] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const resolved = resolveTargetList(groupId, lists);
   const target =
@@ -105,22 +107,31 @@ export function WeekPlanPanel({ groupId, lists, listsLoading }: WeekPlanPanelPro
     }
   }
 
-  async function addAll(recipes: readonly PlanShoppingPreviewRecipe[]) {
+  /**
+   * "Alles auf „{list}“" ALWAYS goes through `AddPlanToListDialog` so the cook can
+   * untick what is already at home — the same rule the recipe screen applies to
+   * "Zur Einkaufsliste". The dialog hands back one entry per recipe with a ticked
+   * line; a recipe left fully unticked is simply not in `selection`.
+   */
+  async function addSelection(selection: readonly PlanAddSelection[]) {
     if (!target) return;
     try {
       // One `mutationId` per recipe, minted at CALL time inside `addRecipe` itself
       // (see lib/queries.ts) — sequential, not `Promise.all`, so a failure partway
       // through leaves the toast honest about what actually landed.
-      for (const recipe of recipes) {
+      for (const { recipe, ingredientIds } of selection) {
+        const wholeRecipe =
+          recipe.missingCount === recipe.ingredientTotal &&
+          ingredientIds.length === recipe.missingIngredientIds.length;
         await addRecipe({
           groupId,
           listId: target.id,
           recipeId: recipe.recipeId,
           servings: recipe.servings ?? undefined,
-          ingredientIds:
-            recipe.missingCount === recipe.ingredientTotal ? undefined : recipe.missingIngredientIds,
+          ingredientIds: wholeRecipe ? undefined : ingredientIds,
         });
       }
+      setPickerOpen(false);
       await invalidate.planShopping(client, groupId, target.id);
       toast.success(t("shopping.fromPlan.addedToast", { list: target.name }));
     } catch (error) {
@@ -210,11 +221,20 @@ export function WeekPlanPanel({ groupId, lists, listsLoading }: WeekPlanPanelPro
             variant="outline"
             disabled={addDisabled}
             title={unverified}
-            onClick={() => void addAll(recipes)}
+            onClick={() => setPickerOpen(true)}
             fullWidth
           >
             {t("shopping.fromPlan.addAll", { list: target.name })}
           </Button>
+
+          <AddPlanToListDialog
+            open={pickerOpen}
+            onClose={() => setPickerOpen(false)}
+            recipes={recipes}
+            listName={target.name}
+            submitting={adding}
+            onSubmit={(selection) => void addSelection(selection)}
+          />
         </>
       )}
 

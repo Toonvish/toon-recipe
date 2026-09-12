@@ -15,7 +15,7 @@ import {
   type ShoppingListDetailResponse,
   type UpdateShoppingListRequest,
 } from "@toon/shared";
-import { and, asc, count, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, ne, sql } from "drizzle-orm";
 import {
   recipeIngredients,
   recipes,
@@ -73,7 +73,11 @@ export async function listShoppingLists(
       and(
         eq(shoppingLists.groupId, groupId),
         // SQLite's max() with two arguments is the scalar (not aggregate) form.
-        sql`${shoppingBoughtItems.boughtAt} >= max(coalesce(${shoppingLists.boughtClearedAt}, 0), ${sinceMs ?? 0})`,
+        // STRICTLY newer: a clear covers the instant it happened, and `since` is
+        // "after the moment you last looked". `>=` let a check-off landing in the
+        // same millisecond as the watermark (or as a `since` clamped to now) leak
+        // back into the count — a real boundary bug, and a flaky test.
+        sql`${shoppingBoughtItems.boughtAt} > max(coalesce(${shoppingLists.boughtClearedAt}, 0), ${sinceMs ?? 0})`,
       ),
     )
     .groupBy(shoppingBoughtItems.listId);
@@ -286,7 +290,8 @@ export async function getShoppingListDetail(
     .where(
       and(
         eq(shoppingBoughtItems.listId, listId),
-        gte(shoppingBoughtItems.boughtAt, row.boughtClearedAt ?? 0),
+        // Strictly newer than the watermark — same rule as `listShoppingLists`'s count.
+        gt(shoppingBoughtItems.boughtAt, row.boughtClearedAt ?? 0),
       ),
     )
     .orderBy(desc(shoppingBoughtItems.boughtAt))

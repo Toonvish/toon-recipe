@@ -90,6 +90,23 @@ export function thumbnailUrlFor(value: string | null | undefined): string | null
   return `${normalized}${THUMBNAIL_SUFFIX}`;
 }
 
+/**
+ * The image a LIST row renders for a recipe, in the same bare column form as
+ * {@link thumbnailUrlFor} — sign it before putting it on the wire.
+ *
+ * The derivative when we host the original, otherwise the original itself: an
+ * external hero image (a URL import that kept the site's picture) has nothing local
+ * to downscale, and the slim DTOs (`PlanRecipe`, `ShoppingListRecipe`, the from-plan
+ * preview row) carry NO `imageUrl` for the client's `thumbnailUrl()` helper to fall
+ * back to — so a bare `thumbnailUrlFor()` there rendered every imported recipe as
+ * an empty grey square on `/plan` and in "Aus dem Wochenplan". The full `Recipe`
+ * DTO does not need this: it ships both fields and the client picks.
+ */
+export function listImageUrlFor(value: string | null | undefined): string | null {
+  if (typeof value !== "string" || value.length === 0) return null;
+  return thumbnailUrlFor(value) ?? value;
+}
+
 export interface ResolvedThumbnail {
   /** Absolute path of the file to serve. */
   path: string;

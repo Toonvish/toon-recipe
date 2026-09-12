@@ -958,7 +958,11 @@ panel are gone (T8.2); the rule they carried is not.
   (3) The name is the FULL original plus the suffix (`x.jpg.thumb.webp`), so the source is recoverable
   by string, without scanning the directory for the extension. (4) No row references a derivative, so
   `uploads:gc` keeps it while its original is referenced — and `deleteUpload()` removes both. Web side:
-  `thumbnailUrl()` in `lib/api.ts` (falls back to `imageUrl`). The list surfaces now include the
+  `thumbnailUrl()` in `lib/api.ts` (falls back to `imageUrl`). **The slim DTOs (`PlanRecipe`,
+  `ShoppingListRecipe`, the from-plan preview row) carry NO `imageUrl`, so their mappers use
+  `listImageUrlFor()`, not `thumbnailUrlFor()`**: an external hero image (a URL import) has no
+  derivative, and a bare `thumbnailUrlFor()` there rendered every imported recipe as an empty
+  square on `/plan` and in "Aus dem Wochenplan" (fixed 2026-09-12). The list surfaces now include the
   library's 84px editorial squares, the planner day cards and the library week strip, the "Aus dem
   Wochenplan" thumbs, the "Kürzlich gekocht" shelf and the list rail's "Rezepte auf dieser Liste"
   rows — `/plan` alone asks for seven at once. **Only the two recipe-detail heroes render

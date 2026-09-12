@@ -86,13 +86,16 @@ export function ShoppingItemCard({
         disabled={!canMutate}
         aria-label={t("shopping.item.checkAriaLabel", { name: item.name })}
         className={cn(
-          "grid w-full grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-3.5 rounded-card border border-line bg-surface px-3 py-3 text-left",
+          "grid w-full grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-3.5 rounded-card border border-line bg-surface py-3 pl-3 text-left",
           "min-h-[4.5rem] transition-[background-color,border-color,opacity] duration-150",
           "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-          "active:bg-surface-2 disabled:opacity-60 sm:min-h-16 sm:px-4",
+          "active:bg-surface-2 disabled:opacity-60 sm:min-h-16 sm:pl-4",
           ticking && "border-success bg-success-soft opacity-70",
-          // Room for the action buttons that overlay the right edge.
-          canMutate && !pending ? "pr-24" : "pr-4",
+          // Room for the two 44px action buttons that overlay the right edge (two
+          // `size-11` + `gap-1` + `right-2` = 100px). Left and right padding are set
+          // SEPARATELY on purpose: an `sm:px-4` here used to override `pr-24` at every
+          // width this desktop-only card renders at, and the buttons sat on the text.
+          canMutate && !pending ? "pr-[6.75rem]" : "pr-3 sm:pr-4",
         )}
       >
         <span

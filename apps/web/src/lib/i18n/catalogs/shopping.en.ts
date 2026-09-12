@@ -199,6 +199,12 @@ export const shoppingEn: LocaleCatalog<ShoppingCatalog> = {
   "shopping.fromPlan.subtitle": "{recipes} · {ingredients}",
   "shopping.fromPlan.rowMeta": "{weekday} · {ingredients}",
   "shopping.fromPlan.addAll": "Add everything to “{list}”",
+  "shopping.fromPlan.dialog.title": "Add from this week's plan",
+  "shopping.fromPlan.dialog.hint": "Untick what you already have at home.",
+  "shopping.fromPlan.dialog.submit": {
+    one: "{count} ingredient to “{list}”",
+    other: "{count} ingredients to “{list}”",
+  },
   "shopping.fromPlan.pickList": "Choose another list",
   "shopping.fromPlan.addedToast": "Added to “{list}”",
   "shopping.fromPlan.addFailedToast": "Could not be added",

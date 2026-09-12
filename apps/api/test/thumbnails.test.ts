@@ -21,6 +21,7 @@ import {
   THUMBNAIL_WIDTH,
   isThumbnailName,
   originalOfThumbnail,
+  listImageUrlFor,
   thumbnailUrlFor,
 } from "../src/services/media/thumbnails.ts";
 import { removeUpload } from "./support/files.ts";
@@ -70,6 +71,17 @@ describe("thumbnail naming", () => {
     expect(thumbnailUrlFor(signUploadUrl("/uploads/a.jpg"))).toBe(
       `/uploads/a.jpg${THUMBNAIL_SUFFIX}`,
     );
+  });
+
+  test("listImageUrlFor: the derivative for a hosted upload, the ORIGINAL for an external image", () => {
+    // The slim DTOs (PlanRecipe, ShoppingListRecipe) carry no `imageUrl`, so the
+    // external case must not be null here — that was an empty square on /plan.
+    expect(listImageUrlFor("/uploads/a.jpg")).toBe(`/uploads/a.jpg${THUMBNAIL_SUFFIX}`);
+    expect(listImageUrlFor("https://chefkoch.de/bilder/rezept.jpg")).toBe(
+      "https://chefkoch.de/bilder/rezept.jpg",
+    );
+    expect(listImageUrlFor(null)).toBeNull();
+    expect(listImageUrlFor("")).toBeNull();
   });
 
   test("null for anything we do not host — there is nothing to downscale", () => {
