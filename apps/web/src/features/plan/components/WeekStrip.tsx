@@ -19,7 +19,7 @@
  * cards across 390px is 80px each, 58px of it text, and a German recipe title
  * broke mid-word inside it ("Schnelle r Schokok uchen"); a recipe title carries no
  * clamp and no truncation anywhere in this app, so the only honest fix is to give
- * it a card it fits in. `PHONE_CARD_PX` is that card, `scrollLeft` starts the
+ * it a card it fits in. `w-daycard` is that card, `scrollLeft` starts the
  * scroller on today, and the week is still one fetch and one component.
  *
  * `maxEntries={1}` caps a busy day to its first entry plus a `+N` link to `/plan`
@@ -27,7 +27,7 @@
  * does — and `compact` drops the per-entry `ActionMenu` and thumbnail for the same
  * reason of width (see `PlanDayCard`).
  */
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { ArrowRight } from "lucide-react";
 import { planWeek, startOfPlanWeek, todayPlanDate, type MealPlanEntry, type PlanDate } from "@toon/shared";
 import { SkeletonList } from "@/components/ui";
@@ -40,16 +40,6 @@ import { PlanDayCard } from "./PlanDayCard";
 
 /** Matches `PlanDayCard`'s own local constant — Tailwind's `lg`, 1024px. */
 const LG_QUERY = "(min-width: 64rem)";
-
-/**
- * Phone card width and the gap between two of them, in px — read by the initial
- * `scrollLeft` below, so the `w-[140px] gap-2` on the elements themselves must
- * keep matching these two numbers. 140px leaves 120px of text inside the card's
- * `p-2.5`, which holds "Schokokuchen" on one line; ~2.5 cards are visible at once
- * on a 390px phone, so the scroller reads as scrollable without a hint.
- */
-const PHONE_CARD_PX = 140;
-const PHONE_GAP_PX = 8;
 
 /** A day holds several entries at most `(group_id, planned_on, recipe_id)`-unique. */
 function groupByDay(items: readonly MealPlanEntry[]): Map<PlanDate, MealPlanEntry[]> {
@@ -88,14 +78,18 @@ export function WeekStrip({ groupId }: WeekStripProps) {
     also the reading and tab order. `scrollLeft` (not `scrollIntoView`, which
     would also scroll the PAGE to the strip on every load) and no `behavior:
     "smooth"`, so it is the initial position rather than a visible animation.
-    Runs when the data lands too — the pending branch renders a skeleton instead
-    of this element, so the ref is null on the first pass.
+    A LAYOUT effect, because `useEffect` runs after paint and the strip flashed
+    at Monday before jumping to today. The offset is measured from today's own
+    `<li>` rather than computed from a card width, so the CSS is the only place
+    the width lives. Runs when the data lands too — the pending branch renders a
+    skeleton instead of this element, so the ref is null on the first pass.
   */
   const scroller = useRef<HTMLOListElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = scroller.current;
-    if (element === null || isWide) return;
-    element.scrollLeft = todayIndex * (PHONE_CARD_PX + PHONE_GAP_PX);
+    const card = element?.children[todayIndex];
+    if (element == null || card === undefined || isWide) return;
+    element.scrollLeft = card.getBoundingClientRect().left - element.getBoundingClientRect().left + element.scrollLeft;
   }, [isWide, todayIndex, query.isPending]);
 
   // Same offline-hint composition as `/plan` itself (`plan.offlineHint` on top of
@@ -130,10 +124,10 @@ export function WeekStrip({ groupId }: WeekStripProps) {
       */}
       <ol
         ref={scroller}
-        className="flex snap-x snap-mandatory gap-2 overflow-x-auto [scrollbar-width:none] lg:grid lg:snap-none lg:grid-cols-7 lg:overflow-x-visible"
+        className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto lg:grid lg:snap-none lg:grid-cols-7 lg:overflow-x-visible"
       >
         {week.map((day) => (
-          <li key={day} className="w-[140px] shrink-0 snap-start lg:w-auto lg:min-w-0">
+          <li key={day} className="w-daycard shrink-0 snap-start lg:w-auto lg:min-w-0">
             <PlanDayCard
               groupId={groupId}
               date={day}

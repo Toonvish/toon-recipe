@@ -218,12 +218,15 @@ function PlanDayEntry({ groupId, entry, isToday, isWide, compact, canMutate }: P
           old title/menu ROW is what pushed the trigger 37px out over the next
           day's card in the library strip. The meta line is ~40px ("55 min"), so
           the trigger fits beside it with room to spare, and the negative margins
-          keep a 44px tap target from inflating a 86px card.
+          keep a 44px tap target from inflating a 86px card. No `hyphens-auto`:
+          the title is German CONTENT but `<html lang>` follows the INTERFACE
+          locale, so an English UI would hyphenate it by English rules (same
+          rule as `ShoppingItemTile`).
         */}
         <AppLink
           to="/recipes/$recipeId"
           params={{ recipeId: entry.recipeId }}
-          className="min-w-0 font-display text-display-xs font-medium text-fg text-pretty break-words hyphens-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          className="min-w-0 font-display text-display-xs font-medium text-fg text-pretty break-words focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           {entry.recipe.title}
         </AppLink>

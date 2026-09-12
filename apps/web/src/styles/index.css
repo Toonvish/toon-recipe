@@ -65,6 +65,7 @@
   --spacing-tabbar: var(--tabbar-h);
   --spacing-topbar: var(--topbar-h);
   --spacing-sidebar: 14.75rem; /* 236px — the artboards' sidebar width */
+  --spacing-daycard: 8.75rem; /* 140px — the phone week strip's card (WeekStrip + its skeleton) */
 
   --container-content: 75.25rem; /* 1204px — the artboards' <main> measure */
 

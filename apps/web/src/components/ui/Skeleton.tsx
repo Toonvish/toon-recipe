@@ -46,7 +46,7 @@ export function SkeletonList({
   variant = "editorial",
 }: {
   count?: number;
-  variant?: "editorial" | "tiles" | "daycards";
+  variant?: "editorial" | "tiles" | "daycards" | "planweek";
 }) {
   const t = useT();
   const common = { "aria-busy": true as const, "aria-label": t("ui.skeletonList.loadingRecipes") };
@@ -86,27 +86,43 @@ export function SkeletonList({
     );
   }
 
+  if (variant === "planweek") {
+    // Matches `/plan`'s own grid — one full-width card per day on a phone, an
+    // equal 7-up grid from `lg`.
+    return (
+      <div
+        className="grid grid-cols-1 gap-3 lg:grid-cols-[repeat(7,minmax(0,1fr))] lg:gap-2"
+        {...common}
+      >
+        {Array.from({ length: 7 }, (_, index) => (
+          <DayCardSkeleton key={index} className="min-w-0" />
+        ))}
+      </div>
+    );
+  }
+
   // Matches `WeekStrip`'s own shape — an equal 7-up grid from `lg`, a horizontal
-  // scroller of 140px cards below it — so the strip does not pop in narrower or
-  // wider than the data it replaces. The card width is that component's
-  // `PHONE_CARD_PX`; the two have to keep agreeing.
+  // scroller of `w-daycard` cards below it — so the strip does not pop in narrower
+  // or wider than the data it replaces.
   return (
     <div
       className="flex gap-2 overflow-x-hidden lg:grid lg:grid-cols-7 lg:overflow-x-visible"
       {...common}
     >
       {Array.from({ length: 7 }, (_, index) => (
-        <div
-          key={index}
-          className={cn(
-            "flex w-[140px] shrink-0 flex-col gap-2 rounded-card border border-line bg-surface p-3",
-            "lg:w-auto lg:min-w-0",
-          )}
-        >
-          <Skeleton className="h-3 w-1/2" />
-          <Skeleton className="h-6 w-2/3" />
-        </div>
+        <DayCardSkeleton key={index} className="w-daycard shrink-0 lg:w-auto lg:min-w-0" />
       ))}
+    </div>
+  );
+}
+
+function DayCardSkeleton({ className }: { className: string }) {
+  return (
+    <div
+      className={cn("flex flex-col gap-2 rounded-card border border-line bg-surface p-3", className)}
+    >
+      <Skeleton className="h-3 w-1/2" />
+      <Skeleton className="h-6 w-2/3" />
     </div>
   );
 }

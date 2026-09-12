@@ -104,7 +104,7 @@ export default function PlanPage() {
       ) : null}
 
       {query.isPending ? (
-        <SkeletonList variant="daycards" />
+        <SkeletonList variant="planweek" />
       ) : query.isError ? (
         <ErrorState error={query.error} onRetry={() => void query.refetch()} />
       ) : (
